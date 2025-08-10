@@ -4,8 +4,14 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Alert,
+  Platform,
+  Modal,
+  Pressable,
 } from 'react-native';
+import DateTimePicker, {
+  DateTimePickerAndroid,
+  DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
 import { Calendar, TrendingUp } from 'lucide-react-native';
 import { QueryParams } from '@/types';
 import { formatDateForAPI, isValidDateRange } from '@/utils/dateHelpers';
@@ -16,43 +22,91 @@ interface Props {
 }
 
 export default function ETFQueryForm({ onSubmit, loading }: Props) {
-  const [startDate, setStartDate] = useState<Date>(
-    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-  );
+  const [startDate, setStartDate] = useState<Date>(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
   const [endDate, setEndDate] = useState<Date>(new Date());
 
+  // iOS: modal + valori temporanei
+  const [showStartModal, setShowStartModal] = useState(false);
+  const [showEndModal, setShowEndModal] = useState(false);
+  const [tempStart, setTempStart] = useState<Date>(startDate);
+  const [tempEnd, setTempEnd] = useState<Date>(endDate);
+
+  const today = new Date();
+
+  // ---------- ANDROID ----------
+  const openAndroidStart = () => {
+    DateTimePickerAndroid.open({
+      value: startDate,
+      mode: 'date',
+      is24Hour: true,
+      maximumDate: today,
+      onChange: (_: DateTimePickerEvent, selected?: Date) => {
+        if (!selected) return;
+        // mantieni coerenza: se start > end, riallinea end
+        if (selected > endDate) setEndDate(selected);
+        setStartDate(selected);
+      },
+    });
+  };
+
+  const openAndroidEnd = () => {
+    DateTimePickerAndroid.open({
+      value: endDate,
+      mode: 'date',
+      is24Hour: true,
+      minimumDate: startDate,
+      maximumDate: today,
+      onChange: (_: DateTimePickerEvent, selected?: Date) => {
+        if (!selected) return;
+        const picked = selected > today ? today : selected;
+        if (picked < startDate) setStartDate(picked);
+        setEndDate(picked);
+      },
+    });
+  };
+
+  // ---------- iOS ----------
+  const openIOSStart = () => {
+    setTempStart(startDate);
+    setShowStartModal(true);
+  };
+
+  const openIOSEnd = () => {
+    setTempEnd(endDate);
+    setShowEndModal(true);
+  };
+
+  const confirmIOSStart = () => {
+    const chosen = tempStart > today ? today : tempStart;
+    if (chosen > endDate) setEndDate(chosen);
+    setStartDate(chosen);
+    setShowStartModal(false);
+  };
+
+  const confirmIOSEnd = () => {
+    const chosen = tempEnd > today ? today : tempEnd;
+    if (chosen < startDate) setStartDate(chosen);
+    setEndDate(chosen);
+    setShowEndModal(false);
+  };
+
+  const cancelIOS = () => {
+    setShowStartModal(false);
+    setShowEndModal(false);
+  };
+
+  // ---------- SUBMIT ----------
   const handleSubmit = () => {
     if (!isValidDateRange(startDate, endDate)) {
-      Alert.alert(
-        'Errore',
-        'Seleziona un intervallo valido. La data finale non può essere nel futuro e deve essere successiva alla data iniziale.'
-      );
+      // opzionale: puoi mostrare un alert se vuoi
       return;
     }
-    // Placeholder: l’index ignora id_ticker e lancia più chiamate per tutti i ticker dell’area
     const params: QueryParams = {
-      id_ticker: -1,
+      id_ticker: -1, // ignorato a livello index
       start_date: formatDateForAPI(startDate),
       end_date: formatDateForAPI(endDate),
     };
     onSubmit(params);
-  };
-
-  const pickStart = () => {
-    Alert.alert('Start Date', `Attuale: ${startDate.toLocaleDateString()}`, [
-      { text: 'Annulla', style: 'cancel' },
-      { text: 'Ultima settimana', onPress: () => setStartDate(new Date(Date.now() - 7 * 86400000)) },
-      { text: 'Ultimo mese', onPress: () => setStartDate(new Date(Date.now() - 30 * 86400000)) },
-      { text: 'Ultimi 3 mesi', onPress: () => setStartDate(new Date(Date.now() - 90 * 86400000)) },
-    ]);
-  };
-
-  const pickEnd = () => {
-    Alert.alert('End Date', `Attuale: ${endDate.toLocaleDateString()}`, [
-      { text: 'Annulla', style: 'cancel' },
-      { text: 'Oggi', onPress: () => setEndDate(new Date()) },
-      { text: 'Ieri', onPress: () => setEndDate(new Date(Date.now() - 86400000)) },
-    ]);
   };
 
   return (
@@ -62,7 +116,11 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
       <View style={styles.row}>
         <View style={styles.col}>
           <Text style={styles.label}>Start Date</Text>
-          <TouchableOpacity style={styles.dateBtn} onPress={pickStart}>
+          <TouchableOpacity
+            style={styles.dateBtn}
+            onPress={Platform.OS === 'android' ? openAndroidStart : openIOSStart}
+            activeOpacity={0.8}
+          >
             <Calendar size={20} color="#6B7280" />
             <Text style={styles.dateText}>{startDate.toLocaleDateString()}</Text>
           </TouchableOpacity>
@@ -70,7 +128,11 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
 
         <View style={styles.col}>
           <Text style={styles.label}>End Date</Text>
-          <TouchableOpacity style={styles.dateBtn} onPress={pickEnd}>
+          <TouchableOpacity
+            style={styles.dateBtn}
+            onPress={Platform.OS === 'android' ? openAndroidEnd : openIOSEnd}
+            activeOpacity={0.8}
+          >
             <Calendar size={20} color="#6B7280" />
             <Text style={styles.dateText}>{endDate.toLocaleDateString()}</Text>
           </TouchableOpacity>
@@ -87,8 +149,58 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
       </TouchableOpacity>
 
       <Text style={styles.hint}>
-        Seleziona un’area con le pilloline sopra: verranno caricati tutti i ticker di quell’area.
+        Seleziona un’area dalle pilloline sopra, scegli le date e premi Fetch.
       </Text>
+
+      {/* --------- iOS MODALS --------- */}
+      <Modal transparent visible={showStartModal} animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Seleziona Start Date</Text>
+            <DateTimePicker
+              value={tempStart}
+              mode="date"
+              display="inline"
+              onChange={(e, d) => d && setTempStart(d)}
+              maximumDate={today}
+              style={styles.pickerInline}
+            />
+            <View style={styles.modalActions}>
+              <Pressable onPress={cancelIOS} style={[styles.actionBtn, styles.btnCancel]}>
+                <Text style={styles.btnTextCancel}>Annulla</Text>
+              </Pressable>
+              <Pressable onPress={confirmIOSStart} style={[styles.actionBtn, styles.btnOk]}>
+                <Text style={styles.btnTextOk}>Conferma</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal transparent visible={showEndModal} animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Seleziona End Date</Text>
+            <DateTimePicker
+              value={tempEnd}
+              mode="date"
+              display="inline"
+              onChange={(e, d) => d && setTempEnd(d)}
+              minimumDate={tempStart} // coerente durante la scelta
+              maximumDate={today}
+              style={styles.pickerInline}
+            />
+            <View style={styles.modalActions}>
+              <Pressable onPress={cancelIOS} style={[styles.actionBtn, styles.btnCancel]}>
+                <Text style={styles.btnTextCancel}>Annulla</Text>
+              </Pressable>
+              <Pressable onPress={confirmIOSEnd} style={[styles.actionBtn, styles.btnOk]}>
+                <Text style={styles.btnTextOk}>Conferma</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -106,7 +218,7 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   title: { fontSize: 20, fontWeight: '600', color: '#1F2937', marginBottom: 20, textAlign: 'center' },
-  row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24, gap: 12 },
   col: { flex: 1 },
   label: { fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 },
   dateBtn: {
@@ -121,4 +233,36 @@ const styles = StyleSheet.create({
   submitDisabled: { backgroundColor: '#9CA3AF' },
   submitText: { color: '#fff', fontSize: 16, fontWeight: '600', marginLeft: 8 },
   hint: { marginTop: 12, fontSize: 12, color: '#6B7280', textAlign: 'center' },
+
+  // iOS modal styles
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(17, 24, 39, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+  },
+  modalTitle: { fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 8 },
+  pickerInline: { alignSelf: 'center' },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 8,
+  },
+  actionBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+  },
+  btnCancel: { backgroundColor: '#F3F4F6' },
+  btnOk: { backgroundColor: '#3B82F6' },
+  btnTextCancel: { color: '#111827', fontWeight: '600' },
+  btnTextOk: { color: '#FFFFFF', fontWeight: '600' },
 });
