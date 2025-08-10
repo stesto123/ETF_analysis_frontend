@@ -2,179 +2,93 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Alert,
-  Platform
 } from 'react-native';
 import { Calendar, TrendingUp } from 'lucide-react-native';
 import { QueryParams } from '@/types';
 import { formatDateForAPI, isValidDateRange } from '@/utils/dateHelpers';
-import { Picker } from '@react-native-picker/picker';
 
 interface Props {
   onSubmit: (params: QueryParams) => void;
   loading: boolean;
-  areas: { area_geografica: string, id_area_geografica: number }[];
-  selectedArea: number | null;
-  onAreaChange: (id: number | null) => void;
-  tickers: { ID_ticker: number, ticker: string }[];
-  selectedTicker: number | null;
-  onTickerChange: (id: number | null) => void;
 }
 
-export default function ETFQueryForm({
-  onSubmit,
-  loading,
-  areas,
-  selectedArea,
-  onAreaChange,
-  tickers,
-  selectedTicker,
-  onTickerChange,
-}: Props) {
+export default function ETFQueryForm({ onSubmit, loading }: Props) {
   const [startDate, setStartDate] = useState<Date>(
     new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
   );
   const [endDate, setEndDate] = useState<Date>(new Date());
 
   const handleSubmit = () => {
-    if (!selectedTicker || selectedTicker <= 0) {
-      Alert.alert('Error', 'Please select a valid ticker');
-      return;
-    }
     if (!isValidDateRange(startDate, endDate)) {
-      Alert.alert('Error', 'Please select a valid date range. End date cannot be in the future and must be after start date.');
+      Alert.alert(
+        'Errore',
+        'Seleziona un intervallo valido. La data finale non può essere nel futuro e deve essere successiva alla data iniziale.'
+      );
       return;
     }
+    // Placeholder: l’index ignora id_ticker e lancia più chiamate per tutti i ticker dell’area
     const params: QueryParams = {
-      id_ticker: selectedTicker,
+      id_ticker: -1,
       start_date: formatDateForAPI(startDate),
       end_date: formatDateForAPI(endDate),
     };
     onSubmit(params);
   };
 
-  const handleStartDatePress = () => {
-    Alert.alert(
-      'Select Start Date',
-      `Current: ${startDate.toLocaleDateString()}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Last Week', 
-          onPress: () => setStartDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
-        },
-        { 
-          text: 'Last Month', 
-          onPress: () => setStartDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
-        },
-        { 
-          text: 'Last 3 Months', 
-          onPress: () => setStartDate(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))
-        },
-      ]
-    );
+  const pickStart = () => {
+    Alert.alert('Start Date', `Attuale: ${startDate.toLocaleDateString()}`, [
+      { text: 'Annulla', style: 'cancel' },
+      { text: 'Ultima settimana', onPress: () => setStartDate(new Date(Date.now() - 7 * 86400000)) },
+      { text: 'Ultimo mese', onPress: () => setStartDate(new Date(Date.now() - 30 * 86400000)) },
+      { text: 'Ultimi 3 mesi', onPress: () => setStartDate(new Date(Date.now() - 90 * 86400000)) },
+    ]);
   };
 
-  const handleEndDatePress = () => {
-    Alert.alert(
-      'Select End Date',
-      `Current: ${endDate.toLocaleDateString()}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Today', 
-          onPress: () => setEndDate(new Date())
-        },
-        { 
-          text: 'Yesterday', 
-          onPress: () => setEndDate(new Date(Date.now() - 24 * 60 * 60 * 1000))
-        },
-      ]
-    );
+  const pickEnd = () => {
+    Alert.alert('End Date', `Attuale: ${endDate.toLocaleDateString()}`, [
+      { text: 'Annulla', style: 'cancel' },
+      { text: 'Oggi', onPress: () => setEndDate(new Date()) },
+      { text: 'Ieri', onPress: () => setEndDate(new Date(Date.now() - 86400000)) },
+    ]);
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>ETF Data Query</Text>
 
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Area Geografica</Text>
-        <Picker
-          selectedValue={selectedArea}
-          onValueChange={value => onAreaChange(value)}
-          style={styles.input}
-        >
-          <Picker.Item label="Seleziona area geografica..." value={null} />
-          {areas.map(area => (
-            <Picker.Item
-              key={area.id_area_geografica}
-              label={area.area_geografica}
-              value={area.id_area_geografica}
-            />
-          ))}
-        </Picker>
-      </View>
-
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Ticker</Text>
-        <Picker
-          selectedValue={selectedTicker}
-          onValueChange={value => onTickerChange(value)}
-          style={styles.input}
-          enabled={!!selectedArea}
-        >
-          <Picker.Item label="Seleziona ticker..." value={null} />
-          {tickers.map(t => (
-            <Picker.Item
-              key={t.ID_ticker}
-              label={t.ticker}
-              value={t.ID_ticker}
-            />
-          ))}
-        </Picker>
-      </View>
-
-      <View style={styles.dateRow}>
-        <View style={styles.dateGroup}>
+      <View style={styles.row}>
+        <View style={styles.col}>
           <Text style={styles.label}>Start Date</Text>
-          <TouchableOpacity
-            style={styles.dateButton}
-            onPress={handleStartDatePress}
-          >
+          <TouchableOpacity style={styles.dateBtn} onPress={pickStart}>
             <Calendar size={20} color="#6B7280" />
-            <Text style={styles.dateText}>
-              {startDate.toLocaleDateString()}
-            </Text>
+            <Text style={styles.dateText}>{startDate.toLocaleDateString()}</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.dateGroup}>
+        <View style={styles.col}>
           <Text style={styles.label}>End Date</Text>
-          <TouchableOpacity
-            style={styles.dateButton}
-            onPress={handleEndDatePress}
-          >
+          <TouchableOpacity style={styles.dateBtn} onPress={pickEnd}>
             <Calendar size={20} color="#6B7280" />
-            <Text style={styles.dateText}>
-              {endDate.toLocaleDateString()}
-            </Text>
+            <Text style={styles.dateText}>{endDate.toLocaleDateString()}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       <TouchableOpacity
-        style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+        style={[styles.submit, loading && styles.submitDisabled]}
         onPress={handleSubmit}
         disabled={loading}
       >
         <TrendingUp size={20} color="#fff" />
-        <Text style={styles.submitButtonText}>
-          {loading ? 'Loading...' : 'Fetch Data'}
-        </Text>
+        <Text style={styles.submitText}>{loading ? 'Loading...' : 'Fetch Data'}</Text>
       </TouchableOpacity>
+
+      <Text style={styles.hint}>
+        Seleziona un’area con le pilloline sopra: verranno caricati tutti i ticker di quell’area.
+      </Text>
     </View>
   );
 }
@@ -186,76 +100,25 @@ const styles = StyleSheet.create({
     margin: 16,
     padding: 20,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 20,
-    textAlign: 'center',
+  title: { fontSize: 20, fontWeight: '600', color: '#1F2937', marginBottom: 20, textAlign: 'center' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 },
+  col: { flex: 1 },
+  label: { fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 },
+  dateBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, padding: 12, backgroundColor: '#F9FAFB',
   },
-  formGroup: {
-    marginBottom: 20,
+  dateText: { fontSize: 16, color: '#374151', marginLeft: 8 },
+  submit: {
+    backgroundColor: '#3B82F6', borderRadius: 8, padding: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
   },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: '#F9FAFB',
-  },
-  dateRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-    //gap: 12, // removed for Android compatibility
-  },
-  dateGroup: {
-    flex: 1,
-  },
-  dateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: '#F9FAFB',
-    // gap: 8, // removed for Android compatibility
-  },
-  dateText: {
-    fontSize: 16,
-    color: '#374151',
-  },
-  submitButton: {
-    backgroundColor: '#3B82F6',
-    borderRadius: 8,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    // gap: 8, // removed for Android compatibility
-  },
-  submitButtonDisabled: {
-    backgroundColor: '#9CA3AF',
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  submitDisabled: { backgroundColor: '#9CA3AF' },
+  submitText: { color: '#fff', fontSize: 16, fontWeight: '600', marginLeft: 8 },
+  hint: { marginTop: 12, fontSize: 12, color: '#6B7280', textAlign: 'center' },
 });
