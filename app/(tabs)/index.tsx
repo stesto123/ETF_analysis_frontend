@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -21,6 +21,24 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastParams, setLastParams] = useState<QueryParams | null>(null);
   const [ticker, setTicker] = useState<string>('');
+  const [areas, setAreas] = useState<{ area_geografica: string, id_area_geografica: number }[]>([]);
+  const [selectedArea, setSelectedArea] = useState<number | null>(null);
+  const [tickers, setTickers] = useState<{ ID_ticker: number, ticker: string }[]>([]);
+  const [selectedTicker, setSelectedTicker] = useState<number | null>(null);
+
+  useEffect(() => {
+    apiService.getGeographicAreas().then(setAreas).catch(() => setAreas([]));
+  }, []);
+
+  useEffect(() => {
+    if (selectedArea) {
+      apiService.getTickersByArea(selectedArea).then(setTickers).catch(() => setTickers([]));
+      setSelectedTicker(null);
+    } else {
+      setTickers([]);
+      setSelectedTicker(null);
+    }
+  }, [selectedArea]);
 
   const transformDataForChart = (etfData: ETFData[]): ChartDataPoint[] => {
     return etfData
@@ -105,7 +123,16 @@ export default function HomeScreen() {
           />
         }
       >
-        <ETFQueryForm onSubmit={fetchData} loading={loading} />
+        <ETFQueryForm
+          areas={areas}
+          selectedArea={selectedArea}
+          onAreaChange={setSelectedArea}
+          tickers={tickers}
+          selectedTicker={selectedTicker}
+          onTickerChange={setSelectedTicker}
+          onSubmit={fetchData}
+          loading={loading}
+        />
         <View style={styles.chartContainer}>
           {renderContent()}
         </View>

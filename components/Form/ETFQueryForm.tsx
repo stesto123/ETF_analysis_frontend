@@ -11,39 +11,48 @@ import {
 import { Calendar, TrendingUp } from 'lucide-react-native';
 import { QueryParams } from '@/types';
 import { formatDateForAPI, isValidDateRange } from '@/utils/dateHelpers';
+import { Picker } from '@react-native-picker/picker';
 
 interface Props {
   onSubmit: (params: QueryParams) => void;
   loading: boolean;
+  areas: { area_geografica: string, id_area_geografica: number }[];
+  selectedArea: number | null;
+  onAreaChange: (id: number | null) => void;
+  tickers: { ID_ticker: number, ticker: string }[];
+  selectedTicker: number | null;
+  onTickerChange: (id: number | null) => void;
 }
 
-export default function ETFQueryForm({ onSubmit, loading }: Props) {
-  const [idTicker, setIdTicker] = useState<string>('1');
+export default function ETFQueryForm({
+  onSubmit,
+  loading,
+  areas,
+  selectedArea,
+  onAreaChange,
+  tickers,
+  selectedTicker,
+  onTickerChange,
+}: Props) {
   const [startDate, setStartDate] = useState<Date>(
-    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
+    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
   );
   const [endDate, setEndDate] = useState<Date>(new Date());
 
   const handleSubmit = () => {
-    const tickerId = parseInt(idTicker);
-    
-    // Validation
-    if (isNaN(tickerId) || tickerId <= 0) {
-      Alert.alert('Error', 'Please enter a valid ticker ID (positive number)');
+    if (!selectedTicker || selectedTicker <= 0) {
+      Alert.alert('Error', 'Please select a valid ticker');
       return;
     }
-
     if (!isValidDateRange(startDate, endDate)) {
       Alert.alert('Error', 'Please select a valid date range. End date cannot be in the future and must be after start date.');
       return;
     }
-
     const params: QueryParams = {
-      id_ticker: tickerId,
+      id_ticker: selectedTicker,
       start_date: formatDateForAPI(startDate),
       end_date: formatDateForAPI(endDate),
     };
-
     onSubmit(params);
   };
 
@@ -90,18 +99,42 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>ETF Data Query</Text>
-      
+
       <View style={styles.formGroup}>
-        <Text style={styles.label}>Ticker ID</Text>
-        <TextInput
+        <Text style={styles.label}>Area Geografica</Text>
+        <Picker
+          selectedValue={selectedArea}
+          onValueChange={value => onAreaChange(value)}
           style={styles.input}
-          value={idTicker}
-          onChangeText={setIdTicker}
-          placeholder="Enter ticker ID (e.g., 1)"
-          keyboardType="numeric"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
+        >
+          <Picker.Item label="Seleziona area geografica..." value={null} />
+          {areas.map(area => (
+            <Picker.Item
+              key={area.id_area_geografica}
+              label={area.area_geografica}
+              value={area.id_area_geografica}
+            />
+          ))}
+        </Picker>
+      </View>
+
+      <View style={styles.formGroup}>
+        <Text style={styles.label}>Ticker</Text>
+        <Picker
+          selectedValue={selectedTicker}
+          onValueChange={value => onTickerChange(value)}
+          style={styles.input}
+          enabled={!!selectedArea}
+        >
+          <Picker.Item label="Seleziona ticker..." value={null} />
+          {tickers.map(t => (
+            <Picker.Item
+              key={t.ID_ticker}
+              label={t.ticker}
+              value={t.ID_ticker}
+            />
+          ))}
+        </Picker>
       </View>
 
       <View style={styles.dateRow}>
