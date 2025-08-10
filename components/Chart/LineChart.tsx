@@ -1,116 +1,159 @@
-import React from 'react';
-import { View, StyleSheet, Dimensions, Text, ScrollView } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, StyleSheet, Text, LayoutChangeEvent } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { ChartDataPoint } from '@/types';
-import { parseCalendarId } from '@/utils/dateHelpers';
 
-interface Props {
+interface SingleProps {
   data: ChartDataPoint[];
   ticker: string;
+  height?: number;
+  multi?: undefined;
 }
 
-export default function ETFLineChart({ data, ticker }: Props) {
-  if (data.length === 0) {
-    return (
-      <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>No data available for chart</Text>
-      </View>
-    );
-  }
+interface MultiSerie {
+  label: string;
+  data: number[];
+  colorHint?: 'up' | 'down';
+}
+interface MultiProps {
+  multi: MultiSerie[];
+  // legacy props non usate in multi
+  data: ChartDataPoint[];
+  ticker: string;
+  height?: number;
+}
 
-  const screenWidth = Dimensions.get('window').width;
-  const chartWidth = screenWidth - 32;
+type Props = SingleProps | MultiProps;
 
-  // Prepare chart data
-  const prices = data.map(item => item.price);
-  const labels = data.map((item, index) => {
-    // Show every 3rd label to avoid crowding
-    if (index % Math.ceil(data.length / 4) === 0) {
-      return parseCalendarId(parseInt(item.date));
+const CONTAINER_PADDING = 16;
+const CHART_ASPECT = 0.7;
+const MIN_HEIGHT = 260;
+const MAX_HEIGHT = 480;
+
+export default function ETFLineChart(props: Props) {
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
+  const onContainerLayout = (e: LayoutChangeEvent) => setContainerWidth(e.nativeEvent.layout.width);
+
+  const isMulti = Array.isArray((props as MultiProps).multi);
+  const innerWidth =
+    containerWidth != null ? Math.max(140, containerWidth - CONTAINER_PADDING * 2) : undefined;
+
+  // ===== costruzione dati =====
+  const { labels, datasets, title } = useMemo(() => {
+    if (isMulti) {
+      const mp = props as MultiProps;
+      // nessuna label asse x
+      const lbls = mp.multi.length ? new Array(mp.multi[0].data.length).fill('') : [];
+      // colore per serie: verde se up, rosso se down
+      const ds = mp.multi.map((s) => {
+        const first = s.data[0] ?? 0;
+        const last = s.data[s.data.length - 1] ?? first;
+        const up = (s.colorHint ?? (last >= first ? 'up' : 'down')) === 'up';
+        const color = up ? '#10B981' : '#EF4444';
+        return {
+          data: s.data,
+          color: () => color,
+          strokeWidth: 2,
+          withDots: false as const,
+        };
+      });
+      return { labels: lbls, datasets: ds, title: 'Selected ETFs' };
+    } else {
+      const sp = props as SingleProps;
+      const prices = sp.data.map((p) => p.price);
+      const first = prices[0] ?? 0;
+      const last = prices[prices.length - 1] ?? first;
+      const color = last >= first ? '#10B981' : '#EF4444';
+      return {
+        labels: sp.data.map(() => ''),
+        datasets: [{ data: prices, color: () => color, strokeWidth: 2, withDots: false as const }],
+        title: `${sp.ticker} Price Chart`,
+      };
     }
-    return '';
-  });
+  }, [props, isMulti]);
 
-  const chartData = {
-    labels,
-    datasets: [
-      {
-        data: prices,
-        color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`, // Blue color
-        strokeWidth: 2,
+  const chartHeight = useMemo(() => {
+    const h =
+      'height' in props && props.height
+        ? props.height
+        : innerWidth != null
+        ? Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(innerWidth * CHART_ASPECT)))
+        : undefined;
+    return h;
+  }, [innerWidth, props]);
+
+  const chartConfig = useMemo(
+    () => ({
+      backgroundColor: '#ffffff',
+      backgroundGradientFrom: '#ffffff',
+      backgroundGradientTo: '#ffffff',
+      backgroundGradientFromOpacity: 1,
+      backgroundGradientToOpacity: 1,
+      decimalPlaces: 2,
+      color: () => '#111827', // non usato per le linee (ogni dataset ha il suo color)
+      labelColor: () => 'rgba(0,0,0,0)', // niente assi
+      propsForBackgroundLines: {
+        stroke: 'transparent',
+        strokeDasharray: '',
+        strokeWidth: 0,
       },
-    ],
-  };
+      style: { borderRadius: 16 },
+      propsForDots: { r: '0', strokeWidth: '0', stroke: 'transparent' },
+    }),
+    []
+  );
 
-  const chartConfig = {
-    backgroundColor: '#ffffff',
-    backgroundGradientFrom: '#ffffff',
-    backgroundGradientTo: '#ffffff',
-    decimalPlaces: 2,
-    color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-    style: {
-      borderRadius: 16,
-    },
-    propsForDots: {
-      r: '4',
-      strokeWidth: '2',
-      stroke: '#3B82F6',
-    },
-    propsForBackgroundLines: {
-      strokeDasharray: '',
-      stroke: '#E5E7EB',
-      strokeWidth: 1,
-    },
-  };
-
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
-  const priceRange = maxPrice - minPrice;
-  const percentageChange = ((prices[prices.length - 1] - prices[0]) / prices[0]) * 100;
+  // Legend (solo in multi)
+  const legend = isMulti
+    ? (props as MultiProps).multi.map((s) => {
+        const first = s.data[0] ?? 0;
+        const last = s.data[s.data.length - 1] ?? first;
+        const up = (s.colorHint ?? (last >= first ? 'up' : 'down')) === 'up';
+        return { label: s.label, color: up ? '#10B981' : '#EF4444' };
+      })
+    : [];
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>{ticker} Price Chart</Text>
-          <View style={styles.stats}>
-            <View style={styles.stat}>
-              <Text style={styles.statLabel}>Change</Text>
-              <Text style={[
-                styles.statValue, 
-                { color: percentageChange >= 0 ? '#10B981' : '#EF4444' }
-              ]}>
-                {percentageChange >= 0 ? '+' : ''}{percentageChange.toFixed(2)}%
-              </Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={styles.statLabel}>Range</Text>
-              <Text style={styles.statValue}>
-                €{minPrice.toFixed(2)} - €{maxPrice.toFixed(2)}
-              </Text>
-            </View>
+    <View style={styles.container} onLayout={onContainerLayout}>
+      <View style={styles.header}>
+        <Text style={styles.title}>{title}</Text>
+        {isMulti && legend.length > 0 && (
+          <View style={styles.legendRow}>
+            {legend.map((l) => (
+              <View key={l.label} style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: l.color }]} />
+                <Text style={styles.legendLabel} numberOfLines={1}>
+                  {l.label}
+                </Text>
+              </View>
+            ))}
           </View>
-        </View>
-        
+        )}
+      </View>
+
+      {innerWidth && chartHeight ? (
         <LineChart
-          data={chartData}
-          width={Math.max(chartWidth, data.length * 50)}
-          height={220}
+          data={{ labels, datasets }}
+          width={innerWidth}
+          height={chartHeight}
           chartConfig={chartConfig}
           bezier={false}
           style={styles.chart}
-          withDots={true}
-          withShadow={false}
-          withVerticalLabels={true}
-          withHorizontalLabels={true}
-          onDataPointClick={({ value, index }) => {
-            const point = data[index];
-            alert(`Date: ${parseCalendarId(parseInt(point.date))}\nPrice: €${value.toFixed(2)}\nVolume: ${point.volume.toLocaleString()}`);
-          }}
+          withDots={false}
+          withShadow={false}        // <- NIENTE ALONE
+          withVerticalLabels={false}
+          withHorizontalLabels={false}
+          withInnerLines={false}
+          withOuterLines={false}
+          fromZero={false}
+          yLabelsOffset={0}
+          xLabelsOffset={0}
+          onDataPointClick={undefined}
         />
-      </View>
-    </ScrollView>
+      ) : (
+        <View style={{ height: MIN_HEIGHT }} />
+      )}
+    </View>
   );
 }
 
@@ -119,46 +162,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 16,
     margin: 16,
-    padding: 16,
+    padding: CONTAINER_PADDING,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
+    overflow: 'hidden',
   },
-  header: {
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 12,
-  },
-  stats: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  stat: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  statValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  chart: {
-    borderRadius: 16,
-  },
+  header: { marginBottom: 12 },
+  title: { fontSize: 18, fontWeight: '700', marginBottom: 8, color: '#111827' },
+  legendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', marginRight: 12, marginTop: 4 },
+  legendDot: { width: 10, height: 10, borderRadius: 5, marginRight: 6 },
+  legendLabel: { fontSize: 12, color: '#374151', maxWidth: 120 },
+
+  chart: { borderRadius: 16 },
   emptyContainer: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -166,10 +185,7 @@ const styles = StyleSheet.create({
     padding: 32,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  emptyText: {
-    fontSize: 16,
-    color: '#6B7280',
-    textAlign: 'center',
-  },
+  emptyText: { fontSize: 16, color: '#6B7280', textAlign: 'center' },
 });

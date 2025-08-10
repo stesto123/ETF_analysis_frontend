@@ -23,71 +23,114 @@ import { ETFData, QueryParams, ChartDataPoint } from '@/types';
 type GeographicArea = { area_geografica: string; id_area_geografica: number };
 type AreaTicker = { ID_ticker: number; ticker: string };
 type DateRange = { start_date: string; end_date: string };
-
-// Oggetto minimale per i selezionati (persistono anche cambiando area)
 type SelectedMap = Record<number, { ID_ticker: number; ticker: string }>;
 
+type MultiDataset = { label: string; data: number[]; colorHint?: 'up' | 'down' };
+
 export default function HomeScreen() {
-  // stato UI
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // aree e ticker dell’area corrente
   const [areas, setAreas] = useState<GeographicArea[]>([]);
   const [selectedArea, setSelectedArea] = useState<number | null>(null);
   const [tickers, setTickers] = useState<AreaTicker[]>([]);
 
-  // selezionati cross-area
   const [selectedTickers, setSelectedTickers] = useState<SelectedMap>({});
 
-  // serie pronte per i grafici dei selezionati
-  const [seriesByTicker, setSeriesByTicker] = useState<Record<string, ChartDataPoint[]>>({});
+  // per grafico unico
+  const [multiDatasets, setMultiDatasets] = useState<MultiDataset[] | null>(null);
 
-  // ultimo range date
   const [lastRange, setLastRange] = useState<DateRange | null>(null);
 
-  // carica aree all’avvio
   useEffect(() => {
     apiService.getGeographicAreas().then(setAreas).catch(() => setAreas([]));
   }, []);
 
-  // quando cambia area, carica lista ETF (non toccare i selezionati!)
   useEffect(() => {
     if (selectedArea) {
-      apiService
-        .getTickersByArea(selectedArea)
-        .then(setTickers)
-        .catch(() => setTickers([]));
+      apiService.getTickersByArea(selectedArea).then(setTickers).catch(() => setTickers([]));
     } else {
       setTickers([]);
     }
   }, [selectedArea]);
 
-  // helper: ETFData -> ChartDataPoint[]
-  const toChartSeries = (rows: ETFData[]): ChartDataPoint[] =>
-    rows
-      .sort((a, b) => a.calendar_id - b.calendar_id)
-      .map((item) => ({
-        date: item.calendar_id.toString(),
-        price: parseFloat(item.close_price),
-        volume: item.volume,
-      }));
+  // ===== Aggregazione unificata per grafico unico =====
+  const parseYYYYMMDD = (n: number) => {
+    const y = Math.floor(n / 10000);
+    const m = Math.floor((n % 10000) / 100) - 1;
+    const d = n % 100;
+    return new Date(y, m, d);
+  };
+  const fmtYYYYMMDD = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return Number(`${y}${m}${day}`);
+  };
+  const daysBetween = (a: Date, b: Date) => Math.max(1, Math.round((+b - +a) / 86400000));
 
-  // toggle selezione singolo ETF
+  // Decidi la granularità comune (in giorni) in base allo span globale
+  const chooseBucketDays = (spanDays: number, maxPoints = 60) => {
+    let bucketDays: number;
+    if (spanDays <= 60) bucketDays = 1;
+    else if (spanDays <= 180) bucketDays = 7;
+    else if (spanDays <= 720) bucketDays = 30;
+    else bucketDays = 90;
+    const est = Math.ceil(spanDays / bucketDays);
+    return est > maxPoints ? Math.ceil(spanDays / maxPoints) : bucketDays;
+  };
+
+  // Aggrega una serie (ETF rows) sui bucket comuni
+  const aggregateOnBuckets = (
+    rows: ETFData[],
+    globalStart: Date,
+    bucketDays: number,
+    bucketCount: number
+  ): { data: number[]; upOrDown: 'up' | 'down' } => {
+    const sorted = [...rows].sort((a, b) => a.calendar_id - b.calendar_id);
+    const acc = Array.from({ length: bucketCount }, () => ({ sum: 0, cnt: 0 }));
+
+    for (const r of sorted) {
+      const d = parseYYYYMMDD(r.calendar_id);
+      let idx = Math.floor(daysBetween(globalStart, d) / bucketDays);
+      if (idx < 0) idx = 0;
+      if (idx >= bucketCount) idx = bucketCount - 1;
+      const price = parseFloat(r.close_price);
+      const cell = acc[idx];
+      cell.sum += price;
+      cell.cnt += 1;
+    }
+
+    const series: number[] = [];
+    let prev = sorted.length ? parseFloat(sorted[0].close_price) : 0;
+    for (let i = 0; i < bucketCount; i++) {
+      const cell = acc[i];
+      if (cell.cnt > 0) {
+        prev = cell.sum / cell.cnt;
+        series.push(prev);
+      } else {
+        // forward-fill per mantenere continuità visiva
+        series.push(prev);
+      }
+    }
+
+    const first = series[0] ?? 0;
+    const last = series[series.length - 1] ?? first;
+    const upOrDown: 'up' | 'down' = last >= first ? 'up' : 'down';
+    return { data: series, upOrDown };
+  };
+
+  // ===== Selezione ETF (toggle) =====
   const toggleSelect = (t: AreaTicker) => {
     setSelectedTickers((prev) => {
       const next = { ...prev };
-      if (next[t.ID_ticker]) {
-        delete next[t.ID_ticker];
-      } else {
-        next[t.ID_ticker] = { ID_ticker: t.ID_ticker, ticker: t.ticker };
-      }
+      if (next[t.ID_ticker]) delete next[t.ID_ticker];
+      else next[t.ID_ticker] = { ID_ticker: t.ID_ticker, ticker: t.ticker };
       return next;
     });
   };
 
-  // utility: seleziona/deseleziona tutti i ticker della lista corrente
   const allCurrentSelected = useMemo(() => {
     if (tickers.length === 0) return false;
     return tickers.every((t) => !!selectedTickers[t.ID_ticker]);
@@ -97,21 +140,15 @@ export default function HomeScreen() {
     setSelectedTickers((prev) => {
       const next: SelectedMap = { ...prev };
       if (allCurrentSelected) {
-        // rimuovi tutti quelli dell’area corrente
-        tickers.forEach((t) => {
-          if (next[t.ID_ticker]) delete next[t.ID_ticker];
-        });
+        tickers.forEach((t) => delete next[t.ID_ticker]);
       } else {
-        // aggiungi tutti quelli dell’area corrente
-        tickers.forEach((t) => {
-          next[t.ID_ticker] = { ID_ticker: t.ID_ticker, ticker: t.ticker };
-        });
+        tickers.forEach((t) => (next[t.ID_ticker] = { ID_ticker: t.ID_ticker, ticker: t.ticker }));
       }
       return next;
     });
   };
 
-  // fetch SOLO per i selezionati (in parallelo)
+  // ===== Fetch selezionati -> build datasets unificati =====
   const fetchSelected = async (range: DateRange, useCache: boolean = true) => {
     const toLoad = Object.values(selectedTickers);
     if (toLoad.length === 0) return;
@@ -127,26 +164,53 @@ export default function HomeScreen() {
               { id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date } as QueryParams,
               useCache
             )
-            .then((rows) => ({ tickerName: t.ticker, series: toChartSeries(rows) }))
+            .then((rows) => ({ t, rows }))
         )
       );
 
-      const map: Record<string, ChartDataPoint[]> = {};
-      results.forEach(({ tickerName, series }) => {
-        map[tickerName] = series;
+      // Globale start/end
+      let minCal = Infinity;
+      let maxCal = -Infinity;
+      results.forEach(({ rows }) => {
+        if (!rows.length) return;
+        const first = rows.reduce((m, r) => Math.min(m, r.calendar_id), rows[0].calendar_id);
+        const last = rows.reduce((m, r) => Math.max(m, r.calendar_id), rows[0].calendar_id);
+        minCal = Math.min(minCal, first);
+        maxCal = Math.max(maxCal, last);
       });
 
-      setSeriesByTicker(map);
+      if (!isFinite(minCal) || !isFinite(maxCal)) {
+        setMultiDatasets(null);
+        setLastRange(range);
+        setLoading(false);
+        return;
+      }
+
+      const globalStart = parseYYYYMMDD(minCal);
+      const globalEnd = parseYYYYMMDD(maxCal);
+      const spanDays = daysBetween(globalStart, globalEnd);
+      const bucketDays = chooseBucketDays(spanDays, 60);
+      const bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
+
+      const datasets: MultiDataset[] = results.map(({ t, rows }) => {
+        const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount);
+        return {
+          label: t.ticker,
+          data: agg.data,
+          colorHint: agg.upOrDown,
+        };
+      });
+
+      setMultiDatasets(datasets);
       setLastRange(range);
     } catch (e) {
-      setSeriesByTicker({});
+      setMultiDatasets(null);
       setError(e instanceof Error ? e.message : 'Errore inatteso durante il caricamento');
     } finally {
       setLoading(false);
     }
   };
 
-  // submit dal form (solo date)
   const handleSubmit = useCallback(
     (params: QueryParams) => {
       const range: DateRange = { start_date: params.start_date, end_date: params.end_date };
@@ -155,7 +219,6 @@ export default function HomeScreen() {
     [selectedTickers]
   );
 
-  // pull-to-refresh dei selezionati
   const handleRefresh = useCallback(async () => {
     if (!lastRange || Object.keys(selectedTickers).length === 0) return;
     setRefreshing(true);
@@ -170,8 +233,7 @@ export default function HomeScreen() {
     if (lastRange) fetchSelected(lastRange, false);
   };
 
-  // ====== RENDER HELPERS ======
-
+  // ===== RENDER HELPERS =====
   const renderTickersList = () => (
     <View style={styles.tickersCard}>
       <View style={styles.tickersHeader}>
@@ -223,37 +285,40 @@ export default function HomeScreen() {
     </View>
   );
 
-  const renderCharts = () => {
+  const renderChart = () => {
     if (loading && !refreshing) return <LoadingSpinner message="Fetching ETF data..." />;
     if (error) return <ErrorDisplay error={error} onRetry={handleRetry} />;
 
-    const hasSeries = Object.keys(seriesByTicker).length > 0;
-
-    if (!hasSeries) {
+    if (!multiDatasets || multiDatasets.length === 0) {
       return (
         <EmptyState
           title="Nessun dato"
           message={
             Object.keys(selectedTickers).length === 0
               ? 'Seleziona uno o più ETF dalla lista e imposta le date.'
-              : 'Premi Fetch per caricare i grafici degli ETF selezionati.'
+              : 'Premi Fetch per caricare il grafico degli ETF selezionati.'
           }
         />
       );
     }
 
     return (
-      <View style={styles.seriesStack}>
-        {Object.entries(seriesByTicker).map(([tickerName, serie]) => (
-          <View key={tickerName} style={styles.chartCard}>
-            <ETFLineChart data={serie} ticker={tickerName} />
-          </View>
-        ))}
+      <View style={styles.chartCard}>
+        <ETFLineChart
+          // nuovo modo: un unico grafico con più serie
+          multi={multiDatasets.map((ds) => ({
+            label: ds.label,
+            data: ds.data,
+            colorHint: ds.colorHint,
+          }))}
+          // fallback props legacy non usate
+          data={[] as unknown as ChartDataPoint[]}
+          ticker="Selected ETFs"
+        />
       </View>
     );
   };
 
-  // ====== RENDER ROOT ======
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -267,22 +332,13 @@ export default function HomeScreen() {
           />
         }
       >
-        {/* filtro aree a chip */}
-        <AreaChips
-          areas={areas}
-          selectedId={selectedArea}
-          onSelect={setSelectedArea}
-          loading={loading}
-        />
+        <AreaChips areas={areas} selectedId={selectedArea} onSelect={setSelectedArea} loading={loading} />
 
-        {/* lista selezionabile degli ETF dell’area corrente */}
         {renderTickersList()}
 
-        {/* form con solo date + submit */}
         <ETFQueryForm onSubmit={handleSubmit} loading={loading} />
 
-        {/* grafici dei soli selezionati */}
-        <View style={styles.chartContainer}>{renderCharts()}</View>
+        <View style={styles.chartContainer}>{renderChart()}</View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -292,7 +348,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F3F4F6' },
   scrollView: { flex: 1 },
 
-  // card lista tickers
   tickersCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -309,58 +364,30 @@ const styles = StyleSheet.create({
   tickersTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: '#111827' },
   tickersHint: { color: '#6B7280', fontSize: 13 },
   separator: { height: 1, backgroundColor: '#E5E7EB', marginVertical: 8 },
-  tickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    justifyContent: 'space-between',
-  },
+  tickerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, justifyContent: 'space-between' },
   tickerSymbol: { flex: 1, fontSize: 15, fontWeight: '600', color: '#111827' },
   tickerId: { fontSize: 12, color: '#6B7280', marginLeft: 8 },
   badge: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    paddingHorizontal: 6,
-    backgroundColor: '#E5E7EB',
-    alignItems: 'center',
-    justifyContent: 'center',
+    minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6,
+    backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center',
   },
   badgeText: { fontSize: 12, color: '#111827', fontWeight: '700' },
-  bulkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-    gap: 12,
-  },
+  bulkRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 12 },
   bulkBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#F9FAFB',
+    paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999,
+    borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB',
   },
   bulkBtnText: { fontSize: 12, color: '#111827', fontWeight: '600' },
   selectedCounter: { marginLeft: 'auto', fontSize: 12, color: '#374151', fontWeight: '600' },
 
-  // checkbox
   checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    width: 20, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#D1D5DB',
+    alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
   },
   checkboxOn: { backgroundColor: '#3B82F6', borderColor: '#3B82F6' },
   checkboxMark: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
 
-  // grafici
   chartContainer: { flex: 1, minHeight: 300, paddingBottom: 16 },
-  seriesStack: { gap: 16, paddingBottom: 24 },
   chartCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
