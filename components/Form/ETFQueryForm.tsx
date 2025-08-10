@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 24,
-    gap: 12,
+    //gap: 12, // removed for Android compatibility
   },
   dateGroup: {
     flex: 1,
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     backgroundColor: '#F9FAFB',
-    gap: 8,
+    // gap: 8, // removed for Android compatibility
   },
   dateText: {
     fontSize: 16,
@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    // gap: 8, // removed for Android compatibility
   },
   submitButtonDisabled: {
     backgroundColor: '#9CA3AF',
