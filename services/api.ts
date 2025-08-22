@@ -104,6 +104,49 @@ class APIService {
     return data;
   }
 
+  /**
+   * Fetch cumulative returns for an ETF (returns arrays: calendar_days, simple_cum, log_cum)
+   */
+  async fetchCumulativeReturns(params: QueryParams, useCache: boolean = true): Promise<{ calendar_days: number[]; simple: number[]; log: number[] }>
+  {
+    const cacheKey = `cum_returns_${params.id_ticker}_${params.start_date}_${params.end_date}`;
+    if (useCache) {
+      const cached = await this.getCache<{ calendar_days: number[]; simple: number[]; log: number[] }>(cacheKey, 60 * 60 * 1000); // 1h
+      if (cached) return cached;
+    }
+
+    const url = new URL('/api/cumulative_returns', API_BASE_URL);
+    url.searchParams.append('id_ticker', params.id_ticker.toString());
+    url.searchParams.append('start_date', params.start_date);
+    url.searchParams.append('end_date', params.end_date);
+
+    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`Failed to fetch cumulative returns: ${res.status}`);
+    const body = await res.json();
+
+    // backend may return a tuple/array [calendar_days, simple_cum, log_cum]
+    if (Array.isArray(body) && body.length >= 3) {
+      const calendar_days = Array.isArray(body[0]) ? body[0].map((v: any) => Number(v)) : [];
+      const simple = Array.isArray(body[1]) ? body[1].map((v: any) => Number(v)) : [];
+      const log = Array.isArray(body[2]) ? body[2].map((v: any) => Number(v)) : [];
+      const out = { calendar_days, simple, log };
+      await this.setCache(cacheKey, out);
+      return out;
+    }
+
+    // or an object { calendar_days: [...], simple: [...], log: [...] }
+    if (body && typeof body === 'object') {
+      const calendar_days = Array.isArray((body as any).calendar_days) ? (body as any).calendar_days.map((v: any) => Number(v)) : [];
+      const simple = Array.isArray((body as any).simple) ? (body as any).simple.map((v: any) => Number(v)) : [];
+      const log = Array.isArray((body as any).log) ? (body as any).log.map((v: any) => Number(v)) : [];
+      const out = { calendar_days, simple, log };
+      await this.setCache(cacheKey, out);
+      return out;
+    }
+
+    throw new Error('Invalid cumulative returns response format');
+  }
+
   // ------- Utility -------
   async clearCache(): Promise<void> {
     try {

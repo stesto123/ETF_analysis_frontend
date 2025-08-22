@@ -9,6 +9,8 @@ import {
   FlatList,
   Pressable,
 } from 'react-native';
+import { Dimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ETFQueryForm from '@/components/Form/ETFQueryForm';
 import ETFLineChart from '@/components/Chart/LineChart';
@@ -26,8 +28,11 @@ type DateRange = { start_date: string; end_date: string };
 type SelectedMap = Record<number, { ID_ticker: number; ticker: string }>;
 
 type MultiDataset = { label: string; data: number[]; colorHint?: 'up' | 'down' };
+// allow optional labels per dataset (shared across series)
+type MultiDatasetWithLabels = MultiDataset & { labels?: string[] };
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,9 +44,15 @@ export default function HomeScreen() {
   const [selectedTickers, setSelectedTickers] = useState<SelectedMap>({});
 
   // per grafico unico
-  const [multiDatasets, setMultiDatasets] = useState<MultiDataset[] | null>(null);
+  const [multiDatasets, setMultiDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
 
   const [lastRange, setLastRange] = useState<DateRange | null>(null);
+
+  // responsive sizing
+  const screenHeight = Dimensions.get('window').height;
+  const priceChartHeight = Math.min(260, Math.max(160, Math.round(screenHeight * 0.28)));
+  const cumChartHeight = Math.min(200, Math.max(140, Math.round(screenHeight * 0.22)));
+  const tickerListMaxHeight = Math.min(240, Math.max(120, Math.round(screenHeight * 0.25)));
 
   useEffect(() => {
     apiService.getGeographicAreas().then(setAreas).catch(() => setAreas([]));
@@ -192,22 +203,67 @@ export default function HomeScreen() {
       const bucketDays = chooseBucketDays(spanDays, 60);
       const bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
 
-      const datasets: MultiDataset[] = results.map(({ t, rows }) => {
+      // build shared labels from buckets (YYYY-MM-DD)
+      const buildLabel = (d: Date) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      };
+      const labels: string[] = [];
+      for (let i = 0; i < bucketCount; i++) {
+        const dt = new Date(globalStart.getTime() + i * bucketDays * 86400000);
+        labels.push(buildLabel(dt));
+      }
+
+      const datasets: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
         const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount);
         return {
           label: t.ticker,
           data: agg.data,
           colorHint: agg.upOrDown,
+          labels,
         };
       });
 
-      setMultiDatasets(datasets);
-      setLastRange(range);
+  setMultiDatasets(datasets);
+  // fetch cumulative returns in parallel but don't block the price chart
+  fetchCumulativeForSelected(range, useCache).catch(() => setCumDatasets(null));
+  setLastRange(range);
     } catch (e) {
       setMultiDatasets(null);
       setError(e instanceof Error ? e.message : 'Errore inatteso durante il caricamento');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ------- cumulative returns (second chart) -------
+  const [cumDatasets, setCumDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
+
+  const fetchCumulativeForSelected = async (range: DateRange, useCache: boolean = true) => {
+    const toLoad = Object.values(selectedTickers);
+    if (toLoad.length === 0) return;
+    try {
+      const results = await Promise.all(
+        toLoad.map((t) => apiService.fetchCumulativeReturns({ id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date }, useCache).then((r) => ({ t, r })))
+      );
+
+      // backend returns arrays per ticker; pick simple cumulative returns
+      const datasets: MultiDatasetWithLabels[] = results.map(({ t, r }) => {
+        // r.calendar_days expected as numbers YYYYMMDD
+        const labels = Array.isArray(r.calendar_days)
+          ? r.calendar_days.map((n) => {
+              const s = String(n);
+              if (s.length === 8) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+              return s;
+            })
+          : [];
+        return { label: t.ticker, data: r.simple, colorHint: 'up', labels };
+      });
+      setCumDatasets(datasets);
+    } catch (e) {
+      setCumDatasets(null);
     }
   };
 
@@ -235,7 +291,7 @@ export default function HomeScreen() {
 
   // ===== RENDER HELPERS =====
   const renderTickersList = () => (
-    <View style={styles.tickersCard}>
+  <View style={styles.tickersCard}>
       <View style={styles.tickersHeader}>
         <Text style={styles.tickersTitle}>
           ETF dell’area {selectedArea ? '' : '(nessuna area selezionata)'}
@@ -262,24 +318,26 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          <FlatList
-            data={tickers}
-            keyExtractor={(item) => String(item.ID_ticker)}
-            scrollEnabled={false}
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-            renderItem={({ item }) => {
-              const isSel = !!selectedTickers[item.ID_ticker];
-              return (
-                <Pressable onPress={() => toggleSelect(item)} style={styles.tickerRow}>
-                  <View style={[styles.checkbox, isSel && styles.checkboxOn]}>
-                    <Text style={styles.checkboxMark}>{isSel ? '✓' : ''}</Text>
-                  </View>
-                  <Text style={styles.tickerSymbol}>{item.ticker}</Text>
-                  <Text style={styles.tickerId}>#{item.ID_ticker}</Text>
-                </Pressable>
-              );
-            }}
-          />
+          <View style={{ maxHeight: tickerListMaxHeight }}>
+            <FlatList
+              data={tickers}
+              keyExtractor={(item) => String(item.ID_ticker)}
+              scrollEnabled={true}
+              ItemSeparatorComponent={() => <View style={styles.separator} />}
+              renderItem={({ item }) => {
+                const isSel = !!selectedTickers[item.ID_ticker];
+                return (
+                  <Pressable onPress={() => toggleSelect(item)} style={styles.tickerRow}>
+                    <View style={[styles.checkbox, isSel && styles.checkboxOn]}>
+                      <Text style={styles.checkboxMark}>{isSel ? '✓' : ''}</Text>
+                    </View>
+                    <Text style={styles.tickerSymbol}>{item.ticker}</Text>
+                    <Text style={styles.tickerId}>#{item.ID_ticker}</Text>
+                  </Pressable>
+                );
+              }}
+            />
+          </View>
         </>
       )}
     </View>
@@ -310,11 +368,22 @@ export default function HomeScreen() {
             label: ds.label,
             data: ds.data,
             colorHint: ds.colorHint,
+            labels: ds.labels,
           }))}
           // fallback props legacy non usate
           data={[] as unknown as ChartDataPoint[]}
           ticker="Selected ETFs"
+          height={220}
         />
+        {/* second chart: cumulative simple returns */}
+        {cumDatasets && cumDatasets.length > 0 && (
+          <ETFLineChart
+            multi={cumDatasets.map((ds) => ({ label: ds.label, data: ds.data, colorHint: ds.colorHint, labels: ds.labels }))}
+            data={[] as unknown as ChartDataPoint[]}
+            ticker="Cumulative Returns"
+            height={180}
+          />
+        )}
       </View>
     );
   };
@@ -323,6 +392,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView
         style={styles.scrollView}
+        contentContainerStyle={{ paddingBottom: Math.max(24, insets.bottom + 12) }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -338,7 +408,7 @@ export default function HomeScreen() {
 
         <ETFQueryForm onSubmit={handleSubmit} loading={loading} />
 
-        <View style={styles.chartContainer}>{renderChart()}</View>
+  <View style={[styles.chartContainer, { paddingBottom: Math.max(12, insets.bottom) }]}>{renderChart()}</View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -349,11 +419,11 @@ const styles = StyleSheet.create({
   scrollView: { flex: 1 },
 
   tickersCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 16,
-    marginBottom: 12,
+  backgroundColor: '#FFFFFF',
+  borderRadius: 10,
+  padding: 12,
+  marginHorizontal: 12,
+  marginBottom: 8,
     shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 4,
@@ -389,10 +459,10 @@ const styles = StyleSheet.create({
 
   chartContainer: { flex: 1, minHeight: 300, paddingBottom: 16 },
   chartCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 8,
-    marginHorizontal: 16,
+  backgroundColor: '#FFFFFF',
+  borderRadius: 10,
+  padding: 6,
+  marginHorizontal: 12,
     shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 4,

@@ -14,6 +14,7 @@ interface MultiSerie {
   label: string;
   data: number[];
   colorHint?: 'up' | 'down';
+  labels?: string[]; // optional shared x labels
 }
 interface MultiProps {
   multi: MultiSerie[];
@@ -25,10 +26,10 @@ interface MultiProps {
 
 type Props = SingleProps | MultiProps;
 
-const CONTAINER_PADDING = 16;
-const CHART_ASPECT = 0.7;
-const MIN_HEIGHT = 260;
-const MAX_HEIGHT = 480;
+const CONTAINER_PADDING = 10;
+const CHART_ASPECT = 0.55;
+const MIN_HEIGHT = 160;
+const MAX_HEIGHT = 360;
 
 export default function ETFLineChart(props: Props) {
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
@@ -42,22 +43,44 @@ export default function ETFLineChart(props: Props) {
   const { labels, datasets, title } = useMemo(() => {
     if (isMulti) {
       const mp = props as MultiProps;
-      // nessuna label asse x
-      const lbls = mp.multi.length ? new Array(mp.multi[0].data.length).fill('') : [];
+      // attempt to use provided shared labels from the first series
+      let lbls = mp.multi.length && Array.isArray(mp.multi[0].labels) && mp.multi[0].labels!.length
+        ? mp.multi[0].labels!
+        : mp.multi.length
+        ? new Array(mp.multi[0].data.length).fill('')
+        : [];
+      // if labels are all empty or missing, build a safe fallback with sparse numeric ticks
+      if (lbls.length > 0 && lbls.every((v) => !v || String(v).trim() === '')) {
+        const n = mp.multi[0].data.length;
+        const step = Math.max(1, Math.ceil(n / 6));
+        lbls = Array.from({ length: n }, (_, i) => (i % step === 0 ? String(i + 1) : ''));
+      }
       // colore per serie: verde se up, rosso se down
-      const ds = mp.multi.map((s) => {
-        const first = s.data[0] ?? 0;
-        const last = s.data[s.data.length - 1] ?? first;
-        const up = (s.colorHint ?? (last >= first ? 'up' : 'down')) === 'up';
-        const color = up ? '#10B981' : '#EF4444';
+      const PALETTE = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#F472B6'];
+
+      // helper to convert hex to rgba string
+      const hexToRgba = (hex: string, alpha = 1) => {
+        const h = hex.replace('#', '');
+        const bigint = parseInt(h, 16);
+        const r = (bigint >> 16) & 255;
+        const g = (bigint >> 8) & 255;
+        const b = bigint & 255;
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      };
+
+      const many = mp.multi.length >= 8; // compact mode threshold
+      const ds = mp.multi.map((s, idx) => {
+        // pick a distinct color from palette per series
+        const base = PALETTE[idx % PALETTE.length];
+        const color = many ? hexToRgba(base, 0.55) : base;
         return {
           data: s.data,
           color: () => color,
-          strokeWidth: 2,
+          strokeWidth: many ? 1 : 2,
           withDots: false as const,
         };
       });
-      return { labels: lbls, datasets: ds, title: 'Selected ETFs' };
+  return { labels: lbls, datasets: ds, title: 'Selected ETFs' };
     } else {
       const sp = props as SingleProps;
       const prices = sp.data.map((p) => p.price);
@@ -91,17 +114,29 @@ export default function ETFLineChart(props: Props) {
       backgroundGradientToOpacity: 1,
       decimalPlaces: 2,
       color: () => '#111827', // non usato per le linee (ogni dataset ha il suo color)
-      labelColor: () => 'rgba(0,0,0,0)', // niente assi
+  labelColor: () => '#6B7280',
       propsForBackgroundLines: {
-        stroke: 'transparent',
+        stroke: '#E5E7EB',
         strokeDasharray: '',
-        strokeWidth: 0,
+        strokeWidth: 1,
       },
       style: { borderRadius: 16 },
-      propsForDots: { r: '0', strokeWidth: '0', stroke: 'transparent' },
+  propsForDots: { r: '0', strokeWidth: '0', stroke: 'transparent' },
     }),
     []
   );
+
+  // detect compact mode from datasets count; mirrors logic above
+  const isCompact = isMulti && Array.isArray((props as MultiProps).multi) && (props as MultiProps).multi.length >= 8;
+
+  // formatXLabel: show only a subset of labels to avoid overcrowding
+  const formatXLabel = (xValue: string) => {
+    if (!labels || labels.length <= 6) return xValue;
+    const step = Math.max(1, Math.ceil(labels.length / 6));
+    const idx = labels.indexOf(xValue);
+    if (idx === -1) return xValue;
+    return idx % step === 0 ? xValue : '';
+  };
 
   // Legend (solo in multi)
   const legend = isMulti
@@ -114,7 +149,7 @@ export default function ETFLineChart(props: Props) {
     : [];
 
   return (
-    <View style={styles.container} onLayout={onContainerLayout}>
+  <View style={styles.container} onLayout={onContainerLayout}>
       <View style={styles.header}>
         <Text style={styles.title}>{title}</Text>
         {isMulti && legend.length > 0 && (
@@ -137,17 +172,18 @@ export default function ETFLineChart(props: Props) {
           width={innerWidth}
           height={chartHeight}
           chartConfig={chartConfig}
+          formatXLabel={formatXLabel}
           bezier={false}
           style={styles.chart}
           withDots={false}
-          withShadow={false}        // <- NIENTE ALONE
-          withVerticalLabels={false}
-          withHorizontalLabels={false}
-          withInnerLines={false}
-          withOuterLines={false}
+          withShadow={false}
+          withVerticalLabels={true}
+          withHorizontalLabels={true}
+          withInnerLines={!isCompact}
+          withOuterLines={!isCompact}
           fromZero={false}
-          yLabelsOffset={0}
-          xLabelsOffset={0}
+          yLabelsOffset={4}
+          xLabelsOffset={4}
           onDataPointClick={undefined}
         />
       ) : (
