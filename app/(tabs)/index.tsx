@@ -331,7 +331,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingBottom: Math.max(12, insets.bottom + 12) }]}>
       <ScrollView
         refreshControl={
           <RefreshControl
