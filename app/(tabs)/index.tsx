@@ -314,7 +314,7 @@ export default function HomeScreen() {
       const mm = String(today.getMonth()).padStart(2, '0');
       const dd = String(today.getDate()).padStart(2, '0');
       const endStr = `${yyyy}${mm}${dd}`;
-      const startStr = `${yyyy}0820`;
+      const startStr = `${yyyy}0823`;
       const payload = {
         id_portafoglio: 1,
         ammontare: 10000,
