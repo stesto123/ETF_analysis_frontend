@@ -1,0 +1,30 @@
+name: iOS CI (template)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-ios:
+    name: Build iOS (macOS template)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+      - name: Install dependencies
+        run: |
+          cd etf_flutter_app
+          flutter pub get
+      - name: Build iOS archive
+        run: |
+          cd etf_flutter_app
+          flutter build ios --no-codesign
+
+# Notes:
+# - This is a template. To upload to TestFlight you must add signing (Fastlane + App Store Connect API key)
+# - Store sensitive keys as GitHub Secrets and configure Fastlane lanes to pick them up
+***

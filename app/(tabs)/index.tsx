@@ -1,14 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  RefreshControl,
-  FlatList,
-  Pressable,
-} from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, FlatList, Pressable } from 'react-native';
 import { Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -20,22 +11,17 @@ import EmptyState from '@/components/common/EmptyState';
 import AreaChips from '@/components/Filter/AreaChips';
 
 import { apiService } from '@/services/api';
-import { ETFData, QueryParams, ChartDataPoint } from '@/types';
+import { ChartDataPoint, QueryParams } from '@/types';
+import useETFData from '@/hooks/useETFData';
 
 type GeographicArea = { area_geografica: string; id_area_geografica: number };
 type AreaTicker = { ID_ticker: number; ticker: string };
 type DateRange = { start_date: string; end_date: string };
 type SelectedMap = Record<number, { ID_ticker: number; ticker: string }>;
 
-type MultiDataset = { label: string; data: number[]; colorHint?: 'up' | 'down' };
-// allow optional labels per dataset (shared across series)
-type MultiDatasetWithLabels = MultiDataset & { labels?: string[] };
-
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const [areas, setAreas] = useState<GeographicArea[]>([]);
   const [selectedArea, setSelectedArea] = useState<number | null>(null);
@@ -44,9 +30,9 @@ export default function HomeScreen() {
   const [selectedTickers, setSelectedTickers] = useState<SelectedMap>({});
 
   // per grafico unico
-  const [multiDatasets, setMultiDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
+  const { loading, error, multiDatasets, cumDatasets, lastRange, fetchSelected } = useETFData();
 
-  const [lastRange, setLastRange] = useState<DateRange | null>(null);
+  // loading / error are provided by the useETFData hook
 
   // responsive sizing
   const screenHeight = Dimensions.get('window').height;
@@ -66,71 +52,7 @@ export default function HomeScreen() {
     }
   }, [selectedArea]);
 
-  // ===== Aggregazione unificata per grafico unico =====
-  const parseYYYYMMDD = (n: number) => {
-    const y = Math.floor(n / 10000);
-    const m = Math.floor((n % 10000) / 100) - 1;
-    const d = n % 100;
-    return new Date(y, m, d);
-  };
-  const fmtYYYYMMDD = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return Number(`${y}${m}${day}`);
-  };
-  const daysBetween = (a: Date, b: Date) => Math.max(1, Math.round((+b - +a) / 86400000));
-
-  // Decidi la granularità comune (in giorni) in base allo span globale
-  const chooseBucketDays = (spanDays: number, maxPoints = 60) => {
-    let bucketDays: number;
-    if (spanDays <= 60) bucketDays = 1;
-    else if (spanDays <= 180) bucketDays = 7;
-    else if (spanDays <= 720) bucketDays = 30;
-    else bucketDays = 90;
-    const est = Math.ceil(spanDays / bucketDays);
-    return est > maxPoints ? Math.ceil(spanDays / maxPoints) : bucketDays;
-  };
-
-  // Aggrega una serie (ETF rows) sui bucket comuni
-  const aggregateOnBuckets = (
-    rows: ETFData[],
-    globalStart: Date,
-    bucketDays: number,
-    bucketCount: number
-  ): { data: number[]; upOrDown: 'up' | 'down' } => {
-    const sorted = [...rows].sort((a, b) => a.calendar_id - b.calendar_id);
-    const acc = Array.from({ length: bucketCount }, () => ({ sum: 0, cnt: 0 }));
-
-    for (const r of sorted) {
-      const d = parseYYYYMMDD(r.calendar_id);
-      let idx = Math.floor(daysBetween(globalStart, d) / bucketDays);
-      if (idx < 0) idx = 0;
-      if (idx >= bucketCount) idx = bucketCount - 1;
-      const price = parseFloat(r.close_price);
-      const cell = acc[idx];
-      cell.sum += price;
-      cell.cnt += 1;
-    }
-
-    const series: number[] = [];
-    let prev = sorted.length ? parseFloat(sorted[0].close_price) : 0;
-    for (let i = 0; i < bucketCount; i++) {
-      const cell = acc[i];
-      if (cell.cnt > 0) {
-        prev = cell.sum / cell.cnt;
-        series.push(prev);
-      } else {
-        // forward-fill per mantenere continuità visiva
-        series.push(prev);
-      }
-    }
-
-    const first = series[0] ?? 0;
-    const last = series[series.length - 1] ?? first;
-    const upOrDown: 'up' | 'down' = last >= first ? 'up' : 'down';
-    return { data: series, upOrDown };
-  };
+  // aggregation + labeling logic is provided by `useETFData` and `utils/aggregation`
 
   // ===== Selezione ETF (toggle) =====
   const toggleSelect = (t: AreaTicker) => {
@@ -160,117 +82,15 @@ export default function HomeScreen() {
   };
 
   // ===== Fetch selezionati -> build datasets unificati =====
-  const fetchSelected = async (range: DateRange, useCache: boolean = true) => {
-    const toLoad = Object.values(selectedTickers);
-    if (toLoad.length === 0) return;
+  // dataset fetching is handled by the hook: call it with the selected tickers list
 
-    setLoading(true);
-    setError(null);
-
-    try {
-      const results = await Promise.all(
-        toLoad.map((t) =>
-          apiService
-            .fetchETFData(
-              { id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date } as QueryParams,
-              useCache
-            )
-            .then((rows) => ({ t, rows }))
-        )
-      );
-
-      // Globale start/end
-      let minCal = Infinity;
-      let maxCal = -Infinity;
-      results.forEach(({ rows }) => {
-        if (!rows.length) return;
-        const first = rows.reduce((m, r) => Math.min(m, r.calendar_id), rows[0].calendar_id);
-        const last = rows.reduce((m, r) => Math.max(m, r.calendar_id), rows[0].calendar_id);
-        minCal = Math.min(minCal, first);
-        maxCal = Math.max(maxCal, last);
-      });
-
-      if (!isFinite(minCal) || !isFinite(maxCal)) {
-        setMultiDatasets(null);
-        setLastRange(range);
-        setLoading(false);
-        return;
-      }
-
-      const globalStart = parseYYYYMMDD(minCal);
-      const globalEnd = parseYYYYMMDD(maxCal);
-      const spanDays = daysBetween(globalStart, globalEnd);
-      const bucketDays = chooseBucketDays(spanDays, 60);
-      const bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
-
-      // build shared labels from buckets (YYYY-MM-DD)
-      const buildLabel = (d: Date) => {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
-      };
-      const labels: string[] = [];
-      for (let i = 0; i < bucketCount; i++) {
-        const dt = new Date(globalStart.getTime() + i * bucketDays * 86400000);
-        labels.push(buildLabel(dt));
-      }
-
-      const datasets: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
-        const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount);
-        return {
-          label: t.ticker,
-          data: agg.data,
-          colorHint: agg.upOrDown,
-          labels,
-        };
-      });
-
-  setMultiDatasets(datasets);
-  // fetch cumulative returns in parallel but don't block the price chart
-  fetchCumulativeForSelected(range, useCache).catch(() => setCumDatasets(null));
-  setLastRange(range);
-    } catch (e) {
-      setMultiDatasets(null);
-      setError(e instanceof Error ? e.message : 'Errore inatteso durante il caricamento');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ------- cumulative returns (second chart) -------
-  const [cumDatasets, setCumDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
-
-  const fetchCumulativeForSelected = async (range: DateRange, useCache: boolean = true) => {
-    const toLoad = Object.values(selectedTickers);
-    if (toLoad.length === 0) return;
-    try {
-      const results = await Promise.all(
-        toLoad.map((t) => apiService.fetchCumulativeReturns({ id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date }, useCache).then((r) => ({ t, r })))
-      );
-
-      // backend returns arrays per ticker; pick simple cumulative returns
-      const datasets: MultiDatasetWithLabels[] = results.map(({ t, r }) => {
-        // r.calendar_days expected as numbers YYYYMMDD
-        const labels = Array.isArray(r.calendar_days)
-          ? r.calendar_days.map((n) => {
-              const s = String(n);
-              if (s.length === 8) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
-              return s;
-            })
-          : [];
-        return { label: t.ticker, data: r.simple, colorHint: 'up', labels };
-      });
-      setCumDatasets(datasets);
-    } catch (e) {
-      setCumDatasets(null);
-    }
-  };
+  // cumulative datasets are provided by the hook (cumDatasets)
 
   const handleSubmit = useCallback(
     (params: QueryParams) => {
       const range: DateRange = { start_date: params.start_date, end_date: params.end_date };
-      fetchSelected(range, true);
+  // pass the currently selected tickers to the hook
+  fetchSelected(Object.values(selectedTickers), range, true);
     },
     [selectedTickers]
   );
@@ -279,14 +99,14 @@ export default function HomeScreen() {
     if (!lastRange || Object.keys(selectedTickers).length === 0) return;
     setRefreshing(true);
     try {
-      await fetchSelected(lastRange, false);
+      await fetchSelected(Object.values(selectedTickers), lastRange, false);
     } finally {
       setRefreshing(false);
     }
   }, [lastRange, selectedTickers]);
 
   const handleRetry = () => {
-    if (lastRange) fetchSelected(lastRange, false);
+  if (lastRange) fetchSelected(Object.values(selectedTickers), lastRange, false);
   };
 
   // ===== RENDER HELPERS =====
@@ -323,6 +143,7 @@ export default function HomeScreen() {
               data={tickers}
               keyExtractor={(item) => String(item.ID_ticker)}
               scrollEnabled={true}
+              nestedScrollEnabled={true}
               ItemSeparatorComponent={() => <View style={styles.separator} />}
               renderItem={({ item }) => {
                 const isSel = !!selectedTickers[item.ID_ticker];
@@ -390,26 +211,31 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
+      <FlatList
         style={styles.scrollView}
         contentContainerStyle={{ paddingBottom: Math.max(24, insets.bottom + 12) }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={['#3B82F6']}
-            tintColor="#3B82F6"
-          />
-        }
-      >
-        <AreaChips areas={areas} selectedId={selectedArea} onSelect={setSelectedArea} loading={loading} />
+        data={[]}
+        renderItem={() => null}
+        // header contains the main UI controls and tickers list
+        ListHeaderComponent={() => (
+          <>
+            <AreaChips areas={areas} selectedId={selectedArea} onSelect={setSelectedArea} loading={loading} />
 
-        {renderTickersList()}
+            {renderTickersList()}
 
-        <ETFQueryForm onSubmit={handleSubmit} loading={loading} />
-
-  <View style={[styles.chartContainer, { paddingBottom: Math.max(12, insets.bottom) }]}>{renderChart()}</View>
-      </ScrollView>
+            <ETFQueryForm onSubmit={handleSubmit} loading={loading} />
+          </>
+        )}
+        // footer contains the charts
+        ListFooterComponent={() => (
+          <View style={[styles.chartContainer, { paddingBottom: Math.max(12, insets.bottom) }]}>
+            {renderChart()}
+          </View>
+        )}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        keyExtractor={() => 'empty'}
+      />
     </SafeAreaView>
   );
 }

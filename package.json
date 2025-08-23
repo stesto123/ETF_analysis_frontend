@@ -4,9 +4,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "EXPO_NO_TELEMETRY=1 expo start",
-    "build:web": "expo export --platform web",
-    "lint": "expo lint"
+  "dev": "EXPO_NO_TELEMETRY=1 expo start",
+  "start": "EXPO_NO_TELEMETRY=1 expo start",
+  "build:web": "expo export --platform web",
+  "lint": "expo lint",
+  "test": "jest --config ./jest.config.cjs"
   },
   "dependencies": {
     "20": "^3.1.9",

@@ -118,6 +118,25 @@ npm run lint
 expo start --clear
 ```
 
+## ▶️ Run & Test
+
+Use these npm scripts from the project root:
+
+```bash
+# Start the Expo dev server (alias)
+npm run start
+
+# Run unit tests (requires jest + ts-jest installed as devDependencies)
+npm run test
+```
+
+If you don't have Jest installed, install dev deps first:
+
+```bash
+npm install --save-dev jest ts-jest @types/jest
+npx ts-jest config:init
+```
+
 ## 📊 Come Usare l'App
 
 ### 1. Schermata Analytics
