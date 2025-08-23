@@ -1,18 +1,39 @@
+// app/_layout.tsx
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useFrameworkReady } from '@/hooks/useFrameworkReady';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as NavigationBar from 'expo-navigation-bar';
 
 export default function RootLayout() {
-  useFrameworkReady();
+  // Android: evita che la system navigation bar si sovrapponga,
+  // e chiedi al sistema di fornire gli inset in basso.
+  useEffect(() => {
+    (async () => {
+      try {
+        await NavigationBar.setVisibilityAsync('visible');
+        await NavigationBar.setBehaviorAsync('inset-swipe'); // fornisce insets corretti con gesture
+        await NavigationBar.setPositionAsync('relative');    // non sovrappone i contenuti
+        await NavigationBar.setBackgroundColorAsync('#FFFFFF');
+        await NavigationBar.setButtonStyleAsync('dark');
+      } catch {
+        // iOS o ambienti dove l'API non è disponibile: nessun problema
+      }
+    })();
+  }, []);
 
   return (
-    <>
-      <Stack screenOptions={{ headerShown: false }}>
+    <SafeAreaProvider>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: '#FFFFFF' },
+        }}
+      >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="+not-found" />
       </Stack>
-      <StatusBar style="auto" />
-    </>
+      <StatusBar style="dark" />
+    </SafeAreaProvider>
   );
 }
