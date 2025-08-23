@@ -38,11 +38,6 @@ export default function HomeScreen() {
   const [multiDatasets, setMultiDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
 
   const [lastRange, setLastRange] = useState<DateRange | null>(null);
-  // pipeline job state
-  const [pipelineStarting, setPipelineStarting] = useState(false);
-  const [pipelineJobId, setPipelineJobId] = useState<string | null>(null);
-  const [pipelineStatus, setPipelineStatus] = useState<string | null>(null);
-  const [pipelineError, setPipelineError] = useState<string | null>(null);
 
   // responsive sizing
   const screenHeight = Dimensions.get('window').height;
@@ -285,53 +280,7 @@ export default function HomeScreen() {
     if (lastRange) fetchSelected(lastRange, false);
   };
 
-  // ---- pipeline job helpers ----
-  const pollJobStatus = useCallback((jobId: string) => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const res = await apiService.getJobStatus(jobId);
-        if (cancelled) return;
-        setPipelineStatus(res.status);
-        if (res.status === 'finished' || res.status === 'failed' || res.status === 'error') return; // stop
-        setTimeout(tick, 3000);
-      } catch (e) {
-        if (!cancelled) setPipelineError(e instanceof Error ? e.message : 'Errore stato job');
-      }
-    };
-    tick();
-    return () => { cancelled = true; };
-  }, []);
-
-  const startPipeline = async () => {
-    // parametri demo: in futuro legare a form dedicato
-    if (pipelineStarting) return;
-    setPipelineError(null);
-    setPipelineStarting(true);
-    try {
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
-      const endStr = `${yyyy}${mm}${dd}`;
-      const startStr = `${yyyy}0101`;
-      const payload = {
-        id_portafoglio: 1,
-        ammontare: 10000,
-        strategia: 'baseline',
-        data_inizio: startStr,
-        data_fine: endStr,
-      };
-      const res = await apiService.runPipeline(payload);
-      setPipelineJobId(res.job_id);
-      setPipelineStatus(res.status);
-      pollJobStatus(res.job_id);
-    } catch (e) {
-      setPipelineError(e instanceof Error ? e.message : 'Errore avvio pipeline');
-    } finally {
-      setPipelineStarting(false);
-    }
-  };
+  
 
   // ===== RENDER HELPERS =====
   // main FlatList renders tickers; header & footer handle rest
@@ -450,25 +399,7 @@ export default function HomeScreen() {
         <View style={[styles.chartContainer, { paddingBottom: Math.max(12, insets.bottom) }]}>
           {renderChart()}
         </View>
-        <View style={styles.pipelineCard}>
-          <Text style={styles.pipelineTitle}>Pipeline Analitica</Text>
-          <Text style={styles.pipelineSubtitle}>
-            Avvia un job batch sul backend per generare dati di strategia.
-          </Text>
-          {pipelineError && <Text style={styles.pipelineError}>{pipelineError}</Text>}
-          <Pressable
-            onPress={startPipeline}
-            style={[styles.pipelineBtn, pipelineStarting && { opacity: 0.6 }]}
-            disabled={pipelineStarting}
-          >
-            <Text style={styles.pipelineBtnText}>
-              {pipelineStarting ? 'Avvio...' : pipelineStatus ? 'Riesegui Pipeline' : 'Avvia Pipeline'}
-            </Text>
-          </Pressable>
-          {pipelineStatus && (
-            <Text style={styles.pipelineStatus}>Stato: {pipelineStatus}{pipelineJobId ? ` (Job: ${pipelineJobId.slice(0,8)}...)` : ''}</Text>
-          )}
-        </View>
+  {/* pipeline UI rimossa: spostata in pagina dedicata */}
       </ScrollView>
     </SafeAreaView>
   );
@@ -531,29 +462,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
-  pipelineCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    marginHorizontal: 12,
-    padding: 16,
-    marginTop: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
-  },
-  pipelineTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 4 },
-  pipelineSubtitle: { fontSize: 12, color: '#6B7280', marginBottom: 8 },
-  pipelineBtn: {
-    marginTop: 4,
-    backgroundColor: '#2563EB',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  pipelineBtnText: { color: '#FFFFFF', fontWeight: '600' },
-  pipelineStatus: { marginTop: 8, fontSize: 12, color: '#374151' },
-  pipelineError: { marginTop: 4, fontSize: 12, color: '#DC2626' },
+  // pipeline styles removed (moved to dedicated screen)
 });
