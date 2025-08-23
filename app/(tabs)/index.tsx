@@ -311,14 +311,14 @@ export default function HomeScreen() {
     try {
       const today = new Date();
       const yyyy = today.getFullYear();
-      const mm = String(today.getMonth()).padStart(2, '0');
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
       const dd = String(today.getDate()).padStart(2, '0');
       const endStr = `${yyyy}${mm}${dd}`;
-      const startStr = `${yyyy}0823`;
+      const startStr = `${yyyy}0101`;
       const payload = {
         id_portafoglio: 1,
         ammontare: 10000,
-        strategia: 'PAC Semplice',
+        strategia: 'baseline',
         data_inizio: startStr,
         data_fine: endStr,
       };
