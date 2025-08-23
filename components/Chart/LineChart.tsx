@@ -2,6 +2,14 @@ import React, { useMemo, useState } from 'react';
 import { View, StyleSheet, Text, LayoutChangeEvent } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { ChartDataPoint } from '@/types';
+import { getLineColor as importedGetLineColor } from '@/utils/linePalette';
+
+// fallback nel caso l'import runtime fallisca (metro bundler edge case)
+const getLineColor = (idx: number) => {
+  if (typeof importedGetLineColor === 'function') return importedGetLineColor(idx);
+  const FALLBACK = ['#007AFF', '#FF3B30', '#34C759', '#FF9500'];
+  return FALLBACK[idx % FALLBACK.length];
+};
 
 interface SingleProps {
   data: ChartDataPoint[];
@@ -40,7 +48,7 @@ export default function ETFLineChart(props: Props) {
     containerWidth != null ? Math.max(140, containerWidth - CONTAINER_PADDING * 2) : undefined;
 
   // ===== costruzione dati =====
-  const { labels, datasets, title } = useMemo(() => {
+  const { labels, datasets, title, legend } = useMemo(() => {
     if (isMulti) {
       const mp = props as MultiProps;
       // attempt to use provided shared labels from the first series
@@ -55,8 +63,8 @@ export default function ETFLineChart(props: Props) {
         const step = Math.max(1, Math.ceil(n / 6));
         lbls = Array.from({ length: n }, (_, i) => (i % step === 0 ? String(i + 1) : ''));
       }
-      // colore per serie: verde se up, rosso se down
-      const PALETTE = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#F472B6'];
+  // Palette vivida ad alto contrasto (nessuna trasparenza)
+      // palette importata dal file condiviso (LINE_COLORS)
 
       // helper to convert hex to rgba string
       const hexToRgba = (hex: string, alpha = 1) => {
@@ -69,18 +77,23 @@ export default function ETFLineChart(props: Props) {
       };
 
       const many = mp.multi.length >= 8; // compact mode threshold
+      // build datasets: vivid solid colors, ignore opacity for maximum contrast
       const ds = mp.multi.map((s, idx) => {
-        // pick a distinct color from palette per series
-        const base = PALETTE[idx % PALETTE.length];
-        const color = many ? hexToRgba(base, 0.55) : base;
+        const base = getLineColor(idx);
         return {
           data: s.data,
-          color: () => color,
-          strokeWidth: many ? 1 : 2,
+          color: () => base, // sempre pieno, no trasparenza
+          strokeWidth: many ? 3 : 4,
           withDots: false as const,
         };
       });
-  return { labels: lbls, datasets: ds, title: 'Selected ETFs' };
+
+      const lg = mp.multi.map((s, idx) => {
+        const base = getLineColor(idx);
+        return { label: s.label, color: base };
+      });
+
+      return { labels: lbls, datasets: ds, title: 'Selected ETFs', legend: lg };
     } else {
       const sp = props as SingleProps;
       const prices = sp.data.map((p) => p.price);
@@ -89,8 +102,9 @@ export default function ETFLineChart(props: Props) {
       const color = last >= first ? '#10B981' : '#EF4444';
       return {
         labels: sp.data.map(() => ''),
-        datasets: [{ data: prices, color: () => color, strokeWidth: 2, withDots: false as const }],
-        title: `${sp.ticker} Price Chart`,
+  datasets: [{ data: prices, color: () => color, strokeWidth: 4, withDots: false as const }],
+  title: `${sp.ticker} Price Chart`,
+  legend: [],
       };
     }
   }, [props, isMulti]);
@@ -138,15 +152,8 @@ export default function ETFLineChart(props: Props) {
     return idx % step === 0 ? xValue : '';
   };
 
-  // Legend (solo in multi)
-  const legend = isMulti
-    ? (props as MultiProps).multi.map((s) => {
-        const first = s.data[0] ?? 0;
-        const last = s.data[s.data.length - 1] ?? first;
-        const up = (s.colorHint ?? (last >= first ? 'up' : 'down')) === 'up';
-        return { label: s.label, color: up ? '#10B981' : '#EF4444' };
-      })
-    : [];
+  // legend is produced from the datasets in the useMemo for multi; fall back to empty
+  // (destructured above).
 
   return (
   <View style={styles.container} onLayout={onContainerLayout}>

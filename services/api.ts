@@ -159,6 +159,31 @@ class APIService {
       console.warn('Failed to clear cache:', error);
     }
   }
+
+  // ------- Pipeline job -------
+  async runPipeline(params: { id_portafoglio: number; ammontare: number; strategia: string; data_inizio: string; data_fine: string }): Promise<{ job_id: string; status: string; pid?: number; log_path?: string }> {
+    const res = await fetch(`${API_BASE_URL}/api/run_pipeline`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Failed to start pipeline (${res.status}): ${txt}`);
+    }
+    return res.json();
+  }
+
+  async getJobStatus(job_id: string): Promise<{ job_id: string; status: string; exit_code?: number | null; log_path?: string; finished_at?: number; started_at?: number }> {
+    const url = new URL('/api/job_status', API_BASE_URL);
+    url.searchParams.append('job_id', job_id);
+    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Failed to get job status (${res.status}): ${txt}`);
+    }
+    return res.json();
+  }
 }
 
 export const apiService = new APIService();
