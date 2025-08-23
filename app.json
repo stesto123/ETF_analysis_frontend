@@ -11,6 +11,10 @@
     "ios": {
       "supportsTablet": true
     },
+    "android": {
+      "package": "com.stesto123.etfanalysis",
+      "versionCode": 1
+    },
     "web": {
       "bundler": "metro",
       "output": "single",

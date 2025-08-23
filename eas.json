@@ -1,0 +1,17 @@
+{
+  "build": {
+    "production": {
+      "workflow": "managed",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "apk": {
+      "workflow": "managed",
+      "android": {
+        "buildType": "apk"
+      }
+    }
+  }
+}
