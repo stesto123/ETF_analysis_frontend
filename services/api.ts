@@ -6,6 +6,14 @@ const API_BASE_URL = 'https://wa-etf-analysis-d0enavd0h5e9f5gr.italynorth-01.azu
 type GeographicArea = { area_geografica: string; id_area_geografica: number };
 type AreaTicker = { ID_ticker: number; ticker: string };
 type PortfolioItem = { [key: string]: any };
+type PortfolioResultRow = {
+  calendar_id: number;
+  id_portafoglio: number;
+  valore_investimento: number;
+  plusvalenze: number;
+  valore_totale: number;
+  id_strategia: number;
+};
 
 class APIService {
   // ------- Cache helpers (generic) -------
@@ -89,8 +97,12 @@ class APIService {
     return data;
   }
 
-  async getTickersByArea(id_area_geografica: number, useCache: boolean = true): Promise<AreaTicker[]> {
-    const cacheKey = `tickers_area_${id_area_geografica}`;
+  async getTickersByArea(
+    id_area_geografica: number,
+    flag_is_needed: boolean = true,
+    useCache: boolean = true
+  ): Promise<AreaTicker[]> {
+    const cacheKey = `tickers_area_${id_area_geografica}_flag_${flag_is_needed}`;
     if (useCache) {
       const cached = await this.getCache<AreaTicker[]>(cacheKey, 6 * 60 * 60 * 1000); // 6h
       if (cached) return cached;
@@ -98,6 +110,9 @@ class APIService {
 
     const url = new URL('/api/tickers_by_area', API_BASE_URL);
     url.searchParams.append('id_area_geografica', String(id_area_geografica));
+    if (flag_is_needed) {
+      url.searchParams.append('flag_is_needed', '1');
+    }
     const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`Failed to fetch tickers by area: ${res.status}`);
     const data: AreaTicker[] = await res.json();
@@ -211,7 +226,23 @@ class APIService {
     }
     return res.json();
   }
+
+  /** Fetch risultati_portafoglio (optionally filtered) */
+  async getPortfolioResults(id_portafoglio?: number, useCache: boolean = true): Promise<PortfolioResultRow[]> {
+    const cacheKey = id_portafoglio == null ? 'portfolio_results_all' : `portfolio_results_${id_portafoglio}`;
+    if (useCache) {
+      const cached = await this.getCache<PortfolioResultRow[]>(cacheKey, 30 * 60 * 1000); // 30m
+      if (cached) return cached;
+    }
+    const url = new URL('/api/risultati_portafoglio', API_BASE_URL);
+    if (id_portafoglio != null) url.searchParams.append('id_portafoglio', String(id_portafoglio));
+    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`Failed to fetch portfolio results: ${res.status}`);
+    const data: PortfolioResultRow[] = await res.json();
+    await this.setCache(cacheKey, data);
+    return data;
+  }
 }
 
 export const apiService = new APIService();
-export type { GeographicArea, AreaTicker };
+export type { GeographicArea, AreaTicker, PortfolioResultRow };

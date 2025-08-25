@@ -51,7 +51,8 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (selectedArea) {
-      apiService.getTickersByArea(selectedArea).then(setTickers).catch(() => setTickers([]));
+      // Adesso passiamo flag_is_needed: true per filtrare come richiesto
+      apiService.getTickersByArea(selectedArea, true).then(setTickers).catch(() => setTickers([]));
     } else {
       setTickers([]);
     }

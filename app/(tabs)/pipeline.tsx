@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import {
   SafeAreaView,
   View,
@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiService } from '@/services/api';
+import ETFLineChart from '@/components/Chart/LineChart';
+import { ChartDataPoint } from '@/types';
 
 export default function PipelineScreen() {
   const insets = useSafeAreaInsets();
@@ -31,6 +33,13 @@ export default function PipelineScreen() {
 
   const [starting, setStarting] = useState(false);
   const [portfolios, setPortfolios] = useState<any[]>([]);
+  const [selectedPortfolios, setSelectedPortfolios] = useState<Record<number, boolean>>({});
+  const [portfolioResults, setPortfolioResults] = useState<Record<number, { calendar_id: number; valore_totale: number }[]>>({});
+  const [resultsLoading, setResultsLoading] = useState(false);
+  const [resultsError, setResultsError] = useState<string | null>(null);
+  // Date range filter for graph (YYYYMMDD strings). Empty => no filter.
+  const [chartStartDate, setChartStartDate] = useState<string>('');
+  const [chartEndDate, setChartEndDate] = useState<string>('');
   const [tableError, setTableError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -47,7 +56,7 @@ export default function PipelineScreen() {
       const payload = {
         id_portafoglio: Number(idPortafoglio),
         ammontare: Number(ammontare),
-        strategia: strategia || 'baseline',
+        strategia: strategia || 'PAC Semplice',
         data_inizio: dataInizio,
         data_fine: dataFine,
       };
@@ -103,9 +112,69 @@ export default function PipelineScreen() {
     };
   }, []);
 
+  // Toggle selection of portfolio row
+  const togglePortfolio = (id: number) => {
+    setSelectedPortfolios(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // Fetch results for selected portfolios
+  useEffect(() => {
+    const ids = Object.keys(selectedPortfolios).filter(k => selectedPortfolios[Number(k)]).map(Number);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    setResultsLoading(true);
+    setResultsError(null);
+    (async () => {
+      try {
+        const entries: [number, any[]][] = await Promise.all(
+          ids.map(async pid => {
+            const rows = await apiService.getPortfolioResults(pid, true);
+            return [pid, rows] as [number, any[]];
+          })
+        );
+        if (cancelled) return;
+        const mapped: Record<number, { calendar_id: number; valore_totale: number }[]> = {};
+        entries.forEach(([pid, rows]) => {
+          mapped[pid] = rows.map(r => ({ calendar_id: r.calendar_id, valore_totale: r.valore_totale }));
+        });
+        setPortfolioResults(prev => ({ ...prev, ...mapped }));
+      } catch (e) {
+        if (!cancelled) setResultsError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setResultsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedPortfolios]);
+
+  // Build multi datasets for chart (align by date order - assume calendar_id descending from API -> reverse)
+  const portfolioDatasets = useMemo(() => {
+    const ids = Object.keys(selectedPortfolios).filter(k => selectedPortfolios[Number(k)]).map(Number);
+    if (ids.length === 0) return null;
+    const startInt = chartStartDate.length === 8 ? parseInt(chartStartDate, 10) : null;
+    const endInt = chartEndDate.length === 8 ? parseInt(chartEndDate, 10) : null;
+    const datasets = ids.map(pid => {
+      const rows = (portfolioResults[pid] || []).slice().sort((a,b)=>a.calendar_id - b.calendar_id);
+      const filtered = rows.filter(r => {
+        if (startInt && r.calendar_id < startInt) return false;
+        if (endInt && r.calendar_id > endInt) return false;
+        return true;
+      });
+      const data = filtered.map(r => r.valore_totale);
+      // labels as YYYY-MM-DD
+      const labels = filtered.map(r => {
+        const s = String(r.calendar_id);
+        if (s.length === 8) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+        return s;
+      });
+      return { label: `P${pid}`, data, labels, colorHint: data.length && data[data.length-1] >= data[0] ? 'up' : 'down' as const };
+    }).filter(ds => ds.data.length > 0);
+    return datasets.length ? datasets : null;
+  }, [portfolioResults, selectedPortfolios, chartStartDate, chartEndDate]);
+
   // Render a simple table for portfolios with consistent cell styling
   const renderPortfolioTable = (items: any[]) => {
-    if (!items || items.length === 0) return null;
+  if (!items || items.length === 0) return <></>; // empty fragment instead of null to avoid accidental string coercion
 
     // determine max number of ticker columns across all portfolios
     let maxTickers = 0;
@@ -125,7 +194,7 @@ export default function PipelineScreen() {
     });
 
     // header
-    const headers = ['ID_Portafoglio', 'Descrizione_Portafoglio'];
+  const headers = ['Sel', 'ID_Portafoglio', 'Descrizione_Portafoglio'];
     for (let i = 1; i <= maxTickers; i++) {
       headers.push(`ticker ${i}`);
       headers.push(`percentuale ${i}`);
@@ -141,13 +210,18 @@ export default function PipelineScreen() {
           ))}
         </View>
 
-        {parsed.map((row) => (
+    {parsed.map((row) => (
           <View key={row.ID_Portafoglio} style={styles.tableRow}>
+            <View style={[styles.cell, styles.firstCell, {alignItems:'center'}]}>
+              <Pressable onPress={() => togglePortfolio(row.ID_Portafoglio)} style={[styles.checkbox, selectedPortfolios[row.ID_Portafoglio] && styles.checkboxOn]}>
+                <Text style={styles.checkboxMark}>{selectedPortfolios[row.ID_Portafoglio] ? '✓' : ''}</Text>
+              </Pressable>
+            </View>
             <View style={[styles.cell, styles.firstCell]}>
               <Text style={styles.cellText}>{row.ID_Portafoglio}</Text>
             </View>
-
-            <View style={[styles.cell, { minWidth: 220 }]}> {/* description gets a bit more space */}
+      {/* description gets a bit more space */}
+      <View style={[styles.cell, { minWidth: 220 }]}> 
               <Text style={styles.cellText}>{row.Descrizione_Portafoglio}</Text>
             </View>
 
@@ -184,9 +258,12 @@ export default function PipelineScreen() {
             {portfolios.length === 0 && !tableError ? (
               <Text style={styles.small}>Nessun portafoglio disponibile</Text>
             ) : (
-              <ScrollView horizontal style={{ backgroundColor: '#FFF', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' }}>
+              <ScrollView
+                horizontal
+                style={{ backgroundColor: '#FFF', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' }}
+                contentContainerStyle={{}}
+              >
                 <View style={{ padding: 8 }}>
-                  {/* Build table header based on max number of tickers */}
                   {renderPortfolioTable(portfolios)}
                 </View>
               </ScrollView>
@@ -233,6 +310,50 @@ export default function PipelineScreen() {
             {logPath && <Text style={styles.small}>Log: {logPath}</Text>}
           </View>
 
+          <View style={{ marginTop: 20 }}>
+            <Text style={styles.label}>Andamento Valore Totale Portafogli Selezionati</Text>
+            <View style={styles.row}>
+              <View style={[styles.field, { flex: 1, marginRight: 8 }]}> 
+                <Text style={styles.label}>Start (YYYYMMDD)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={chartStartDate}
+                  onChangeText={setChartStartDate}
+                  placeholder="es. 20240101"
+                  keyboardType="number-pad"
+                />
+              </View>
+              <View style={[styles.field, { flex: 1 }]}> 
+                <Text style={styles.label}>End (YYYYMMDD)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={chartEndDate}
+                  onChangeText={setChartEndDate}
+                  placeholder="es. 20241231"
+                  keyboardType="number-pad"
+                />
+              </View>
+            </View>
+            {(chartStartDate || chartEndDate) && (
+              <Text style={styles.small}>Filtro attivo {chartStartDate && `da ${chartStartDate}`} {chartEndDate && `a ${chartEndDate}`}</Text>
+            )}
+            {resultsError && <Text style={styles.error}>{resultsError}</Text>}
+            {resultsLoading && !portfolioDatasets && <Text style={styles.small}>Caricamento risultati…</Text>}
+            {!resultsLoading && (!portfolioDatasets || portfolioDatasets.length === 0) && (
+              <Text style={styles.small}>Seleziona uno o più portafogli dalla tabella sopra.</Text>
+            )}
+            {portfolioDatasets && portfolioDatasets.length > 0 && (
+              <View style={styles.chartCard}>
+                <ETFLineChart
+                  multi={portfolioDatasets.map(ds => ({ label: ds.label, data: ds.data, labels: ds.labels, colorHint: ds.colorHint as 'up' | 'down' }))}
+                  data={[] as unknown as ChartDataPoint[]}
+                  ticker="Portafogli"
+                  height={220}
+                />
+              </View>
+            )}
+          </View>
+
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -276,5 +397,29 @@ const styles = StyleSheet.create({
   lastCell: { borderRightWidth: 0 },
   headerText: { fontSize: 12, fontWeight: '700', color: '#111827' },
   cellText: { fontSize: 13, color: '#374151' },
+  // checkbox styles reused from index screen
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFF',
+  },
+  checkboxOn: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+  checkboxMark: { color: '#FFF', fontSize: 12, fontWeight: '700' },
+  chartCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
 });
 
