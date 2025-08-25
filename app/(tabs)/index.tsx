@@ -331,7 +331,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container]}>
+    <SafeAreaView style={[styles.container, { paddingBottom: Math.max(12, insets.bottom + 12) }]}>
       <ScrollView
         refreshControl={
           <RefreshControl
@@ -341,7 +341,7 @@ export default function HomeScreen() {
             tintColor="#3B82F6"
           />
         }
-        contentContainerStyle={{ paddingBottom: Math.max(0, insets.bottom + 0) }}
+        contentContainerStyle={{ paddingBottom: Math.max(24, insets.bottom + 12) }}
       >
         <AreaChips
           areas={areas}

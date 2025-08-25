@@ -1,14 +1,16 @@
 {
   "build": {
     "production": {
-      "workflow": "managed",
       "distribution": "internal",
       "android": {
         "buildType": "apk"
       }
+      ,
+      "ios": {
+        "simulator": false
+      }
     },
     "apk": {
-      "workflow": "managed",
       "android": {
         "buildType": "apk"
       }
