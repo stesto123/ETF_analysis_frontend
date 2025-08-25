@@ -66,15 +66,7 @@ export default function ETFLineChart(props: Props) {
   // Palette vivida ad alto contrasto (nessuna trasparenza)
       // palette importata dal file condiviso (LINE_COLORS)
 
-      // helper to convert hex to rgba string
-      const hexToRgba = (hex: string, alpha = 1) => {
-        const h = hex.replace('#', '');
-        const bigint = parseInt(h, 16);
-        const r = (bigint >> 16) & 255;
-        const g = (bigint >> 8) & 255;
-        const b = bigint & 255;
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-      };
+  // hexToRgba removed (unused) to satisfy lint rules
 
       const many = mp.multi.length >= 8; // compact mode threshold
       // build datasets: vivid solid colors, ignore opacity for maximum contrast

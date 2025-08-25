@@ -8,7 +8,7 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { Trash2, Info, RefreshCw } from 'lucide-react-native';
+import { Trash2, Info } from 'lucide-react-native';
 import { apiService } from '@/services/api';
 
 export default function SettingsScreen() {

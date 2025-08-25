@@ -5,6 +5,7 @@ const API_BASE_URL = 'https://wa-etf-analysis-d0enavd0h5e9f5gr.italynorth-01.azu
 
 type GeographicArea = { area_geografica: string; id_area_geografica: number };
 type AreaTicker = { ID_ticker: number; ticker: string };
+type PortfolioItem = { [key: string]: any };
 
 class APIService {
   // ------- Cache helpers (generic) -------
@@ -100,6 +101,32 @@ class APIService {
     const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`Failed to fetch tickers by area: ${res.status}`);
     const data: AreaTicker[] = await res.json();
+    await this.setCache(cacheKey, data);
+    return data;
+  }
+
+  /**
+   * Fetch portfolio composition(s).
+   * If id_portafoglio is provided returns composition for that portfolio (as array, possibly empty).
+   * Otherwise returns all portfolios.
+   */
+  async getPortfolioComposition(id_portafoglio?: number, useCache: boolean = true): Promise<PortfolioItem[]> {
+    const cacheKey = id_portafoglio == null ? 'portfolios_all' : `portfolios_${id_portafoglio}`;
+    if (useCache) {
+      const cached = await this.getCache<PortfolioItem[]>(cacheKey, 60 * 60 * 1000); // 1h
+      if (cached) return cached;
+    }
+
+    const url = new URL('/api/composizione_portafoglio', API_BASE_URL);
+    if (id_portafoglio != null) url.searchParams.append('id_portafoglio', String(id_portafoglio));
+
+    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Failed to fetch portfolio composition (${res.status}): ${txt}`);
+    }
+    const data: PortfolioItem[] = await res.json();
+    if (!Array.isArray(data)) throw new Error('Invalid portfolio response format');
     await this.setCache(cacheKey, data);
     return data;
   }

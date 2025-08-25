@@ -30,6 +30,8 @@ export default function PipelineScreen() {
   const [dataFine, setDataFine] = useState<string>(defaultEnd);
 
   const [starting, setStarting] = useState(false);
+  const [portfolios, setPortfolios] = useState<any[]>([]);
+  const [tableError, setTableError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [pid, setPid] = useState<number | null>(null);
@@ -83,11 +85,113 @@ export default function PipelineScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const data = await apiService.getPortfolioComposition();
+        if (!mounted) return;
+        setPortfolios(data);
+      } catch (e) {
+        if (!mounted) return;
+        setTableError(e instanceof Error ? e.message : String(e));
+      }
+    };
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Render a simple table for portfolios with consistent cell styling
+  const renderPortfolioTable = (items: any[]) => {
+    if (!items || items.length === 0) return null;
+
+    // determine max number of ticker columns across all portfolios
+    let maxTickers = 0;
+    const parsed = items.map((it) => {
+      const pairs: { ticker?: string; percentuale?: number }[] = [];
+      Object.keys(it).forEach((k) => {
+        const m = k.match(/^ticker_(\d+)$/);
+        if (m) {
+          const idx = m[1];
+          const ticker = it[k];
+          const pctKey = `percentuale_${idx}`;
+          pairs[Number(idx) - 1] = { ticker, percentuale: it[pctKey] };
+        }
+      });
+      if (pairs.length > maxTickers) maxTickers = pairs.length;
+      return { ID_Portafoglio: it.ID_Portafoglio, Descrizione_Portafoglio: it.Descrizione_Portafoglio, pairs };
+    });
+
+    // header
+    const headers = ['ID_Portafoglio', 'Descrizione_Portafoglio'];
+    for (let i = 1; i <= maxTickers; i++) {
+      headers.push(`ticker ${i}`);
+      headers.push(`percentuale ${i}`);
+    }
+
+    return (
+      <View style={styles.tableContainer}>
+        <View style={styles.tableHeaderRow}>
+          {headers.map((h, idx) => (
+            <View key={h + idx} style={[styles.headerCell, idx === headers.length - 1 && styles.lastCell]}>
+              <Text style={styles.headerText}>{h}</Text>
+            </View>
+          ))}
+        </View>
+
+        {parsed.map((row) => (
+          <View key={row.ID_Portafoglio} style={styles.tableRow}>
+            <View style={[styles.cell, styles.firstCell]}>
+              <Text style={styles.cellText}>{row.ID_Portafoglio}</Text>
+            </View>
+
+            <View style={[styles.cell, { minWidth: 220 }]}> {/* description gets a bit more space */}
+              <Text style={styles.cellText}>{row.Descrizione_Portafoglio}</Text>
+            </View>
+
+            {Array.from({ length: maxTickers }).map((_, i) => {
+              const pair = row.pairs[i] || {};
+              const isLast = i === maxTickers - 1;
+              return (
+                <React.Fragment key={i}>
+                  <View style={[styles.cell, isLast && styles.lastCell]}>
+                    <Text style={styles.cellText}>{pair.ticker ?? ''}</Text>
+                  </View>
+                  <View style={[styles.cell, isLast && styles.lastCell]}>
+                    <Text style={styles.cellText}>{pair.percentuale != null ? String(pair.percentuale) : ''}</Text>
+                  </View>
+                </React.Fragment>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: Math.max(24, insets.bottom + 12) }}>
           <Text style={styles.title}>Avvia Pipeline</Text>
+
+          {/* Portfolio table inserted before pipeline form */}
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.label, { marginBottom: 8 }]}>Composizione Portafogli</Text>
+            {tableError && <Text style={styles.error}>{tableError}</Text>}
+            {portfolios.length === 0 && !tableError ? (
+              <Text style={styles.small}>Nessun portafoglio disponibile</Text>
+            ) : (
+              <ScrollView horizontal style={{ backgroundColor: '#FFF', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' }}>
+                <View style={{ padding: 8 }}>
+                  {/* Build table header based on max number of tickers */}
+                  {renderPortfolioTable(portfolios)}
+                </View>
+              </ScrollView>
+            )}
+          </View>
 
           <View style={styles.field}>
             <Text style={styles.label}>ID Portafoglio</Text>
@@ -162,4 +266,15 @@ const styles = StyleSheet.create({
   statusValue: { fontSize: 16, fontWeight: '700', color: '#111827', marginTop: 6 },
   small: { fontSize: 12, color: '#374151', marginTop: 6 },
   error: { color: '#DC2626', marginBottom: 8 },
+  // table styles
+  tableContainer: { backgroundColor: '#FFF', borderRadius: 6, borderWidth: 1, borderColor: '#E5E7EB' },
+  tableHeaderRow: { flexDirection: 'row', backgroundColor: '#F9FAFB', borderBottomWidth: 1, borderColor: '#E5E7EB' },
+  tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: '#F3F4F6' },
+  headerCell: { minWidth: 120, paddingVertical: 8, paddingHorizontal: 10, borderRightWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center' },
+  firstCell: { minWidth: 120 },
+  cell: { minWidth: 120, paddingVertical: 8, paddingHorizontal: 10, borderRightWidth: 1, borderColor: '#F3F4F6', justifyContent: 'center' },
+  lastCell: { borderRightWidth: 0 },
+  headerText: { fontSize: 12, fontWeight: '700', color: '#111827' },
+  cellText: { fontSize: 13, color: '#374151' },
 });
+

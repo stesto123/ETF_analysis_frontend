@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, RefreshControl, Pressable } from 'react-native';
-import { Dimensions } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, RefreshControl, Pressable, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ETFQueryForm from '@/components/Form/ETFQueryForm';
@@ -41,8 +40,9 @@ export default function HomeScreen() {
 
   // responsive sizing
   const screenHeight = Dimensions.get('window').height;
-  const priceChartHeight = Math.min(260, Math.max(160, Math.round(screenHeight * 0.28)));
-  const cumChartHeight = Math.min(200, Math.max(140, Math.round(screenHeight * 0.22)));
+  // responsive sizing (kept for possible future use)
+  // const priceChartHeight = Math.min(260, Math.max(160, Math.round(screenHeight * 0.28)));
+  // const cumChartHeight = Math.min(200, Math.max(140, Math.round(screenHeight * 0.22)));
   // main list acts as ticker list; no nested virtualization
 
   useEffect(() => {
@@ -64,12 +64,7 @@ export default function HomeScreen() {
     const d = n % 100;
     return new Date(y, m, d);
   };
-  const fmtYYYYMMDD = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return Number(`${y}${m}${day}`);
-  };
+  // kept helper removed to silence unused var lint; recreate if needed
   const daysBetween = (a: Date, b: Date) => Math.max(1, Math.round((+b - +a) / 86400000));
 
   // Decidi la granularità comune (in giorni) in base allo span globale
@@ -253,7 +248,7 @@ export default function HomeScreen() {
         return { label: t.ticker, data: r.simple, colorHint: 'up', labels };
       });
       setCumDatasets(datasets);
-    } catch (e) {
+    } catch {
       setCumDatasets(null);
     }
   };
@@ -263,7 +258,7 @@ export default function HomeScreen() {
       const range: DateRange = { start_date: params.start_date, end_date: params.end_date };
       fetchSelected(range, true);
     },
-    [selectedTickers]
+  [selectedTickers, fetchSelected]
   );
 
   const handleRefresh = useCallback(async () => {
@@ -274,7 +269,7 @@ export default function HomeScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [lastRange, selectedTickers]);
+  }, [lastRange, selectedTickers, fetchSelected]);
 
   const handleRetry = () => {
     if (lastRange) fetchSelected(lastRange, false);
