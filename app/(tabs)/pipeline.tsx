@@ -20,7 +20,7 @@ export default function PipelineScreen() {
 
   const [idPortafoglio, setIdPortafoglio] = useState<string>('1');
   const [ammontare, setAmmontare] = useState<string>('10000');
-  const [strategia, setStrategia] = useState<string>('baseline');
+  const [strategia, setStrategia] = useState<string>('PAC Semplice');
   const today = new Date();
   const yyyy = today.getFullYear();
   const mm = String(today.getMonth() + 1).padStart(2, '0');
