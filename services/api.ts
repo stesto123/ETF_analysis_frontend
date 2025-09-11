@@ -280,14 +280,15 @@ class APIService {
 
   // ------- Portfolio management (create/update) -------
   async createPortfolio(descrizione: string): Promise<CreatePortfolioResponse> {
-    const res = await fetch(`${API_BASE_URL}/api/portafoglio`, {
+    const url = `${API_BASE_URL}/api/portafoglio`;
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ descrizione }),
     });
     if (!res.ok) {
       const txt = await res.text();
-      throw new Error(`Failed to create portfolio (${res.status}): ${txt}`);
+      throw new Error(`Failed to create portfolio ${url} (${res.status}): ${txt}`);
     }
     const data = await res.json();
     // invalidate cache of portfolios
@@ -302,14 +303,15 @@ class APIService {
     items: Array<{ ID_ticker: number; percentuale: number }>,
     descrizione?: string
   ): Promise<{ ok: true } | any> {
-    const res = await fetch(`${API_BASE_URL}/api/composizione_portafoglio`, {
+    const url = `${API_BASE_URL}/api/composizione_portafoglio`;
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ id_portafoglio, items, descrizione }),
     });
     if (!res.ok) {
       const txt = await res.text();
-      throw new Error(`Failed to set composition (${res.status}): ${txt}`);
+      throw new Error(`Failed to set composition ${url} (${res.status}): ${txt}`);
     }
     const data = await res.json().catch(() => ({ ok: true }));
     // invalidate caches related to portfolios
