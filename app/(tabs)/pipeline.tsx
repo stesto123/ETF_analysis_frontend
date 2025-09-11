@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiService } from '@/services/api';
+import { Picker } from '@react-native-picker/picker';
 import ETFLineChart from '@/components/Chart/LineChart';
 import { ChartDataPoint } from '@/types';
 
@@ -48,6 +49,31 @@ export default function PipelineScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const pollingRef = useRef<{ cancelled: boolean } | null>(null);
+
+  // ----- New: Create Portfolio & Composition -----
+  const [newDescrizione, setNewDescrizione] = useState<string>('');
+  const uidRef = useRef(1);
+  const genKey = () => `row-${uidRef.current++}`;
+  const [compItems, setCompItems] = useState<Array<{ key: string; areaId?: number; ID_ticker?: number; ticker?: string; percentuale?: number }>>([
+    { key: `row-${uidRef.current++}` },
+  ]);
+  const [areas, setAreas] = useState<Array<{ area_geografica: string; id_area_geografica: number }>>([]);
+  // Global selected area is just a default for NEW rows; each row keeps its own areaId
+  const [selectedArea, setSelectedArea] = useState<number | null>(null);
+  const [areaTickersMap, setAreaTickersMap] = useState<Record<number, Array<{ ID_ticker: number; ticker: string; nome: string }>>>({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiService.getGeographicAreas(true).then(setAreas).catch(() => setAreas([]));
+  }, []);
+
+  useEffect(() => {
+    if (selectedArea == null) return;
+    if (areaTickersMap[selectedArea]) return;
+    apiService.getTickersByArea(selectedArea, true, true)
+      .then(list => setAreaTickersMap(prev => ({ ...prev, [selectedArea]: list })))
+      .catch(() => {});
+  }, [selectedArea, areaTickersMap]);
 
   const startPipeline = useCallback(async () => {
     setError(null);
@@ -146,6 +172,47 @@ export default function PipelineScreen() {
     })();
     return () => { cancelled = true; };
   }, [selectedPortfolios]);
+
+  const addCompRow = () => {
+    setCompItems((prev) => [
+      ...prev,
+      { key: genKey(), areaId: selectedArea ?? undefined },
+    ]);
+  };
+  const removeCompRow = (key: string) => {
+    setCompItems((prev) => prev.filter((r) => r.key !== key));
+  };
+  const updateCompRow = (key: string, patch: Partial<{ areaId: number; ID_ticker: number; ticker: string; percentuale: number }>) => {
+    setCompItems((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  };
+
+  const totalPercent = useMemo(() => compItems.reduce((sum, r) => sum + (Number(r.percentuale) || 0), 0), [compItems]);
+
+  const createPortfolioAndSave = async () => {
+    setTableError(null);
+    if (!newDescrizione.trim()) { setTableError('Inserisci una descrizione per il portafoglio'); return; }
+    if (!compItems.length) { setTableError('Aggiungi almeno una riga di composizione'); return; }
+    if (Math.abs(totalPercent - 100) > 0.01) { setTableError('La somma delle percentuali deve essere 100'); return; }
+    type CompItemPost = { ID_ticker: number; percentuale: number };
+    const items: CompItemPost[] = compItems
+      .map((r) => ({ ID_ticker: r.ID_ticker, percentuale: Number(r.percentuale) }))
+      .filter((r): r is CompItemPost => typeof r.ID_ticker === 'number' && !Number.isNaN(r.percentuale));
+    if (!items.length) { setTableError('Seleziona ticker e percentuali valide'); return; }
+    setSaving(true);
+    try {
+      const created = await apiService.createPortfolio(newDescrizione.trim());
+      await apiService.setPortfolioComposition(created.ID_Portafoglio, items, newDescrizione.trim());
+  setNewDescrizione('');
+  setCompItems([{ key: genKey() }]);
+      // refresh portfolios table
+      const data = await apiService.getPortfolioComposition();
+      setPortfolios(data);
+    } catch (e) {
+      setTableError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Build multi datasets for chart (align by date order - assume calendar_id descending from API -> reverse)
   const portfolioDatasets = useMemo(() => {
@@ -270,6 +337,88 @@ export default function PipelineScreen() {
             )}
           </View>
 
+          {/* Create new portfolio */}
+          <View style={{ marginBottom: 16 }}>
+            <Text style={styles.title}>Crea Nuovo Portafoglio</Text>
+            {tableError && <Text style={styles.error}>{tableError}</Text>}
+            <View style={styles.field}>
+              <Text style={styles.label}>Descrizione Portafoglio</Text>
+              <TextInput style={styles.input} value={newDescrizione} onChangeText={setNewDescrizione} placeholder="es. Portafoglio Misto" />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Area preferita (default per nuove righe)</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker selectedValue={selectedArea} onValueChange={(v) => setSelectedArea(v)}>
+                  <Picker.Item label="-- Seleziona area --" value={null as any} />
+                  {areas.map((a) => (
+                    <Picker.Item key={a.id_area_geografica} label={a.area_geografica} value={a.id_area_geografica} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+            <Text style={[styles.label, { marginTop: 8 }]}>Composizione (deve sommare a 100)</Text>
+            {compItems.map((row, idx) => (
+              <View key={row.key} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                {/* Per-row Area */}
+                <View style={[styles.pickerWrapper, { flex: 0.9, marginRight: 8 }]}> 
+                  <Picker
+                    selectedValue={row.areaId ?? null}
+                    onValueChange={(v) => {
+                      const areaId = typeof v === 'number' ? v : undefined;
+                      if (typeof areaId === 'number' && !areaTickersMap[areaId]) {
+                        apiService.getTickersByArea(areaId, true, true).then(list => setAreaTickersMap(prev => ({ ...prev, [areaId]: list }))).catch(() => {});
+                      }
+                      // area change clears ticker in this row
+                      updateCompRow(row.key, { areaId, ID_ticker: undefined, ticker: undefined });
+                    }}
+                  >
+                    <Picker.Item label="Area" value={null as any} />
+                    {areas.map((a) => (
+                      <Picker.Item key={a.id_area_geografica} label={a.area_geografica} value={a.id_area_geografica} />
+                    ))}
+                  </Picker>
+                </View>
+                {/* Per-row Ticker from selected area */}
+                <View style={[styles.pickerWrapper, { flex: 1.2, marginRight: 8, opacity: row.areaId ? 1 : 0.6 }]}> 
+                  <Picker
+                    enabled={!!row.areaId}
+                    selectedValue={row.ID_ticker ?? null}
+                    onValueChange={(v) => {
+                      const id = typeof v === 'number' ? v : undefined;
+                      const list = row.areaId ? areaTickersMap[row.areaId] || [] : [];
+                      const found = typeof id === 'number' ? list.find((t) => t.ID_ticker === id) : undefined;
+                      updateCompRow(row.key, { ID_ticker: id, ticker: found?.ticker });
+                    }}
+                  >
+                    <Picker.Item label="Ticker" value={null as any} />
+                    {(row.areaId ? areaTickersMap[row.areaId] || [] : []).map((t) => (
+                      <Picker.Item key={t.ID_ticker} label={`${t.nome || t.ticker} (${t.ticker})`} value={t.ID_ticker} />
+                    ))}
+                  </Picker>
+                </View>
+                <TextInput
+                  style={[styles.input, { flex: 0.6, marginRight: 8 }]}
+                  value={row.percentuale != null ? String(row.percentuale) : ''}
+                  onChangeText={(v) => updateCompRow(row.key, { percentuale: Number(v) })}
+                  placeholder="%"
+                  keyboardType="numeric"
+                />
+                <Pressable onPress={() => removeCompRow(row.key)} style={[styles.checkbox, { width: 28, height: 28 }]}>
+                  <Text style={styles.checkboxMark}>-</Text>
+                </Pressable>
+              </View>
+            ))}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+              <Pressable onPress={addCompRow} style={[styles.checkbox, { width: 28, height: 28, marginRight: 8 }]}>
+                <Text style={styles.checkboxMark}>+</Text>
+              </Pressable>
+              <Text style={styles.small}>Totale: {totalPercent.toFixed(1)}%</Text>
+            </View>
+            <Pressable style={[styles.btn, saving && { opacity: 0.7 }]} onPress={createPortfolioAndSave} disabled={saving}>
+              <Text style={styles.btnText}>{saving ? 'Salvataggio…' : 'Crea e Salva Composizione'}</Text>
+            </Pressable>
+          </View>
+
           <View style={styles.field}>
             <Text style={styles.label}>ID Portafoglio</Text>
             <TextInput style={styles.input} value={idPortafoglio} onChangeText={setIdPortafoglio} keyboardType="number-pad" />
@@ -382,6 +531,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   btnText: { color: '#FFF', fontWeight: '700' },
+  pickerWrapper: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+  },
   statusCard: { marginTop: 16, backgroundColor: '#FFF', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' },
   statusLabel: { fontSize: 12, color: '#6B7280' },
   statusValue: { fontSize: 16, fontWeight: '700', color: '#111827', marginTop: 6 },

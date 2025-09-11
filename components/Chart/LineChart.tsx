@@ -49,15 +49,21 @@ export default function ETFLineChart(props: Props) {
     containerWidth != null ? Math.max(140, containerWidth - CONTAINER_PADDING * 2) : undefined;
 
   // ===== costruzione dati =====
-  const [visibleMap, setVisibleMap] = useState<Record<number, boolean>>({});
+  const [visibleMap, setVisibleMap] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!isMulti) return;
     const mp = (props as MultiProps).multi || [];
-    // initialize visibility map if counts differ
-    if (Object.keys(visibleMap).length !== mp.length) {
-      const m: Record<number, boolean> = {};
-      mp.forEach((_, i) => (m[i] = true));
+    // initialize visibility map if keys differ
+    const keys = mp.map((s, i) => `${s.ticker ?? s.label}__${i}`);
+    let changed = false;
+    if (keys.length !== Object.keys(visibleMap).length) changed = true;
+    else {
+      for (const k of keys) if (!(k in visibleMap)) { changed = true; break; }
+    }
+    if (changed) {
+      const m: Record<string, boolean> = {};
+      keys.forEach((k) => (m[k] = true));
       setVisibleMap(m);
     }
   }, [isMulti, (props as MultiProps).multi?.length]);
@@ -86,7 +92,9 @@ export default function ETFLineChart(props: Props) {
       // build datasets: vivid solid colors, ignore opacity for maximum contrast
       const ds = mp.multi.map((s, idx) => {
         const base = getLineColor(idx);
+        const key = `${s.ticker ?? s.label}__${idx}`;
         return {
+          key,
           data: s.data,
           color: () => base, // sempre pieno, no trasparenza
           strokeWidth: many ? 3 : 4,
@@ -96,7 +104,8 @@ export default function ETFLineChart(props: Props) {
 
       const legendItems = mp.multi.map((s, idx) => {
         const base = getLineColor(idx);
-        return { label: s.label, ticker: s.ticker, color: base };
+        const key = `${s.ticker ?? s.label}__${idx}`;
+        return { key, label: s.label, ticker: s.ticker, color: base };
       });
 
       return { labels: lbls, datasets: ds, title: 'Selected ETFs', legendItems };
@@ -118,7 +127,7 @@ export default function ETFLineChart(props: Props) {
   // apply visibility filter to datasets
   const datasets = useMemo(() => {
     if (!isMulti) return fullDatasets as any;
-    return (fullDatasets as any[]).filter((_, i) => visibleMap[i] !== false);
+    return (fullDatasets as any[]).filter((d) => visibleMap[(d as any).key] !== false);
   }, [fullDatasets, visibleMap, isMulti]);
 
   const chartHeight = useMemo(() => {
@@ -173,13 +182,13 @@ export default function ETFLineChart(props: Props) {
         <Text style={styles.title}>{title}</Text>
         {isMulti && legendItems && legendItems.length > 0 && (
           <View style={styles.legendRow}>
-            {legendItems.map((it, idx) => {
-              const hidden = visibleMap[idx] === false;
+            {legendItems.map((it) => {
+              const hidden = visibleMap[it.key] === false;
               return (
                 <Pressable
-                  key={`${it.label}_${idx}`}
+                  key={it.key}
                   style={[styles.legendItem, hidden && styles.legendItemHidden]}
-                  onPress={() => setVisibleMap((prev) => ({ ...prev, [idx]: !prev[idx] }))}
+                  onPress={() => setVisibleMap((prev) => ({ ...prev, [it.key]: !prev[it.key] }))}
                 >
                   <View style={[styles.legendDot, { backgroundColor: it.color }]} />
                   <View style={{ maxWidth: 160 }}>

@@ -14,6 +14,7 @@ type PortfolioResultRow = {
   valore_totale: number;
   id_strategia: number;
 };
+type CreatePortfolioResponse = { ID_Portafoglio: number; Descrizione_Portafoglio: string };
 
 class APIService {
   // ------- Cache helpers (generic) -------
@@ -276,7 +277,50 @@ class APIService {
     await this.setCache(cacheKey, data);
     return data;
   }
+
+  // ------- Portfolio management (create/update) -------
+  async createPortfolio(descrizione: string): Promise<CreatePortfolioResponse> {
+    const res = await fetch(`${API_BASE_URL}/api/portafoglio`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ descrizione }),
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Failed to create portfolio (${res.status}): ${txt}`);
+    }
+    const data = await res.json();
+    // invalidate cache of portfolios
+    try {
+      await AsyncStorage.multiRemove(['portfolios_all']);
+    } catch {}
+    return data as CreatePortfolioResponse;
+  }
+
+  async setPortfolioComposition(
+    id_portafoglio: number,
+    items: Array<{ ID_ticker: number; percentuale: number }>,
+    descrizione?: string
+  ): Promise<{ ok: true } | any> {
+    const res = await fetch(`${API_BASE_URL}/api/composizione_portafoglio`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ id_portafoglio, items, descrizione }),
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Failed to set composition (${res.status}): ${txt}`);
+    }
+    const data = await res.json().catch(() => ({ ok: true }));
+    // invalidate caches related to portfolios
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const toRemove = keys.filter((k) => k === 'portfolios_all' || k.startsWith('portfolios_'));
+      if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
+    } catch {}
+    return data;
+  }
 }
 
 export const apiService = new APIService();
-export type { GeographicArea, AreaTicker, PortfolioResultRow };
+export type { GeographicArea, AreaTicker, PortfolioResultRow, CreatePortfolioResponse };
