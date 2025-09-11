@@ -5,6 +5,8 @@ export interface ETFData {
   id_etf_data: number;
   insert_datetime: string;
   ticker: string;
+  // Optional from backend join on Tickers
+  nome?: string;
   volume: number;
 }
 

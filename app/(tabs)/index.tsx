@@ -13,9 +13,9 @@ import { apiService } from '@/services/api';
 import { ETFData, QueryParams, ChartDataPoint } from '@/types';
 
 type GeographicArea = { area_geografica: string; id_area_geografica: number };
-type AreaTicker = { ID_ticker: number; ticker: string };
+type AreaTicker = { ID_ticker: number; ticker: string; nome: string };
 type DateRange = { start_date: string; end_date: string };
-type SelectedMap = Record<number, { ID_ticker: number; ticker: string }>;
+type SelectedMap = Record<number, { ID_ticker: number; ticker: string; nome: string }>;
 
 type MultiDataset = { label: string; data: number[]; colorHint?: 'up' | 'down' };
 // allow optional labels per dataset (shared across series)
@@ -124,7 +124,7 @@ export default function HomeScreen() {
     setSelectedTickers((prev) => {
       const next = { ...prev };
       if (next[t.ID_ticker]) delete next[t.ID_ticker];
-      else next[t.ID_ticker] = { ID_ticker: t.ID_ticker, ticker: t.ticker };
+      else next[t.ID_ticker] = { ID_ticker: t.ID_ticker, ticker: t.ticker, nome: t.nome };
       return next;
     });
   };
@@ -140,7 +140,7 @@ export default function HomeScreen() {
       if (allCurrentSelected) {
         tickers.forEach((t) => delete next[t.ID_ticker]);
       } else {
-        tickers.forEach((t) => (next[t.ID_ticker] = { ID_ticker: t.ID_ticker, ticker: t.ticker }));
+        tickers.forEach((t) => (next[t.ID_ticker] = { ID_ticker: t.ID_ticker, ticker: t.ticker, nome: t.nome }));
       }
       return next;
     });
@@ -205,8 +205,12 @@ export default function HomeScreen() {
 
       const datasets: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
         const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount);
+        // try to extract a display name from rows (backend may include nome in /api/dati)
+        const rowNome = rows.find(r => typeof (r as any).nome === 'string') as any;
+        const displayName = (rowNome && rowNome.nome) || t.nome || t.ticker;
         return {
-          label: t.ticker,
+          label: displayName,
+          ticker: t.ticker,
           data: agg.data,
           colorHint: agg.upOrDown,
           labels,
@@ -246,7 +250,8 @@ export default function HomeScreen() {
               return s;
             })
           : [];
-        return { label: t.ticker, data: r.simple, colorHint: 'up', labels };
+        const label = r.name || t.nome || t.ticker;
+        return { label, ticker: t.ticker, data: r.simple, colorHint: 'up', labels };
       });
       setCumDatasets(datasets);
     } catch {
@@ -380,7 +385,10 @@ export default function HomeScreen() {
                         <View style={[styles.checkbox, isSel && styles.checkboxOn]}>
                           <Text style={styles.checkboxMark}>{isSel ? '✓' : ''}</Text>
                         </View>
-                        <Text style={styles.tickerSymbol}>{item.ticker}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.tickerName} numberOfLines={1}>{item.nome || item.ticker}</Text>
+                          <Text style={styles.tickerSubtitle} numberOfLines={1}>{item.ticker}</Text>
+                        </View>
                         <Text style={styles.tickerId}>#{item.ID_ticker}</Text>
                       </Pressable>
                       {!isLast && <View style={styles.separator} />}
@@ -425,6 +433,8 @@ const styles = StyleSheet.create({
   separator: { height: 1, backgroundColor: '#E5E7EB', marginVertical: 8 },
   tickerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, justifyContent: 'space-between' },
   tickerSymbol: { flex: 1, fontSize: 15, fontWeight: '600', color: '#111827' },
+  tickerName: { fontSize: 15, fontWeight: '700', color: '#111827' },
+  tickerSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
   tickerId: { fontSize: 12, color: '#6B7280', marginLeft: 8 },
   badge: {
     minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6,

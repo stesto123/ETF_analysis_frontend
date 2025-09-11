@@ -4,7 +4,7 @@ import { ETFData, APIError, QueryParams } from '@/types';
 const API_BASE_URL = 'https://wa-etf-analysis-d0enavd0h5e9f5gr.italynorth-01.azurewebsites.net';
 
 type GeographicArea = { area_geografica: string; id_area_geografica: number };
-type AreaTicker = { ID_ticker: number; ticker: string };
+type AreaTicker = { ID_ticker: number; ticker: string; nome: string };
 type PortfolioItem = { [key: string]: any };
 type PortfolioResultRow = {
   calendar_id: number;
@@ -102,10 +102,15 @@ class APIService {
     flag_is_needed: boolean = true,
     useCache: boolean = true
   ): Promise<AreaTicker[]> {
-    const cacheKey = `tickers_area_${id_area_geografica}_flag_${flag_is_needed}`;
+    // bump cache version to invalidate old entries without 'nome'
+    const cacheKey = `tickers_area_${id_area_geografica}_flag_${flag_is_needed}_v2`;
     if (useCache) {
       const cached = await this.getCache<AreaTicker[]>(cacheKey, 6 * 60 * 60 * 1000); // 6h
-      if (cached) return cached;
+      if (cached) {
+        const hasNames = Array.isArray(cached) && cached.every((t) => t && typeof (t as any).nome === 'string');
+        if (hasNames) return cached;
+        // fall through to refetch if old cache missing 'nome'
+      }
     }
 
     const url = new URL('/api/tickers_by_area', API_BASE_URL);
@@ -115,7 +120,11 @@ class APIService {
     }
     const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`Failed to fetch tickers by area: ${res.status}`);
-    const data: AreaTicker[] = await res.json();
+    const raw = await res.json();
+    // normalize to ensure nome exists even if backend lacks it
+    const data: AreaTicker[] = Array.isArray(raw)
+      ? raw.map((t: any) => ({ ID_ticker: t.ID_ticker, ticker: t.ticker, nome: typeof t.nome === 'string' ? t.nome : t.ticker }))
+      : [];
     await this.setCache(cacheKey, data);
     return data;
   }
@@ -149,11 +158,14 @@ class APIService {
   /**
    * Fetch cumulative returns for an ETF (returns arrays: calendar_days, simple_cum, log_cum)
    */
-  async fetchCumulativeReturns(params: QueryParams, useCache: boolean = true): Promise<{ calendar_days: number[]; simple: number[]; log: number[] }>
+  async fetchCumulativeReturns(
+    params: QueryParams,
+    useCache: boolean = true
+  ): Promise<{ calendar_days: number[]; simple: number[]; log: number[]; name?: string }>
   {
     const cacheKey = `cum_returns_${params.id_ticker}_${params.start_date}_${params.end_date}`;
     if (useCache) {
-      const cached = await this.getCache<{ calendar_days: number[]; simple: number[]; log: number[] }>(cacheKey, 60 * 60 * 1000); // 1h
+      const cached = await this.getCache<{ calendar_days: number[]; simple: number[]; log: number[]; name?: string }>(cacheKey, 60 * 60 * 1000); // 1h
       if (cached) return cached;
     }
 
@@ -166,22 +178,37 @@ class APIService {
     if (!res.ok) throw new Error(`Failed to fetch cumulative returns: ${res.status}`);
     const body = await res.json();
 
-    // backend may return a tuple/array [calendar_days, simple_cum, log_cum]
-    if (Array.isArray(body) && body.length >= 3) {
-      const calendar_days = Array.isArray(body[0]) ? body[0].map((v: any) => Number(v)) : [];
-      const simple = Array.isArray(body[1]) ? body[1].map((v: any) => Number(v)) : [];
-      const log = Array.isArray(body[2]) ? body[2].map((v: any) => Number(v)) : [];
-      const out = { calendar_days, simple, log };
-      await this.setCache(cacheKey, out);
-      return out;
+    // backend may return a tuple/array
+    // old: [calendar_days, simple_cum, log_cum]
+    // new: [calendar_days, names, simple_cum, log_cum]
+    if (Array.isArray(body)) {
+      if (body.length >= 4) {
+        const calendar_days = Array.isArray(body[0]) ? body[0].map((v: any) => Number(v)) : [];
+        const namesArr = Array.isArray(body[1]) ? body[1].map((v: any) => String(v)) : [];
+        const simple = Array.isArray(body[2]) ? body[2].map((v: any) => Number(v)) : [];
+        const log = Array.isArray(body[3]) ? body[3].map((v: any) => Number(v)) : [];
+        const name = namesArr.find((n: string) => n && n.trim().length > 0);
+        const out = { calendar_days, simple, log, name };
+        await this.setCache(cacheKey, out);
+        return out;
+      }
+      if (body.length >= 3) {
+        const calendar_days = Array.isArray(body[0]) ? body[0].map((v: any) => Number(v)) : [];
+        const simple = Array.isArray(body[1]) ? body[1].map((v: any) => Number(v)) : [];
+        const log = Array.isArray(body[2]) ? body[2].map((v: any) => Number(v)) : [];
+        const out = { calendar_days, simple, log };
+        await this.setCache(cacheKey, out);
+        return out;
+      }
     }
 
-    // or an object { calendar_days: [...], simple: [...], log: [...] }
+    // or an object { calendar_days: [...], simple: [...], log: [...], name?: string }
     if (body && typeof body === 'object') {
       const calendar_days = Array.isArray((body as any).calendar_days) ? (body as any).calendar_days.map((v: any) => Number(v)) : [];
       const simple = Array.isArray((body as any).simple) ? (body as any).simple.map((v: any) => Number(v)) : [];
       const log = Array.isArray((body as any).log) ? (body as any).log.map((v: any) => Number(v)) : [];
-      const out = { calendar_days, simple, log };
+      const name = typeof (body as any).name === 'string' ? (body as any).name : undefined;
+      const out = { calendar_days, simple, log, name };
       await this.setCache(cacheKey, out);
       return out;
     }
@@ -193,8 +220,15 @@ class APIService {
   async clearCache(): Promise<void> {
     try {
       const keys = await AsyncStorage.getAllKeys();
-      const keysToRemove = keys.filter(
-        (k) => k.startsWith('etf_data_') || k === 'areas_all' || k.startsWith('tickers_area_')
+      const keysToRemove = keys.filter((k) =>
+        k.startsWith('etf_data_') ||
+        k === 'areas_all' ||
+        k.startsWith('tickers_area_') ||
+        k.startsWith('cum_returns_') ||
+        k === 'portfolios_all' ||
+        k.startsWith('portfolios_') ||
+        k === 'portfolio_results_all' ||
+        k.startsWith('portfolio_results_')
       );
       if (keysToRemove.length) await AsyncStorage.multiRemove(keysToRemove);
     } catch (error) {

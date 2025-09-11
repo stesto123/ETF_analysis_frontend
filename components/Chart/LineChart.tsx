@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { View, StyleSheet, Text, LayoutChangeEvent } from 'react-native';
+import React, { useMemo, useState, useEffect } from 'react';
+import { View, StyleSheet, Text, LayoutChangeEvent, Pressable } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { ChartDataPoint } from '@/types';
 import { getLineColor as importedGetLineColor } from '@/utils/linePalette';
@@ -20,6 +20,7 @@ interface SingleProps {
 
 interface MultiSerie {
   label: string;
+  ticker?: string;
   data: number[];
   colorHint?: 'up' | 'down';
   labels?: string[]; // optional shared x labels
@@ -48,7 +49,20 @@ export default function ETFLineChart(props: Props) {
     containerWidth != null ? Math.max(140, containerWidth - CONTAINER_PADDING * 2) : undefined;
 
   // ===== costruzione dati =====
-  const { labels, datasets, title, legend } = useMemo(() => {
+  const [visibleMap, setVisibleMap] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    if (!isMulti) return;
+    const mp = (props as MultiProps).multi || [];
+    // initialize visibility map if counts differ
+    if (Object.keys(visibleMap).length !== mp.length) {
+      const m: Record<number, boolean> = {};
+      mp.forEach((_, i) => (m[i] = true));
+      setVisibleMap(m);
+    }
+  }, [isMulti, (props as MultiProps).multi?.length]);
+
+  const { labels, datasets: fullDatasets, title, legendItems } = useMemo(() => {
     if (isMulti) {
       const mp = props as MultiProps;
       // attempt to use provided shared labels from the first series
@@ -80,12 +94,12 @@ export default function ETFLineChart(props: Props) {
         };
       });
 
-      const lg = mp.multi.map((s, idx) => {
+      const legendItems = mp.multi.map((s, idx) => {
         const base = getLineColor(idx);
-        return { label: s.label, color: base };
+        return { label: s.label, ticker: s.ticker, color: base };
       });
 
-      return { labels: lbls, datasets: ds, title: 'Selected ETFs', legend: lg };
+      return { labels: lbls, datasets: ds, title: 'Selected ETFs', legendItems };
     } else {
       const sp = props as SingleProps;
       const prices = sp.data.map((p) => p.price);
@@ -94,12 +108,18 @@ export default function ETFLineChart(props: Props) {
       const color = last >= first ? '#10B981' : '#EF4444';
       return {
         labels: sp.data.map(() => ''),
-  datasets: [{ data: prices, color: () => color, strokeWidth: 4, withDots: false as const }],
-  title: `${sp.ticker} Price Chart`,
-  legend: [],
+        datasets: [{ data: prices, color: () => color, strokeWidth: 3, withDots: false as const }],
+        title: `${sp.ticker} Price Chart`,
+        legend: [],
       };
     }
   }, [props, isMulti]);
+
+  // apply visibility filter to datasets
+  const datasets = useMemo(() => {
+    if (!isMulti) return fullDatasets as any;
+    return (fullDatasets as any[]).filter((_, i) => visibleMap[i] !== false);
+  }, [fullDatasets, visibleMap, isMulti]);
 
   const chartHeight = useMemo(() => {
     const h =
@@ -113,11 +133,11 @@ export default function ETFLineChart(props: Props) {
 
   const chartConfig = useMemo(
     () => ({
-      backgroundColor: '#ffffff',
-      backgroundGradientFrom: '#ffffff',
-      backgroundGradientTo: '#ffffff',
-      backgroundGradientFromOpacity: 1,
-      backgroundGradientToOpacity: 1,
+    backgroundColor: '#ffffff',
+    backgroundGradientFrom: '#ffffff',
+    backgroundGradientTo: '#F8FAFC',
+    backgroundGradientFromOpacity: 1,
+    backgroundGradientToOpacity: 1,
       decimalPlaces: 2,
       color: () => '#111827', // non usato per le linee (ogni dataset ha il suo color)
   labelColor: () => '#6B7280',
@@ -151,16 +171,30 @@ export default function ETFLineChart(props: Props) {
   <View style={styles.container} onLayout={onContainerLayout}>
       <View style={styles.header}>
         <Text style={styles.title}>{title}</Text>
-        {isMulti && legend.length > 0 && (
+        {isMulti && legendItems && legendItems.length > 0 && (
           <View style={styles.legendRow}>
-            {legend.map((l) => (
-              <View key={l.label} style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: l.color }]} />
-                <Text style={styles.legendLabel} numberOfLines={1}>
-                  {l.label}
-                </Text>
-              </View>
-            ))}
+            {legendItems.map((it, idx) => {
+              const hidden = visibleMap[idx] === false;
+              return (
+                <Pressable
+                  key={`${it.label}_${idx}`}
+                  style={[styles.legendItem, hidden && styles.legendItemHidden]}
+                  onPress={() => setVisibleMap((prev) => ({ ...prev, [idx]: !prev[idx] }))}
+                >
+                  <View style={[styles.legendDot, { backgroundColor: it.color }]} />
+                  <View style={{ maxWidth: 160 }}>
+                    <Text style={[styles.legendLabel, hidden && styles.legendLabelHidden]} numberOfLines={1}>
+                      {it.label}
+                    </Text>
+                    {it.ticker ? (
+                      <Text style={[styles.legendTicker, hidden && styles.legendLabelHidden]} numberOfLines={1}>
+                        ({it.ticker})
+                      </Text>
+                    ) : null}
+                  </View>
+                </Pressable>
+              );
+            })}
           </View>
         )}
       </View>
@@ -211,6 +245,9 @@ const styles = StyleSheet.create({
   legendItem: { flexDirection: 'row', alignItems: 'center', marginRight: 12, marginTop: 4 },
   legendDot: { width: 10, height: 10, borderRadius: 5, marginRight: 6 },
   legendLabel: { fontSize: 12, color: '#374151', maxWidth: 120 },
+  legendTicker: { fontSize: 11, color: '#6B7280', marginTop: 2 },
+  legendItemHidden: { opacity: 0.45 },
+  legendLabelHidden: { color: '#9CA3AF' },
 
   chart: { borderRadius: 16 },
   emptyContainer: {
