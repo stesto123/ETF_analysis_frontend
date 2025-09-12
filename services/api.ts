@@ -15,6 +15,7 @@ type PortfolioResultRow = {
   id_strategia: number;
 };
 type CreatePortfolioResponse = { ID_Portafoglio: number; Descrizione_Portafoglio: string };
+type CompositionItemPost = { ID_ticker?: number; ticker?: string; percentuale: number | string };
 
 class APIService {
   // ------- Cache helpers (generic) -------
@@ -279,6 +280,31 @@ class APIService {
   }
 
   // ------- Portfolio management (create/update) -------
+  /**
+   * Backend supports creating/updating a portfolio and its composition in a single call:
+   * POST /api/portafogli with body { descrizione_portafoglio, composizione: [{ ID_ticker|ticker, percentuale }] }
+   */
+  async savePortfolioWithComposition(payload: { descrizione_portafoglio: string; composizione: CompositionItemPost[] }): Promise<any> {
+    const url = `${API_BASE_URL}/api/portafogli`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Failed to save portfolio ${url} (${res.status}): ${txt}`);
+    }
+    const data = await res.json().catch(() => ({ ok: true }));
+    // Invalidate portfolios caches
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const toRemove = keys.filter((k) => k === 'portfolios_all' || k.startsWith('portfolios_'));
+      if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
+    } catch {}
+    return data;
+  }
+
   async createPortfolio(descrizione: string): Promise<CreatePortfolioResponse> {
     const url = `${API_BASE_URL}/api/portafoglio`;
     const res = await fetch(url, {

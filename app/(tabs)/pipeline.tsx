@@ -193,15 +193,18 @@ export default function PipelineScreen() {
     if (!newDescrizione.trim()) { setTableError('Inserisci una descrizione per il portafoglio'); return; }
     if (!compItems.length) { setTableError('Aggiungi almeno una riga di composizione'); return; }
     if (Math.abs(totalPercent - 100) > 0.01) { setTableError('La somma delle percentuali deve essere 100'); return; }
-    type CompItemPost = { ID_ticker: number; percentuale: number };
-    const items: CompItemPost[] = compItems
-      .map((r) => ({ ID_ticker: r.ID_ticker, percentuale: Number(r.percentuale) }))
-      .filter((r): r is CompItemPost => typeof r.ID_ticker === 'number' && !Number.isNaN(r.percentuale));
-    if (!items.length) { setTableError('Seleziona ticker e percentuali valide'); return; }
+    // Build payload matching backend: { descrizione_portafoglio, composizione: [{ ID_ticker|ticker, percentuale }] }
+    const composizione = compItems
+      .map((r) => ({ ID_ticker: r.ID_ticker, percentuale: r.percentuale }))
+      .filter((r) => (typeof r.ID_ticker === 'number' || typeof (r as any).ticker === 'string') && r.percentuale != null)
+      .map((r) => ({ ID_ticker: r.ID_ticker, percentuale: String(Number(r.percentuale)) }));
+    if (!composizione.length) { setTableError('Seleziona ticker e percentuali valide'); return; }
     setSaving(true);
     try {
-      const created = await apiService.createPortfolio(newDescrizione.trim());
-      await apiService.setPortfolioComposition(created.ID_Portafoglio, items, newDescrizione.trim());
+      await apiService.savePortfolioWithComposition({
+        descrizione_portafoglio: newDescrizione.trim(),
+        composizione,
+      });
   setNewDescrizione('');
   setCompItems([{ key: genKey() }]);
       // refresh portfolios table
