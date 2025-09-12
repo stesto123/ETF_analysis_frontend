@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, FlatList } from 'react-native';
+import { useTheme } from '@/components/common/ThemeProvider';
 
 export type GeographicArea = {
   area_geografica: string;
@@ -17,9 +18,10 @@ const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) =>
   // Aggiungo una "Tutti" per deselezionare
   const data = [{ area_geografica: 'Tutte', id_area_geografica: -1 }, ...areas];
 
+  const { colors, isDark } = useTheme();
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Aree geografiche</Text>
+      <Text style={[styles.label, { color: colors.text }]}>Aree geografiche</Text>
 
       <FlatList
         data={data}
@@ -38,13 +40,13 @@ const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) =>
                 onSelect(item.id_area_geografica === -1 ? null : item.id_area_geografica)
               }
               style={({ pressed }) => [
-                styles.chip,
-                isSelected && styles.chipSelected,
+                [styles.chip, { borderColor: colors.border, backgroundColor: colors.card }],
+                isSelected && { backgroundColor: colors.accent, borderColor: colors.accent, elevation: 2 },
                 pressed && styles.chipPressed,
               ]}
-              android_ripple={{ color: '#e5e7eb', borderless: false }}
+              android_ripple={{ color: isDark ? '#334155' : '#e5e7eb', borderless: false }}
             >
-              <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
+              <Text style={[styles.chipText, { color: colors.text }, isSelected && { color: '#FFFFFF' }]}>
                 {item.area_geografica}
               </Text>
             </Pressable>
@@ -52,7 +54,7 @@ const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) =>
         }}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>{loading ? 'Caricamento aree…' : 'Nessuna area'}</Text>
+            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>{loading ? 'Caricamento aree…' : 'Nessuna area'}</Text>
           </View>
         }
       />
@@ -66,8 +68,6 @@ const styles = StyleSheet.create({
   listContent: { paddingRight: 8 },
   chip: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 999,
@@ -78,16 +78,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
-  chipSelected: {
-    backgroundColor: '#3B82F6',
-    borderColor: '#3B82F6',
-    elevation: 2,
-  },
   chipPressed: {
     opacity: 0.85,
   },
   chipText: { color: '#111827', fontSize: 13, fontWeight: '500' },
-  chipTextSelected: { color: '#FFFFFF' },
   empty: { paddingVertical: 8, paddingHorizontal: 12 },
   emptyText: { color: '#6B7280' },
 });

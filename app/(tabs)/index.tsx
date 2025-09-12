@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ETFQueryForm from '@/components/Form/ETFQueryForm';
 import ETFLineChart from '@/components/Chart/LineChart';
+import { useTheme } from '@/components/common/ThemeProvider';
 import LoadingSpinner from '@/components/common/LoadingSpinner';
 import ErrorDisplay from '@/components/common/ErrorDisplay';
 import EmptyState from '@/components/common/EmptyState';
@@ -23,6 +24,7 @@ type MultiDatasetWithLabels = MultiDataset & { labels?: string[] };
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -208,13 +210,7 @@ export default function HomeScreen() {
         // try to extract a display name from rows (backend may include nome in /api/dati)
         const rowNome = rows.find(r => typeof (r as any).nome === 'string') as any;
         const displayName = (rowNome && rowNome.nome) || t.nome || t.ticker;
-        return {
-          label: displayName,
-          ticker: t.ticker,
-          data: agg.data,
-          colorHint: agg.upOrDown,
-          labels,
-        };
+        return { label: displayName, ticker: t.ticker, data: agg.data, colorHint: agg.upOrDown, labels };
       });
 
   setMultiDatasets(datasets);
@@ -350,28 +346,28 @@ export default function HomeScreen() {
           onSelect={setSelectedArea}
           loading={loading}
         />
-        <View style={styles.tickersCard}>
+        <View style={[styles.tickersCard, { backgroundColor: colors.card }]}>
           <View style={styles.tickersHeader}>
-            <Text style={styles.tickersTitle}>
+            <Text style={[styles.tickersTitle, { color: colors.text }] }>
               ETF dell’area {selectedArea ? '' : '(nessuna area selezionata)'}
             </Text>
-            <View style={styles.badge}>
+            <View style={[styles.badge, { backgroundColor: colors.background }]}>
               <Text style={styles.badgeText}>{tickers.length}</Text>
             </View>
           </View>
           {selectedArea == null ? (
-            <Text style={styles.tickersHint}>Seleziona un’area per vedere gli ETF.</Text>
+            <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Seleziona un’area per vedere gli ETF.</Text>
           ) : tickers.length === 0 ? (
-            <Text style={styles.tickersHint}>Nessun ETF trovato per quest’area.</Text>
+            <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Nessun ETF trovato per quest’area.</Text>
           ) : (
             <>
               <View style={styles.bulkRow}>
-                <Pressable onPress={toggleSelectAllInArea} style={styles.bulkBtn}>
-                  <Text style={styles.bulkBtnText}>
+                <Pressable onPress={toggleSelectAllInArea} style={[styles.bulkBtn, { borderColor: colors.border, backgroundColor: colors.background }]}>
+                  <Text style={[styles.bulkBtnText, { color: colors.text }]}>
                     {allCurrentSelected ? 'Deseleziona tutti' : 'Seleziona tutti'}
                   </Text>
                 </Pressable>
-                <Text style={styles.selectedCounter}>
+                <Text style={[styles.selectedCounter, { color: colors.secondaryText }]}>
                   Selezionati totali: {Object.keys(selectedTickers).length}
                 </Text>
               </View>
@@ -382,16 +378,16 @@ export default function HomeScreen() {
                   return (
                     <View key={item.ID_ticker}>
                       <Pressable onPress={() => toggleSelect(item)} style={styles.tickerRow}>
-                        <View style={[styles.checkbox, isSel && styles.checkboxOn]}>
+                        <View style={[styles.checkbox, { borderColor: colors.border, backgroundColor: colors.card }, isSel && { backgroundColor: colors.accent, borderColor: colors.accent }]}>
                           <Text style={styles.checkboxMark}>{isSel ? '✓' : ''}</Text>
                         </View>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.tickerName} numberOfLines={1}>{item.nome || item.ticker}</Text>
-                          <Text style={styles.tickerSubtitle} numberOfLines={1}>{item.ticker}</Text>
+                          <Text style={[styles.tickerName, { color: colors.text }]} numberOfLines={1}>{item.nome || item.ticker}</Text>
+                          <Text style={[styles.tickerSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>{item.ticker}</Text>
                         </View>
-                        <Text style={styles.tickerId}>#{item.ID_ticker}</Text>
+                        <Text style={[styles.tickerId, { color: colors.secondaryText }]}>#{item.ID_ticker}</Text>
                       </Pressable>
-                      {!isLast && <View style={styles.separator} />}
+                      {!isLast && <View style={[styles.separator, { backgroundColor: colors.border }]} />}
                     </View>
                   );
                 })}

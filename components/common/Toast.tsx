@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { CircleCheck, CircleAlert, Info, TriangleAlert, X } from 'lucide-react-native';
+import { useTheme } from '@/components/common/ThemeProvider';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -39,9 +40,16 @@ const textByType: Record<ToastType, string> = {
 };
 
 export default function Toast({ type = 'info', message, onClose }: Props) {
+  const { isDark } = useTheme();
   const Icon = iconByType[type];
   return (
-    <View style={[styles.container, { backgroundColor: bgByType[type], borderColor: borderByType[type] }]}>
+    <View style={[
+      styles.container,
+      {
+        backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : bgByType[type],
+        borderColor: borderByType[type],
+      },
+    ]}>
       <Icon size={18} color={borderByType[type]} style={{ marginRight: 8 }} />
       <Text style={[styles.text, { color: textByType[type] }]} numberOfLines={3}>
         {message}
@@ -63,11 +71,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.07,
-    shadowRadius: 6,
+    shadowColor: 'rgba(0,0,0,0.7)',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    elevation: 3,
   },
   text: {
     flex: 1,

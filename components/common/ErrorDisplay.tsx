@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { CircleAlert as AlertCircle, RefreshCw } from 'lucide-react-native';
+import { useTheme } from '@/components/common/ThemeProvider';
 
 interface Props {
   error: string;
@@ -8,15 +9,16 @@ interface Props {
 }
 
 export default function ErrorDisplay({ error, onRetry }: Props) {
+  const { colors } = useTheme();
   return (
     <View style={styles.container}>
       <AlertCircle size={48} color="#EF4444" />
-      <Text style={styles.title}>Something went wrong</Text>
-      <Text style={styles.message}>{error}</Text>
+      <Text style={[styles.title, { color: colors.text }]}>Something went wrong</Text>
+      <Text style={[styles.message, { color: colors.secondaryText }]}>{error}</Text>
       {onRetry && (
-        <TouchableOpacity style={styles.retryButton} onPress={onRetry}>
+        <TouchableOpacity style={[styles.retryButton, { backgroundColor: colors.accent }]} onPress={onRetry}>
           <RefreshCw size={20} color="#fff" />
-          <Text style={styles.retryText}>Try Again</Text>
+          <Text style={[styles.retryText, { color: '#fff' }]}>Try Again</Text>
         </TouchableOpacity>
       )}
     </View>

@@ -348,6 +348,42 @@ class APIService {
     } catch {}
     return data;
   }
+
+  /** Delete a portfolio and its composition */
+  async deletePortfolio(id_portafoglio: number): Promise<{ ok: true } | any> {
+    // Prefer DELETE with query string; fallback to /api/portafogli/:id if needed
+    const tryUrls = [
+      `${API_BASE_URL}/api/portafogli?id_portafoglio=${encodeURIComponent(String(id_portafoglio))}`,
+      `${API_BASE_URL}/api/portafogli/${encodeURIComponent(String(id_portafoglio))}`,
+    ];
+
+    let lastErr: string | null = null;
+    for (const url of tryUrls) {
+      try {
+        const res = await fetch(url, { method: 'DELETE', headers: { Accept: 'application/json' } });
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status} ${txt}`);
+        }
+        const data = await res.json().catch(() => ({ ok: true }));
+        // Invalidate portfolio and results caches
+        try {
+          const keys = await AsyncStorage.getAllKeys();
+          const toRemove = keys.filter((k) =>
+            k === 'portfolios_all' ||
+            k.startsWith('portfolios_') ||
+            k === 'portfolio_results_all' ||
+            k.startsWith('portfolio_results_')
+          );
+          if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
+        } catch {}
+        return data;
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+      }
+    }
+    throw new Error(`Failed to delete portfolio id=${id_portafoglio}: ${lastErr ?? 'unknown error'}`);
+  }
 }
 
 export const apiService = new APIService();

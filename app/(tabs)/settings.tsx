@@ -10,8 +10,10 @@ import {
 } from 'react-native';
 import { Trash2, Info } from 'lucide-react-native';
 import { apiService } from '@/services/api';
+import { useTheme } from '@/components/common/ThemeProvider';
 
 export default function SettingsScreen() {
+  const { theme, setTheme, isDark, colors } = useTheme();
   const handleClearCache = async () => {
     Alert.alert(
       'Clear Cache',
@@ -46,19 +48,36 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView style={styles.scrollView}>
-        <Text style={styles.title}>Settings</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Settings</Text>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Data Management</Text>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Appearance</Text>
+          <TouchableOpacity
+            style={[styles.settingItem, { backgroundColor: colors.card, borderBottomColor: colors.border }]}
+            onPress={() => setTheme(isDark ? 'light' : 'dark')}
+          >
+            <View style={styles.settingLeft}>
+              <View style={styles.settingText}>
+                <Text style={[styles.settingTitle, { color: colors.text }]}>Theme</Text>
+                <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>
+                  {isDark ? 'Dark' : 'Light'} (tap to toggle)
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Data Management</Text>
           
-          <TouchableOpacity style={styles.settingItem} onPress={handleClearCache}>
+          <TouchableOpacity style={[styles.settingItem, { backgroundColor: colors.card, borderBottomColor: colors.border }]} onPress={handleClearCache}>
             <View style={styles.settingLeft}>
               <Trash2 size={24} color="#EF4444" />
               <View style={styles.settingText}>
-                <Text style={styles.settingTitle}>Clear Cache</Text>
-                <Text style={styles.settingDescription}>
+                <Text style={[styles.settingTitle, { color: colors.text }]}>Clear Cache</Text>
+                <Text style={[styles.settingDescription, { color: colors.secondaryText }] }>
                   Remove all locally stored data
                 </Text>
               </View>
@@ -67,14 +86,14 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Application</Text>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Application</Text>
           
-          <TouchableOpacity style={styles.settingItem} onPress={showAbout}>
+          <TouchableOpacity style={[styles.settingItem, { backgroundColor: colors.card, borderBottomColor: colors.border }]} onPress={showAbout}>
             <View style={styles.settingLeft}>
               <Info size={24} color="#3B82F6" />
               <View style={styles.settingText}>
-                <Text style={styles.settingTitle}>About</Text>
-                <Text style={styles.settingDescription}>
+                <Text style={[styles.settingTitle, { color: colors.text }]}>About</Text>
+                <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>
                   App information and version
                 </Text>
               </View>
@@ -82,15 +101,15 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.apiInfo}>
-          <Text style={styles.apiTitle}>API Information</Text>
-          <Text style={styles.apiText}>
+        <View style={[styles.apiInfo, { backgroundColor: colors.card, borderLeftColor: colors.accent }] }>
+          <Text style={[styles.apiTitle, { color: colors.text }]}>API Information</Text>
+          <Text style={[styles.apiText, { color: colors.secondaryText }] }>
             Base URL: wa-etf-analysis-d0enavd0h5e9f5gr.italynorth-01.azurewebsites.net
           </Text>
-          <Text style={styles.apiText}>
+          <Text style={[styles.apiText, { color: colors.secondaryText }] }>
             Endpoint: /api/dati
           </Text>
-          <Text style={styles.apiText}>
+          <Text style={[styles.apiText, { color: colors.secondaryText }] }>
             Data is cached locally for 1 hour to improve performance
           </Text>
         </View>

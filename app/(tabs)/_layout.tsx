@@ -3,9 +3,11 @@ import { Tabs } from 'expo-router';
 import { TrendingUp, Settings } from 'lucide-react-native';
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '@/components/common/ThemeProvider';
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
 
   const extraAndroidBottom = Platform.OS === 'android' ? 0 : 0;
   const bottomPad = Math.max(insets.bottom, 0) + extraAndroidBottom;
@@ -18,11 +20,11 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
-        tabBarActiveTintColor: '#3B82F6',
-        tabBarInactiveTintColor: '#6B7280',
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.secondaryText,
         tabBarStyle: {
-          backgroundColor: '#fff',
-          borderTopColor: '#E5E7EB',
+          backgroundColor: colors.card,
+          borderTopColor: colors.border,
           height: baseHeight + bottomPad, // più compatto
           paddingBottom: bottomPad,
           paddingTop: 2,                  // meno spazio sopra le icone

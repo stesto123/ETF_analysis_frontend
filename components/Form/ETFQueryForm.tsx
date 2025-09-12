@@ -15,6 +15,7 @@ import DateTimePicker, {
 import { Calendar, TrendingUp } from 'lucide-react-native';
 import { QueryParams } from '@/types';
 import { formatDateForAPI, isValidDateRange } from '@/utils/dateHelpers';
+import { useTheme } from '@/components/common/ThemeProvider';
 
 interface Props {
   onSubmit: (params: QueryParams) => void;
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export default function ETFQueryForm({ onSubmit, loading }: Props) {
+  const { colors } = useTheme();
   const [startDate, setStartDate] = useState<Date>(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
   const [endDate, setEndDate] = useState<Date>(new Date());
 
@@ -110,37 +112,37 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>ETF Data Query</Text>
+    <View style={[styles.container, { backgroundColor: colors.card }] }>
+      <Text style={[styles.title, { color: colors.text }]}>ETF Data Query</Text>
 
       <View style={styles.row}>
         <View style={styles.col}>
-          <Text style={styles.label}>Start Date</Text>
+          <Text style={[styles.label, { color: colors.secondaryText }]}>Start Date</Text>
           <TouchableOpacity
-            style={styles.dateBtn}
+            style={[styles.dateBtn, { borderColor: colors.border, backgroundColor: colors.background }]}
             onPress={Platform.OS === 'android' ? openAndroidStart : openIOSStart}
             activeOpacity={0.8}
           >
-            <Calendar size={20} color="#6B7280" />
-            <Text style={styles.dateText}>{startDate.toLocaleDateString()}</Text>
+            <Calendar size={20} color={colors.secondaryText} />
+            <Text style={[styles.dateText, { color: colors.text }]}>{startDate.toLocaleDateString()}</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.col}>
-          <Text style={styles.label}>End Date</Text>
+          <Text style={[styles.label, { color: colors.secondaryText }]}>End Date</Text>
           <TouchableOpacity
-            style={styles.dateBtn}
+            style={[styles.dateBtn, { borderColor: colors.border, backgroundColor: colors.background }]}
             onPress={Platform.OS === 'android' ? openAndroidEnd : openIOSEnd}
             activeOpacity={0.8}
           >
-            <Calendar size={20} color="#6B7280" />
-            <Text style={styles.dateText}>{endDate.toLocaleDateString()}</Text>
+            <Calendar size={20} color={colors.secondaryText} />
+            <Text style={[styles.dateText, { color: colors.text }]}>{endDate.toLocaleDateString()}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       <TouchableOpacity
-        style={[styles.submit, loading && styles.submitDisabled]}
+        style={[styles.submit, { backgroundColor: loading ? '#6B7280' : colors.accent }]}
         onPress={handleSubmit}
         disabled={loading}
       >
@@ -148,15 +150,15 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
         <Text style={styles.submitText}>{loading ? 'Loading...' : 'Fetch Data'}</Text>
       </TouchableOpacity>
 
-      <Text style={styles.hint}>
+      <Text style={[styles.hint, { color: colors.secondaryText }] }>
         Seleziona un’area dalle pilloline sopra, scegli le date e premi Fetch.
       </Text>
 
       {/* --------- iOS MODALS --------- */}
       <Modal transparent visible={showStartModal} animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Seleziona Start Date</Text>
+          <View style={[styles.modalCard, { backgroundColor: colors.card }] }>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Seleziona Start Date</Text>
             <DateTimePicker
               value={tempStart}
               mode="date"
@@ -166,10 +168,10 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
               style={styles.pickerInline}
             />
             <View style={styles.modalActions}>
-              <Pressable onPress={cancelIOS} style={[styles.actionBtn, styles.btnCancel]}>
-                <Text style={styles.btnTextCancel}>Annulla</Text>
+              <Pressable onPress={cancelIOS} style={[styles.actionBtn, styles.btnCancel, { backgroundColor: colors.background }]}>
+                <Text style={[styles.btnTextCancel, { color: colors.text }]}>Annulla</Text>
               </Pressable>
-              <Pressable onPress={confirmIOSStart} style={[styles.actionBtn, styles.btnOk]}>
+              <Pressable onPress={confirmIOSStart} style={[styles.actionBtn, styles.btnOk, { backgroundColor: colors.accent }]}>
                 <Text style={styles.btnTextOk}>Conferma</Text>
               </Pressable>
             </View>
@@ -179,8 +181,8 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
 
       <Modal transparent visible={showEndModal} animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Seleziona End Date</Text>
+          <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Seleziona End Date</Text>
             <DateTimePicker
               value={tempEnd}
               mode="date"
@@ -191,10 +193,10 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
               style={styles.pickerInline}
             />
             <View style={styles.modalActions}>
-              <Pressable onPress={cancelIOS} style={[styles.actionBtn, styles.btnCancel]}>
-                <Text style={styles.btnTextCancel}>Annulla</Text>
+              <Pressable onPress={cancelIOS} style={[styles.actionBtn, styles.btnCancel, { backgroundColor: colors.background }]}>
+                <Text style={[styles.btnTextCancel, { color: colors.text }]}>Annulla</Text>
               </Pressable>
-              <Pressable onPress={confirmIOSEnd} style={[styles.actionBtn, styles.btnOk]}>
+              <Pressable onPress={confirmIOSEnd} style={[styles.actionBtn, styles.btnOk, { backgroundColor: colors.accent }]}>
                 <Text style={styles.btnTextOk}>Conferma</Text>
               </Pressable>
             </View>

@@ -3,6 +3,7 @@ import { View, StyleSheet, Text, LayoutChangeEvent, Pressable } from 'react-nati
 import { LineChart } from 'react-native-chart-kit';
 import { ChartDataPoint } from '@/types';
 import { getLineColor as importedGetLineColor } from '@/utils/linePalette';
+import { useTheme } from '@/components/common/ThemeProvider';
 
 // fallback nel caso l'import runtime fallisca (metro bundler edge case)
 const getLineColor = (idx: number) => {
@@ -41,6 +42,7 @@ const MIN_HEIGHT = 160;
 const MAX_HEIGHT = 360;
 
 export default function ETFLineChart(props: Props) {
+  const { colors, isDark } = useTheme();
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const onContainerLayout = (e: LayoutChangeEvent) => setContainerWidth(e.nativeEvent.layout.width);
 
@@ -149,23 +151,23 @@ export default function ETFLineChart(props: Props) {
 
   const chartConfig = useMemo(
     () => ({
-    backgroundColor: '#ffffff',
-    backgroundGradientFrom: '#ffffff',
-    backgroundGradientTo: '#F8FAFC',
+    backgroundColor: colors.chartBackground,
+    backgroundGradientFrom: colors.chartBackground,
+    backgroundGradientTo: colors.chartBackground,
     backgroundGradientFromOpacity: 1,
     backgroundGradientToOpacity: 1,
       decimalPlaces: 2,
-      color: () => '#111827', // non usato per le linee (ogni dataset ha il suo color)
-  labelColor: () => '#6B7280',
+      color: () => colors.text, // non usato per le linee (ogni dataset ha il suo color)
+  labelColor: () => colors.secondaryText,
       propsForBackgroundLines: {
-        stroke: '#E5E7EB',
+        stroke: colors.chartGrid,
         strokeDasharray: '',
         strokeWidth: 1,
       },
       style: { borderRadius: 16 },
   propsForDots: { r: '0', strokeWidth: '0', stroke: 'transparent' },
     }),
-    []
+    [colors]
   );
 
   // detect compact mode from datasets count; mirrors logic above
@@ -237,8 +239,8 @@ export default function ETFLineChart(props: Props) {
             onDataPointClick={undefined}
           />
         ) : (
-          <View style={[styles.emptyContainer, { height: chartHeight, margin: 0 }]}>
-            <Text style={styles.emptyText}>Nessuna serie visibile. Tocca una voce in legenda per mostrarla.</Text>
+          <View style={[styles.emptyContainer, { height: chartHeight, margin: 0, backgroundColor: colors.card }]}>
+            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>Nessuna serie visibile. Tocca una voce in legenda per mostrarla.</Text>
           </View>
         )
       ) : (
