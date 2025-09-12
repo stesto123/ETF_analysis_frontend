@@ -130,6 +130,13 @@ export default function ETFLineChart(props: Props) {
     return (fullDatasets as any[]).filter((d) => visibleMap[(d as any).key] !== false);
   }, [fullDatasets, visibleMap, isMulti]);
 
+  // When all series are hidden, avoid rendering LineChart with an empty datasets array
+  // as some versions of react-native-chart-kit expect datasets[0] to exist.
+  const hasVisibleDatasets = useMemo(() => {
+    if (!isMulti) return true;
+    return Array.isArray(datasets) && datasets.length > 0;
+  }, [datasets, isMulti]);
+
   const chartHeight = useMemo(() => {
     const h =
       'height' in props && props.height
@@ -209,25 +216,31 @@ export default function ETFLineChart(props: Props) {
       </View>
 
       {innerWidth && chartHeight ? (
-        <LineChart
-          data={{ labels, datasets }}
-          width={innerWidth}
-          height={chartHeight}
-          chartConfig={chartConfig}
-          formatXLabel={formatXLabel}
-          bezier={false}
-          style={styles.chart}
-          withDots={false}
-          withShadow={false}
-          withVerticalLabels={true}
-          withHorizontalLabels={true}
-          withInnerLines={!isCompact}
-          withOuterLines={!isCompact}
-          fromZero={false}
-          yLabelsOffset={4}
-          xLabelsOffset={4}
-          onDataPointClick={undefined}
-        />
+        hasVisibleDatasets ? (
+          <LineChart
+            data={{ labels, datasets }}
+            width={innerWidth}
+            height={chartHeight}
+            chartConfig={chartConfig}
+            formatXLabel={formatXLabel}
+            bezier={false}
+            style={styles.chart}
+            withDots={false}
+            withShadow={false}
+            withVerticalLabels={true}
+            withHorizontalLabels={true}
+            withInnerLines={!isCompact}
+            withOuterLines={!isCompact}
+            fromZero={false}
+            yLabelsOffset={4}
+            xLabelsOffset={4}
+            onDataPointClick={undefined}
+          />
+        ) : (
+          <View style={[styles.emptyContainer, { height: chartHeight, margin: 0 }]}>
+            <Text style={styles.emptyText}>Nessuna serie visibile. Tocca una voce in legenda per mostrarla.</Text>
+          </View>
+        )
       ) : (
         <View style={{ height: MIN_HEIGHT }} />
       )}

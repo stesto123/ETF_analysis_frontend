@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiService } from '@/services/api';
 import { Picker } from '@react-native-picker/picker';
 import ETFLineChart from '@/components/Chart/LineChart';
+import Toast, { ToastType } from '@/components/common/Toast';
 import { ChartDataPoint } from '@/types';
 
 export default function PipelineScreen() {
@@ -47,6 +48,7 @@ export default function PipelineScreen() {
   const [pid, setPid] = useState<number | null>(null);
   const [logPath, setLogPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: ToastType; message: string } | null>(null);
 
   const pollingRef = useRef<{ cancelled: boolean } | null>(null);
 
@@ -119,6 +121,13 @@ export default function PipelineScreen() {
       if (pollingRef.current) pollingRef.current.cancelled = true;
     };
   }, []);
+
+  // Auto-dismiss toast after 4s
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   useEffect(() => {
     let mounted = true;
@@ -210,8 +219,11 @@ export default function PipelineScreen() {
       // refresh portfolios table
       const data = await apiService.getPortfolioComposition();
       setPortfolios(data);
+      setToast({ type: 'success', message: 'Portafoglio creato e composizione salvata.' });
     } catch (e) {
-      setTableError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setTableError(msg);
+      setToast({ type: 'error', message: `Errore salvataggio: ${msg}` });
     } finally {
       setSaving(false);
     }
@@ -318,7 +330,16 @@ export default function PipelineScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: Math.max(24, insets.bottom + 12) }}>
+        <View style={{ position: 'absolute', top: insets.top + 8, left: 16, right: 16, zIndex: 20 }}>
+          {toast && (
+            <Toast
+              type={toast.type}
+              message={toast.message}
+              onClose={() => setToast(null)}
+            />
+          )}
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: Math.max(24, insets.bottom + 12), paddingTop: insets.top + 56 }}>
           <Text style={styles.title}>Avvia Pipeline</Text>
 
           {/* Portfolio table inserted before pipeline form */}
