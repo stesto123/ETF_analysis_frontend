@@ -1,13 +1,6 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  TouchableOpacity,
-  Alert,
-  ScrollView,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Trash2, Info } from 'lucide-react-native';
 import { apiService } from '@/services/api';
 import { useTheme } from '@/components/common/ThemeProvider';

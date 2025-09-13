@@ -112,8 +112,8 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.card }] }>
-      <Text style={[styles.title, { color: colors.text }]}>ETF Data Query</Text>
+    <View style={[styles.container, { backgroundColor: colors.card, borderColor: colors.border }] }>
+  <Text style={[styles.title, { color: colors.text }]}>ETF Data Query</Text>
 
       <View style={styles.row}>
         <View style={styles.col}>
@@ -181,7 +181,7 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
 
       <Modal transparent visible={showEndModal} animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
+          <View style={[styles.modalCard, { backgroundColor: colors.card }] }>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Seleziona End Date</Text>
             <DateTimePicker
               value={tempEnd}
@@ -213,6 +213,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     margin: 16,
     padding: 20,
+    borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,

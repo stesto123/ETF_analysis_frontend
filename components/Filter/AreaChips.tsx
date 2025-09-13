@@ -21,7 +21,7 @@ const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) =>
   const { colors, isDark } = useTheme();
   return (
     <View style={styles.container}>
-      <Text style={[styles.label, { color: colors.text }]}>Aree geografiche</Text>
+  <Text style={[styles.label, { color: colors.text }]}>Aree geografiche</Text>
 
       <FlatList
         data={data}

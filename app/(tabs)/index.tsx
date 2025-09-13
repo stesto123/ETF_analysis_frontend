@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, RefreshControl, Pressable, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Dimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ETFQueryForm from '@/components/Form/ETFQueryForm';
@@ -300,7 +301,7 @@ export default function HomeScreen() {
     }
 
     return (
-      <View style={styles.chartCard}>
+      <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <ETFLineChart
           // nuovo modo: un unico grafico con più serie
           multi={multiDatasets.map((ds) => ({
@@ -328,7 +329,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { paddingBottom: Math.max(12, insets.bottom + 12) }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background, paddingBottom: Math.max(12, insets.bottom + 12) }]}>
       <ScrollView
         refreshControl={
           <RefreshControl
@@ -346,13 +347,13 @@ export default function HomeScreen() {
           onSelect={setSelectedArea}
           loading={loading}
         />
-        <View style={[styles.tickersCard, { backgroundColor: colors.card }]}>
+  <View style={[styles.tickersCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.tickersHeader}>
             <Text style={[styles.tickersTitle, { color: colors.text }] }>
               ETF dell’area {selectedArea ? '' : '(nessuna area selezionata)'}
             </Text>
-            <View style={[styles.badge, { backgroundColor: colors.background }]}>
-              <Text style={styles.badgeText}>{tickers.length}</Text>
+            <View style={[styles.badge, { backgroundColor: colors.background }]}> 
+              <Text style={[styles.badgeText, { color: colors.text }]}>{tickers.length}</Text>
             </View>
           </View>
           {selectedArea == null ? (
@@ -417,6 +418,7 @@ const styles = StyleSheet.create({
   padding: 12,
   marginHorizontal: 12,
   marginBottom: 8,
+    borderWidth: 1,
     shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 4,

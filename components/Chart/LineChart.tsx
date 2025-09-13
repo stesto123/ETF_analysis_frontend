@@ -186,9 +186,9 @@ export default function ETFLineChart(props: Props) {
   // (destructured above).
 
   return (
-  <View style={styles.container} onLayout={onContainerLayout}>
+  <View style={[styles.container, { backgroundColor: colors.card }]} onLayout={onContainerLayout}>
       <View style={styles.header}>
-        <Text style={styles.title}>{title}</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
         {isMulti && legendItems && legendItems.length > 0 && (
           <View style={styles.legendRow}>
             {legendItems.map((it) => {
@@ -201,11 +201,11 @@ export default function ETFLineChart(props: Props) {
                 >
                   <View style={[styles.legendDot, { backgroundColor: it.color }]} />
                   <View style={{ maxWidth: 160 }}>
-                    <Text style={[styles.legendLabel, hidden && styles.legendLabelHidden]} numberOfLines={1}>
+                    <Text style={[styles.legendLabel, { color: colors.text }, hidden && styles.legendLabelHidden]} numberOfLines={1}>
                       {it.label}
                     </Text>
                     {it.ticker ? (
-                      <Text style={[styles.legendTicker, hidden && styles.legendLabelHidden]} numberOfLines={1}>
+                      <Text style={[styles.legendTicker, { color: colors.secondaryText }, hidden && styles.legendLabelHidden]} numberOfLines={1}>
                         ({it.ticker})
                       </Text>
                     ) : null}

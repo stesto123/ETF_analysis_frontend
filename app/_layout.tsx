@@ -9,21 +9,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 import { ThemeProvider, useTheme } from '@/components/common/ThemeProvider';
 
 export default function RootLayout() {
-  // Android: evita che la system navigation bar si sovrapponga,
-  // e chiedi al sistema di fornire gli inset in basso.
-  useEffect(() => {
-    (async () => {
-      try {
-        await NavigationBar.setVisibilityAsync('visible');
-        await NavigationBar.setBehaviorAsync('inset-swipe'); // fornisce insets corretti con gesture
-        await NavigationBar.setPositionAsync('relative');    // non sovrappone i contenuti
-        await NavigationBar.setBackgroundColorAsync('#FFFFFF');
-        await NavigationBar.setButtonStyleAsync('dark');
-      } catch {
-        // iOS o ambienti dove l'API non è disponibile: nessun problema
-      }
-    })();
-  }, []);
+  // Lasciamo a ThemedContent l'aggiornamento dei colori della system navigation bar
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -38,13 +24,25 @@ export default function RootLayout() {
 }
 
 function ThemedContent() {
-  const { isDark } = useTheme();
+  const { isDark, colors } = useTheme();
+
+  // Android Navigation Bar styling bound to theme
+  useEffect(() => {
+    (async () => {
+      try {
+        await NavigationBar.setVisibilityAsync('visible');
+        await NavigationBar.setButtonStyleAsync(isDark ? 'light' : 'dark');
+      } catch {
+        // Non-Android or missing API: ignore
+      }
+    })();
+  }, [colors.background, isDark]);
   return (
     <>
           <Stack
             screenOptions={{
               headerShown: false,
-              contentStyle: { backgroundColor: '#FFFFFF' },
+              contentStyle: { backgroundColor: colors.background },
             }}
           >
             <Stack.Screen name="(tabs)" />

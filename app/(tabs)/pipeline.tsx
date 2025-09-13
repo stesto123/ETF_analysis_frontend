@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import {
-  SafeAreaView,
   View,
   Text,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiService } from '@/services/api';
@@ -286,11 +286,11 @@ export default function PipelineScreen() {
     }
 
     return (
-      <View style={styles.tableContainer}>
-        <View style={styles.tableHeaderRow}>
+      <View style={[styles.tableContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[styles.tableHeaderRow, { backgroundColor: colors.background, borderColor: colors.border }]}>
           {headers.map((h, idx) => (
-            <View key={h + idx} style={[styles.headerCell, idx === headers.length - 1 && styles.lastCell]}>
-              <Text style={styles.headerText}>{h}</Text>
+            <View key={h + idx} style={[styles.headerCell, { borderColor: colors.border }, idx === headers.length - 1 && styles.lastCell]}>
+              <Text style={[styles.headerText, { color: colors.text }]}>{h}</Text>
             </View>
           ))}
         </View>
@@ -317,18 +317,18 @@ export default function PipelineScreen() {
               </Pressable>
             )}
           >
-          <View style={styles.tableRow}>
-            <View style={[styles.cell, styles.firstCell, {alignItems:'center'}]}>
-              <Pressable onPress={() => togglePortfolio(row.ID_Portafoglio)} style={[styles.checkbox, selectedPortfolios[row.ID_Portafoglio] && styles.checkboxOn]}>
+          <View style={[styles.tableRow, { borderColor: colors.border }]}>
+            <View style={[styles.cell, styles.firstCell, { alignItems:'center', borderColor: colors.border }]}>
+              <Pressable onPress={() => togglePortfolio(row.ID_Portafoglio)} style={[styles.checkbox, { borderColor: colors.border, backgroundColor: colors.card }, selectedPortfolios[row.ID_Portafoglio] && { backgroundColor: colors.accent, borderColor: colors.accent }]}>
                 <Text style={styles.checkboxMark}>{selectedPortfolios[row.ID_Portafoglio] ? '✓' : ''}</Text>
               </Pressable>
             </View>
-            <View style={[styles.cell, styles.firstCell]}>
-              <Text style={styles.cellText}>{row.ID_Portafoglio}</Text>
+            <View style={[styles.cell, styles.firstCell, { borderColor: colors.border }]}>
+              <Text style={[styles.cellText, { color: colors.text }]}>{row.ID_Portafoglio}</Text>
             </View>
       {/* description gets a bit more space */}
-      <View style={[styles.cell, { minWidth: 220 }]}> 
-              <Text style={styles.cellText}>{row.Descrizione_Portafoglio}</Text>
+      <View style={[styles.cell, { minWidth: 220, borderColor: colors.border }]}> 
+        <Text style={[styles.cellText, { color: colors.text }]}>{row.Descrizione_Portafoglio}</Text>
             </View>
 
             {Array.from({ length: maxTickers }).map((_, i) => {
@@ -336,11 +336,11 @@ export default function PipelineScreen() {
               const isLast = i === maxTickers - 1;
               return (
                 <React.Fragment key={i}>
-                  <View style={[styles.cell, isLast && styles.lastCell]}>
-                    <Text style={styles.cellText}>{pair.ticker ?? ''}</Text>
+                  <View style={[styles.cell, { borderColor: colors.border }, isLast && styles.lastCell]}>
+                    <Text style={[styles.cellText, { color: colors.secondaryText }]}>{pair.ticker ?? ''}</Text>
                   </View>
-                  <View style={[styles.cell, isLast && styles.lastCell]}>
-                    <Text style={styles.cellText}>{pair.percentuale != null ? String(pair.percentuale) : ''}</Text>
+                  <View style={[styles.cell, { borderColor: colors.border }, isLast && styles.lastCell]}>
+                    <Text style={[styles.cellText, { color: colors.secondaryText }]}>{pair.percentuale != null ? String(pair.percentuale) : ''}</Text>
                   </View>
                 </React.Fragment>
               );
@@ -396,7 +396,7 @@ export default function PipelineScreen() {
             </View>
             <View style={styles.field}>
               <Text style={[styles.label, { color: colors.secondaryText }]}>Area preferita (default per nuove righe)</Text>
-              <View style={styles.pickerWrapper}>
+              <View style={[styles.pickerWrapper, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <Picker selectedValue={selectedArea} onValueChange={(v) => setSelectedArea(v)}>
                   <Picker.Item label="-- Seleziona area --" value={null as any} />
                   {areas.map((a) => (
@@ -409,7 +409,7 @@ export default function PipelineScreen() {
             {compItems.map((row, idx) => (
               <View key={row.key} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
                 {/* Per-row Area */}
-                <View style={[styles.pickerWrapper, { flex: 0.9, marginRight: 8 }]}> 
+                <View style={[styles.pickerWrapper, { flex: 0.9, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border }]}> 
                   <Picker
                     selectedValue={row.areaId ?? null}
                     onValueChange={(v) => {
@@ -428,7 +428,7 @@ export default function PipelineScreen() {
                   </Picker>
                 </View>
                 {/* Per-row Ticker from selected area */}
-                <View style={[styles.pickerWrapper, { flex: 1.2, marginRight: 8, opacity: row.areaId ? 1 : 0.6 }]}> 
+                <View style={[styles.pickerWrapper, { flex: 1.2, marginRight: 8, opacity: row.areaId ? 1 : 0.6, backgroundColor: colors.card, borderColor: colors.border }]}> 
                   <Picker
                     enabled={!!row.areaId}
                     selectedValue={row.ID_ticker ?? null}
@@ -501,21 +501,21 @@ export default function PipelineScreen() {
             <Text style={styles.btnText}>{starting ? 'Avvio in corso...' : 'Avvia Pipeline'}</Text>
           </Pressable>
 
-          <View style={styles.statusCard}>
-            <Text style={styles.statusLabel}>Stato Job</Text>
-            <Text style={styles.statusValue}>{status ?? 'Nessun job avviato'}</Text>
-            {jobId && <Text style={styles.small}>Job ID: {jobId}</Text>}
-            {pid != null && <Text style={styles.small}>PID: {pid}</Text>}
-            {logPath && <Text style={styles.small}>Log: {logPath}</Text>}
+          <View style={[styles.statusCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.statusLabel, { color: colors.secondaryText }]}>Stato Job</Text>
+            <Text style={[styles.statusValue, { color: colors.text }]}>{status ?? 'Nessun job avviato'}</Text>
+            {jobId && <Text style={[styles.small, { color: colors.secondaryText }]}>Job ID: {jobId}</Text>}
+            {pid != null && <Text style={[styles.small, { color: colors.secondaryText }]}>PID: {pid}</Text>}
+            {logPath && <Text style={[styles.small, { color: colors.secondaryText }]}>Log: {logPath}</Text>}
           </View>
 
           <View style={{ marginTop: 20 }}>
             <Text style={[styles.label, { color: colors.secondaryText }]}>Andamento Valore Totale Portafogli Selezionati</Text>
             <View style={styles.row}>
               <View style={[styles.field, { flex: 1, marginRight: 8 }]}> 
-                <Text style={styles.label}>Start (YYYYMMDD)</Text>
+                <Text style={[styles.label, { color: colors.secondaryText }]}>Start (YYYYMMDD)</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
                   value={chartStartDate}
                   onChangeText={setChartStartDate}
                   placeholder="es. 20240101"
@@ -523,9 +523,9 @@ export default function PipelineScreen() {
                 />
               </View>
               <View style={[styles.field, { flex: 1 }]}> 
-                <Text style={styles.label}>End (YYYYMMDD)</Text>
+                <Text style={[styles.label, { color: colors.secondaryText }]}>End (YYYYMMDD)</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
                   value={chartEndDate}
                   onChangeText={setChartEndDate}
                   placeholder="es. 20241231"

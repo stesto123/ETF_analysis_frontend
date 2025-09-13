@@ -3,6 +3,7 @@
     "name": "bolt-expo-nativewind",
     "slug": "bolt-expo-nativewind",
     "version": "1.0.0",
+    "scheme": "etfanalysis",
     "web": {
       "bundler": "metro",
       "output": "single",
