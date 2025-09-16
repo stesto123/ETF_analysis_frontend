@@ -26,6 +26,7 @@ export default function PipelineScreen() {
   const [idPortafoglio, setIdPortafoglio] = useState<string>('1');
   const [ammontare, setAmmontare] = useState<string>('10000');
   const [strategia, setStrategia] = useState<string>('PAC Semplice');
+  const [capitaleIniziale, setCapitaleIniziale] = useState<string>('0');
   const today = new Date();
   const yyyy = today.getFullYear();
   const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -90,6 +91,7 @@ export default function PipelineScreen() {
         strategia: strategia || 'PAC Semplice',
         data_inizio: dataInizio,
         data_fine: dataFine,
+        capitale_iniziale: Number(capitaleIniziale) || 0,
       };
       const res = await apiService.runPipeline(payload as any);
       setJobId(res.job_id);
@@ -477,6 +479,18 @@ export default function PipelineScreen() {
           <View style={styles.field}>
             <Text style={[styles.label, { color: colors.secondaryText }]}>Ammontare</Text>
             <TextInput style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]} value={ammontare} onChangeText={setAmmontare} keyboardType="numeric" placeholderTextColor={colors.secondaryText} />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={[styles.label, { color: colors.secondaryText }]}>Capitale Iniziale</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
+              value={capitaleIniziale}
+              onChangeText={setCapitaleIniziale}
+              keyboardType="numeric"
+              placeholder="0"
+              placeholderTextColor={colors.secondaryText}
+            />
           </View>
 
           <View style={styles.field}>

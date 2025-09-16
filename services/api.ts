@@ -239,11 +239,13 @@ class APIService {
   }
 
   // ------- Pipeline job -------
-  async runPipeline(params: { id_portafoglio: number; ammontare: number; strategia: string; data_inizio: string; data_fine: string }): Promise<{ job_id: string; status: string; pid?: number; log_path?: string }> {
+  async runPipeline(params: { id_portafoglio: number; ammontare: number; strategia: string; data_inizio: string; data_fine: string; capitale_iniziale?: number }): Promise<{ job_id: string; status: string; pid?: number; log_path?: string }> {
+    const payload = { ...params } as any;
+    if (payload.capitale_iniziale == null) payload.capitale_iniziale = 0;
     const res = await fetch(`${API_BASE_URL}/api/run_pipeline`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(params),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const txt = await res.text();

@@ -138,6 +138,16 @@ Nota performance grafici:
 - **About**: Informazioni sull'app e versione
 - **API Information**: Dettagli sulla configurazione API
 
+### 3. Schermata Pipeline
+- Avvia un job di simulazione passando:
+  - ID Portafoglio
+  - Ammontare (investimento periodico o target)
+  - Strategia (es. "PAC Semplice")
+  - Date (inizio e fine) formato YYYYMMDD
+  - Capitale Iniziale (nuovo campo) per specificare un capitale di partenza (>0 se vuoi che la simulazione parta già con un capitale investito)
+- Il backend accetta il campo JSON `capitale_iniziale` (default 0 se omesso).
+- Dopo l'avvio viene mostrato lo stato (running / finished) e puoi monitorare i risultati.
+
 ## 🌐 Configurazione API
 
 L'app è preconfigurata per utilizzare l'API ETF:
