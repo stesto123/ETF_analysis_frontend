@@ -1,12 +1,32 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Trash2, Info } from 'lucide-react-native';
 import { apiService } from '@/services/api';
+import { useChartSettings, CHART_MAX_POINTS_LIMITS } from '@/components/common/ChartSettingsProvider';
 import { useTheme } from '@/components/common/ThemeProvider';
 
 export default function SettingsScreen() {
   const { theme, setTheme, isDark, colors } = useTheme();
+  const { maxPoints, setMaxPoints, loading } = useChartSettings();
+  const [draft, setDraft] = useState(String(maxPoints));
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(String(maxPoints));
+  }, [maxPoints]);
+
+  const commit = () => {
+    const n = parseInt(draft, 10);
+    if (!Number.isFinite(n)) { setFeedback('Please enter a valid number'); return; }
+    if (n < CHART_MAX_POINTS_LIMITS.MIN || n > CHART_MAX_POINTS_LIMITS.MAX) {
+      setFeedback(`Value must be between ${CHART_MAX_POINTS_LIMITS.MIN} and ${CHART_MAX_POINTS_LIMITS.MAX}`);
+      return;
+    }
+    setFeedback(null);
+    setMaxPoints(n);
+    Alert.alert('Updated', `Max chart points set to ${n}`);
+  };
   const handleClearCache = async () => {
     Alert.alert(
       'Clear Cache',
@@ -60,6 +80,35 @@ export default function SettingsScreen() {
               </View>
             </View>
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Charts</Text>
+          <View style={[styles.settingItem, { backgroundColor: colors.card, borderBottomColor: colors.border }]}> 
+            <View style={styles.settingLeft}>
+              <View style={styles.settingText}>
+                <Text style={[styles.settingTitle, { color: colors.text }]}>Max Points per Line Chart</Text>
+                <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>
+                  Global cap (default {CHART_MAX_POINTS_LIMITS.DEFAULT}, range {CHART_MAX_POINTS_LIMITS.MIN}-{CHART_MAX_POINTS_LIMITS.MAX})
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                  <TextInput
+                    style={[styles.numberInput, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                    keyboardType="number-pad"
+                    value={draft}
+                    onChangeText={setDraft}
+                    placeholder="60"
+                    placeholderTextColor={colors.secondaryText}
+                    maxLength={4}
+                  />
+                  <TouchableOpacity style={[styles.applyBtn, { backgroundColor: colors.accent }]} onPress={commit}>
+                    <Text style={styles.applyBtnText}>Apply</Text>
+                  </TouchableOpacity>
+                </View>
+                {feedback && <Text style={[styles.errorText, { color: '#DC2626' }]}>{feedback}</Text>}
+              </View>
+            </View>
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -182,5 +231,31 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginBottom: 4,
     lineHeight: 20,
+  },
+  numberInput: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 14,
+    minWidth: 80,
+    marginRight: 12,
+  },
+  applyBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#2563EB',
+  },
+  applyBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  errorText: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#DC2626',
   },
 });

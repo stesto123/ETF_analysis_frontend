@@ -19,7 +19,7 @@ type AreaTicker = { ID_ticker: number; ticker: string; nome: string };
 type DateRange = { start_date: string; end_date: string };
 type SelectedMap = Record<number, { ID_ticker: number; ticker: string; nome: string }>;
 
-type MultiDataset = { label: string; data: number[]; colorHint?: 'up' | 'down' };
+type MultiDataset = { label: string; data: number[]; colorHint?: 'up' | 'down'; ticker?: string };
 // allow optional labels per dataset (shared across series)
 type MultiDatasetWithLabels = MultiDataset & { labels?: string[] };
 
@@ -70,6 +70,8 @@ export default function HomeScreen() {
   };
   // kept helper removed to silence unused var lint; recreate if needed
   const daysBetween = (a: Date, b: Date) => Math.max(1, Math.round((+b - +a) / 86400000));
+  // precise non-negative floor days difference for bucket indexing (0 when same day)
+  const diffDays = (a: Date, b: Date) => Math.max(0, Math.floor((+b - +a) / 86400000));
 
   // Decidi la granularità comune (in giorni) in base allo span globale
   const chooseBucketDays = (spanDays: number, maxPoints = 60) => {
@@ -80,6 +82,53 @@ export default function HomeScreen() {
     else bucketDays = 90;
     const est = Math.ceil(spanDays / bucketDays);
     return est > maxPoints ? Math.ceil(spanDays / maxPoints) : bucketDays;
+  };
+
+  // Aggrega una serie cumulativa (calendar_days + values) sui bucket comuni
+  const aggregateCumulativeOnBuckets = (
+    calendar_days: number[],
+    values: number[],
+    globalStart: Date,
+    bucketDays: number,
+    bucketCount: number
+  ): number[] => {
+    // Track the latest day seen per bucket to make this independent from input order
+    const buckets: Array<{ day: number; value: number } | undefined> = new Array(bucketCount).fill(undefined);
+    const n = Math.min(calendar_days.length, values.length);
+    // zip and sort by day ascending to normalize order
+    const pts: Array<{ day: number; value: number }> = [];
+    for (let i = 0; i < n; i++) {
+      const day = Number(calendar_days[i]);
+      const value = Number(values[i]);
+      if (!Number.isFinite(day) || !Number.isFinite(value)) continue;
+      pts.push({ day, value });
+    }
+    pts.sort((a, b) => a.day - b.day);
+    for (const p of pts) {
+      const d = parseYYYYMMDD(p.day);
+      let idx = Math.floor(diffDays(globalStart, d) / bucketDays);
+      if (idx < 0) idx = 0;
+      if (idx >= bucketCount) idx = bucketCount - 1;
+      // keep the latest calendar day value per bucket
+      const cur = buckets[idx];
+      if (!cur || p.day > cur.day) {
+        buckets[idx] = { day: p.day, value: p.value };
+      }
+    }
+    // forward-fill
+    const series: number[] = [];
+    let prev = 0;
+    // initialize prev with first defined if exists
+    for (let i = 0; i < bucketCount; i++) {
+      const cell = buckets[i];
+      if (cell && !Number.isNaN(cell.value)) { prev = cell.value; break; }
+    }
+    for (let i = 0; i < bucketCount; i++) {
+      const cell = buckets[i];
+      if (cell && !Number.isNaN(cell.value)) prev = cell.value;
+      series.push(prev);
+    }
+    return series;
   };
 
   // Aggrega una serie (ETF rows) sui bucket comuni
@@ -94,7 +143,7 @@ export default function HomeScreen() {
 
     for (const r of sorted) {
       const d = parseYYYYMMDD(r.calendar_id);
-      let idx = Math.floor(daysBetween(globalStart, d) / bucketDays);
+  let idx = Math.floor(diffDays(globalStart, d) / bucketDays);
       if (idx < 0) idx = 0;
       if (idx >= bucketCount) idx = bucketCount - 1;
       const price = parseFloat(r.close_price);
@@ -214,10 +263,11 @@ export default function HomeScreen() {
         return { label: displayName, ticker: t.ticker, data: agg.data, colorHint: agg.upOrDown, labels };
       });
 
-  setMultiDatasets(datasets);
-  // fetch cumulative returns in parallel but don't block the price chart
-  fetchCumulativeForSelected(range, useCache).catch(() => setCumDatasets(null));
-  setLastRange(range);
+      setMultiDatasets(datasets);
+      // fetch cumulative returns using the SAME bucketing/labels for consistency
+      fetchCumulativeForSelected(range, useCache, { globalStart, bucketDays, bucketCount, labels })
+        .catch(() => setCumDatasets(null));
+      setLastRange(range);
     } catch (e) {
       setMultiDatasets(null);
       setError(e instanceof Error ? e.message : 'Errore inatteso durante il caricamento');
@@ -229,7 +279,11 @@ export default function HomeScreen() {
   // ------- cumulative returns (second chart) -------
   const [cumDatasets, setCumDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
 
-  const fetchCumulativeForSelected = async (range: DateRange, useCache: boolean = true) => {
+  const fetchCumulativeForSelected = async (
+    range: DateRange,
+    useCache: boolean = true,
+    bucketing?: { globalStart: Date; bucketDays: number; bucketCount: number; labels: string[] }
+  ) => {
     const toLoad = Object.values(selectedTickers);
     if (toLoad.length === 0) return;
     try {
@@ -237,18 +291,65 @@ export default function HomeScreen() {
         toLoad.map((t) => apiService.fetchCumulativeReturns({ id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date }, useCache).then((r) => ({ t, r })))
       );
 
-      // backend returns arrays per ticker; pick simple cumulative returns
+      let labels: string[] = [];
+      let globalStart: Date | null = null;
+      let bucketDays = 1;
+      let bucketCount = 0;
+
+      if (bucketing) {
+        labels = bucketing.labels;
+        globalStart = bucketing.globalStart;
+        bucketDays = bucketing.bucketDays;
+        bucketCount = bucketing.bucketCount;
+      } else {
+        // fallback: derive common bucketing from cum series span
+        let minCal = Infinity;
+        let maxCal = -Infinity;
+        results.forEach(({ r }) => {
+          if (!Array.isArray(r.calendar_days) || r.calendar_days.length === 0) return;
+          const first = r.calendar_days[0];
+          const last = r.calendar_days[r.calendar_days.length - 1];
+          minCal = Math.min(minCal, first);
+          maxCal = Math.max(maxCal, last);
+        });
+        if (!isFinite(minCal) || !isFinite(maxCal)) {
+          setCumDatasets(null);
+          return;
+        }
+        globalStart = parseYYYYMMDD(minCal);
+        const globalEnd = parseYYYYMMDD(maxCal);
+        const spanDays = daysBetween(globalStart, globalEnd);
+        bucketDays = chooseBucketDays(spanDays, 60);
+        bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
+        const buildLabel = (d: Date) => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        };
+        labels = [];
+        for (let i = 0; i < bucketCount; i++) {
+          const dt = new Date(globalStart.getTime() + i * bucketDays * 86400000);
+          labels.push(buildLabel(dt));
+        }
+      }
+
+      // downsample cumulative returns to match buckets
       const datasets: MultiDatasetWithLabels[] = results.map(({ t, r }) => {
-        // r.calendar_days expected as numbers YYYYMMDD
-        const labels = Array.isArray(r.calendar_days)
-          ? r.calendar_days.map((n) => {
-              const s = String(n);
-              if (s.length === 8) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
-              return s;
-            })
-          : [];
-        const label = r.name || t.nome || t.ticker;
-        return { label, ticker: t.ticker, data: r.simple, colorHint: 'up', labels };
+        const rawSeries = aggregateCumulativeOnBuckets(
+          Array.isArray(r.calendar_days) ? r.calendar_days : [],
+          Array.isArray(r.simple) ? r.simple : [],
+          globalStart!,
+          bucketDays,
+          bucketCount
+        );
+        // Convert from decimal returns (e.g., 0.1) to percentage values (10) for display
+        const series = rawSeries.map(v => (Number.isFinite(v) ? v * 100 : v));
+        const first = series[0] ?? 0;
+        const last = series[series.length - 1] ?? first;
+        const upOrDown: 'up' | 'down' = last >= first ? 'up' : 'down';
+        const label = (r.name || t.nome || t.ticker) + ' (%)';
+        return { label, ticker: t.ticker, data: series, colorHint: upOrDown, labels };
       });
       setCumDatasets(datasets);
     } catch {

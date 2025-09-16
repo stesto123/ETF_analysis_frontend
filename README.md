@@ -127,6 +127,12 @@ expo start --clear
 - Premi **"Fetch Data"** per caricare i dati
 - Interagisci con il grafico toccando i punti per vedere i dettagli
 
+Nota performance grafici:
+- I grafici a linee applicano un downsampling automatico per mantenere l'app reattiva su range di date molto ampi.
+- Per impostazione predefinita, vengono mostrati al massimo ~60 punti per serie.
+- Puoi modificare questo limite in tempo reale dalla schermata Settings (campo "Max Points per Line Chart").
+- In alternativa, puoi ancora passare la prop `maxPoints` a `ETFLineChart` per override locale.
+
 ### 2. Schermata Settings
 - **Clear Cache**: Rimuove tutti i dati memorizzati localmente
 - **About**: Informazioni sull'app e versione
@@ -185,6 +191,7 @@ L'app è preconfigurata per utilizzare l'API ETF:
 - **TypeScript**: Type safety e migliore developer experience
 - **Expo Router**: Navigazione file-based moderna
 - **react-native-chart-kit**: Libreria per grafici interattivi
+- **Downsampling uniforme**: Capping dei punti grafico per evitare sovraccarichi su dataset estesi
 - **AsyncStorage**: Cache locale dei dati
 - **Lucide Icons**: Icone moderne e consistenti
 

@@ -4,6 +4,7 @@ import { LineChart } from 'react-native-chart-kit';
 import { ChartDataPoint } from '@/types';
 import { getLineColor as importedGetLineColor } from '@/utils/linePalette';
 import { useTheme } from '@/components/common/ThemeProvider';
+import { useChartSettings } from '@/components/common/ChartSettingsProvider';
 
 // fallback nel caso l'import runtime fallisca (metro bundler edge case)
 const getLineColor = (idx: number) => {
@@ -17,6 +18,11 @@ interface SingleProps {
   ticker: string;
   height?: number;
   multi?: undefined;
+  /**
+   * Maximum number of points to render. If the input series has more points, it will be
+   * downsampled uniformly to approximately this size. Defaults to 60.
+   */
+  maxPoints?: number;
 }
 
 interface MultiSerie {
@@ -32,6 +38,11 @@ interface MultiProps {
   data: ChartDataPoint[];
   ticker: string;
   height?: number;
+  /**
+   * Maximum number of points to render. If the input series has more points, it will be
+   * downsampled uniformly to approximately this size. Defaults to 60.
+   */
+  maxPoints?: number;
 }
 
 type Props = SingleProps | MultiProps;
@@ -126,11 +137,60 @@ export default function ETFLineChart(props: Props) {
     }
   }, [props, isMulti]);
 
+  // ===== Downsampling to keep charts lightweight =====
+  const { maxPoints: globalMaxPoints } = useChartSettings();
+  const maxPoints = (props as any).maxPoints ?? globalMaxPoints ?? 60; // default standard cap
+
+  const { dsLabels, dsDatasets } = useMemo(() => {
+    // Build a uniform index selection up to maxPoints
+    const pickIndices = (n: number, target: number): number[] => {
+      if (!Number.isFinite(n) || n <= 0) return [];
+      if (!Number.isFinite(target) || target <= 0) return Array.from({ length: n }, (_, i) => i);
+      if (n <= target) return Array.from({ length: n }, (_, i) => i);
+      const steps = target - 1;
+      const step = (n - 1) / steps; // ensure first and last included
+      const idxs: number[] = [];
+      for (let i = 0; i < target; i++) idxs.push(Math.round(i * step));
+      // dedupe and clamp
+      const set = new Set<number>();
+      for (const v of idxs) {
+        const vv = Math.min(n - 1, Math.max(0, v));
+        set.add(vv);
+      }
+      return Array.from(set.values()).sort((a, b) => a - b);
+    };
+
+    // Determine base length for multi from labels if available, else from first dataset
+    if (isMulti) {
+      const n = (labels && labels.length) || ((fullDatasets as any[])?.[0]?.data?.length ?? 0);
+      const keep = pickIndices(n, maxPoints);
+      if (keep.length === 0) return { dsLabels: labels, dsDatasets: fullDatasets };
+      const pickArray = <T,>(arr: T[] | undefined) => (Array.isArray(arr) ? keep.map((i) => arr[i]).filter((v) => v !== undefined) : arr);
+      const newLabels = Array.isArray(labels) && labels.length === n ? pickArray(labels) : labels;
+      const newDatasets = (fullDatasets as any[]).map((d) => ({
+        ...d,
+        data: pickArray(d.data),
+      }));
+      return { dsLabels: newLabels as typeof labels, dsDatasets: newDatasets as typeof fullDatasets };
+    } else {
+      const d0 = (fullDatasets as any[])?.[0]?.data as number[] | undefined;
+      const n = d0?.length ?? 0;
+      const keep = pickIndices(n, maxPoints);
+      if (keep.length === 0) return { dsLabels: labels, dsDatasets: fullDatasets };
+      const pickArray = <T,>(arr: T[] | undefined) => (Array.isArray(arr) ? keep.map((i) => arr[i]).filter((v) => v !== undefined) : arr);
+      const newLabels = Array.isArray(labels) && labels.length === n ? pickArray(labels) : labels;
+      const newDataset0 = (fullDatasets as any[])[0]
+        ? { ...(fullDatasets as any[])[0], data: pickArray(d0) }
+        : (fullDatasets as any[])[0];
+      return { dsLabels: newLabels as typeof labels, dsDatasets: [newDataset0] as typeof fullDatasets };
+    }
+  }, [isMulti, labels, fullDatasets, maxPoints]);
+
   // apply visibility filter to datasets
   const datasets = useMemo(() => {
-    if (!isMulti) return fullDatasets as any;
-    return (fullDatasets as any[]).filter((d) => visibleMap[(d as any).key] !== false);
-  }, [fullDatasets, visibleMap, isMulti]);
+    if (!isMulti) return dsDatasets as any;
+    return (dsDatasets as any[]).filter((d) => visibleMap[(d as any).key] !== false);
+  }, [dsDatasets, visibleMap, isMulti]);
 
   // When all series are hidden, avoid rendering LineChart with an empty datasets array
   // as some versions of react-native-chart-kit expect datasets[0] to exist.
@@ -175,9 +235,10 @@ export default function ETFLineChart(props: Props) {
 
   // formatXLabel: show only a subset of labels to avoid overcrowding
   const formatXLabel = (xValue: string) => {
-    if (!labels || labels.length <= 6) return xValue;
-    const step = Math.max(1, Math.ceil(labels.length / 6));
-    const idx = labels.indexOf(xValue);
+    const base = (dsLabels as string[] | undefined) ?? (labels as string[] | undefined);
+    if (!base || base.length <= 6) return xValue;
+    const step = Math.max(1, Math.ceil(base.length / 6));
+    const idx = base.indexOf(xValue);
     if (idx === -1) return xValue;
     return idx % step === 0 ? xValue : '';
   };
@@ -220,7 +281,7 @@ export default function ETFLineChart(props: Props) {
       {innerWidth && chartHeight ? (
         hasVisibleDatasets ? (
           <LineChart
-            data={{ labels, datasets }}
+            data={{ labels: dsLabels as any, datasets }}
             width={innerWidth}
             height={chartHeight}
             chartConfig={chartConfig}

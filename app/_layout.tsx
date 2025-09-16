@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as NavigationBar from 'expo-navigation-bar';
 import { ThemeProvider, useTheme } from '@/components/common/ThemeProvider';
+import { ChartSettingsProvider } from '@/components/common/ChartSettingsProvider';
 
 export default function RootLayout() {
   // Lasciamo a ThemedContent l'aggiornamento dei colori della system navigation bar
@@ -14,10 +15,12 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
-        <SafeAreaProvider>
-          {/* Consume theme inside to set StatusBar style */}
-          <ThemedContent />
-        </SafeAreaProvider>
+        <ChartSettingsProvider>
+          <SafeAreaProvider>
+            {/* Consume theme inside to set StatusBar style */}
+            <ThemedContent />
+          </SafeAreaProvider>
+        </ChartSettingsProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );
