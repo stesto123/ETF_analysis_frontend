@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Dimensions, PanResponder, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -33,6 +33,53 @@ export default function HomeScreen() {
   const [areas, setAreas] = useState<GeographicArea[]>([]);
   const [selectedArea, setSelectedArea] = useState<number | null>(null);
   const [tickers, setTickers] = useState<AreaTicker[]>([]);
+  const [tickersLoading, setTickersLoading] = useState(false);
+  // Pagination & expandable panel state
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(0);
+  const [expandedTickers, setExpandedTickers] = useState(false);
+  const screenH = Dimensions.get('window').height;
+  const collapsedMaxHeight = Math.round(screenH * 0.5);
+  const expandedMaxHeight = Math.round(screenH * 0.88);
+  const animatedHeight = React.useRef(new Animated.Value(collapsedMaxHeight)).current;
+
+  useEffect(() => {
+    Animated.timing(animatedHeight, {
+      toValue: expandedTickers ? expandedMaxHeight : collapsedMaxHeight,
+      duration: 220,
+      useNativeDriver: false,
+    }).start();
+  }, [expandedTickers, collapsedMaxHeight, expandedMaxHeight]);
+
+  // Derived paginated slice
+  const pagedTickers = useMemo(() => {
+    const start = page * PAGE_SIZE;
+    return tickers.slice(start, start + PAGE_SIZE);
+  }, [tickers, page]);
+
+  // Clamp page when tickers length changes
+  useEffect(() => {
+    const maxPage = Math.max(0, Math.floor((tickers.length - 1) / PAGE_SIZE));
+    if (page > maxPage) setPage(0);
+  }, [tickers.length]);
+
+  useEffect(() => { setPage(0); }, [selectedArea]);
+
+  const canPrev = page > 0;
+  const maxPage = Math.max(0, Math.floor((tickers.length - 1) / PAGE_SIZE));
+  const canNext = page < maxPage;
+
+  // Gesture (drag handle) to expand / collapse
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy < -40 && !expandedTickers) setExpandedTickers(true);
+        else if (gesture.dy > 40 && expandedTickers) setExpandedTickers(false);
+      },
+    })
+  ).current;
 
   const [selectedTickers, setSelectedTickers] = useState<SelectedMap>({});
 
@@ -52,14 +99,35 @@ export default function HomeScreen() {
     apiService.getGeographicAreas().then(setAreas).catch(() => setAreas([]));
   }, []);
 
-  useEffect(() => {
-    if (selectedArea) {
-      // Adesso passiamo flag_is_needed: true per filtrare come richiesto
-      apiService.getTickersByArea(selectedArea, true).then(setTickers).catch(() => setTickers([]));
-    } else {
-      setTickers([]);
-    }
-  }, [selectedArea]);
+    // Caricamento tickers per area o tutte le aree
+    useEffect(() => {
+      let cancelled = false;
+      const load = async () => {
+        if (areas.length === 0) { setTickers([]); return; }
+        setTickersLoading(true);
+        try {
+          if (selectedArea == null) {
+            // Aggrega tutti i tickers di tutte le aree
+            const lists = await Promise.all(
+              areas.map(a => apiService.getTickersByArea(a.id_area_geografica, true).catch(() => []))
+            );
+            const map: Record<number, AreaTicker> = {};
+            lists.forEach(lst => {
+              lst.forEach(t => { map[t.ID_ticker] = t; });
+            });
+            const merged = Object.values(map).sort((a,b) => a.ticker.localeCompare(b.ticker));
+            if (!cancelled) setTickers(merged);
+          } else {
+            const list = await apiService.getTickersByArea(selectedArea, true).catch(() => []);
+            if (!cancelled) setTickers(list);
+          }
+        } finally {
+          if (!cancelled) setTickersLoading(false);
+        }
+      };
+      load();
+      return () => { cancelled = true; };
+    }, [selectedArea, areas]);
 
   // ===== Aggregazione unificata per grafico unico =====
   const parseYYYYMMDD = (n: number) => {
@@ -451,16 +519,18 @@ export default function HomeScreen() {
   <View style={[styles.tickersCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.tickersHeader}>
             <Text style={[styles.tickersTitle, { color: colors.text }] }>
-              ETF dell’area {selectedArea ? '' : '(nessuna area selezionata)'}
+              {selectedArea == null ? 'ETF di tutte le aree' : 'ETF dell’area selezionata'}
             </Text>
             <View style={[styles.badge, { backgroundColor: colors.background }]}> 
               <Text style={[styles.badgeText, { color: colors.text }]}>{tickers.length}</Text>
             </View>
           </View>
-          {selectedArea == null ? (
-            <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Seleziona un’area per vedere gli ETF.</Text>
+          {tickersLoading ? (
+            <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Caricamento ETF…</Text>
           ) : tickers.length === 0 ? (
-            <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Nessun ETF trovato per quest’area.</Text>
+            <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>
+              {selectedArea == null ? 'Nessun ETF trovato (lista vuota).' : 'Nessun ETF trovato per quest’area.'}
+            </Text>
           ) : (
             <>
               <View style={styles.bulkRow}>
@@ -470,30 +540,63 @@ export default function HomeScreen() {
                   </Text>
                 </Pressable>
                 <Text style={[styles.selectedCounter, { color: colors.secondaryText }]}>
-                  Selezionati totali: {Object.keys(selectedTickers).length}
+                  Selezionati: {Object.keys(selectedTickers).length}
                 </Text>
               </View>
-              <View style={styles.tickerListContainer}>
-                {tickers.map((item, idx) => {
-                  const isSel = !!selectedTickers[item.ID_ticker];
-                  const isLast = idx === tickers.length - 1;
-                  return (
-                    <View key={item.ID_ticker}>
-                      <Pressable onPress={() => toggleSelect(item)} style={styles.tickerRow}>
-                        <View style={[styles.checkbox, { borderColor: colors.border, backgroundColor: colors.card }, isSel && { backgroundColor: colors.accent, borderColor: colors.accent }]}>
-                          <Text style={styles.checkboxMark}>{isSel ? '✓' : ''}</Text>
+              <Animated.View style={[styles.tickerScrollableContainer, { height: animatedHeight }]}> 
+                <View style={styles.dragHandleWrapper} {...panResponder.panHandlers}>
+                  <Pressable onPress={() => setExpandedTickers(e => !e)} style={styles.dragHandlePress} hitSlop={8}>
+                    <View style={[styles.dragHandleBar, { backgroundColor: colors.border }]} />
+                    <Text style={[styles.handleLabel, { color: colors.secondaryText }]}>
+                      {expandedTickers ? 'Riduci elenco' : 'Espandi elenco'}
+                    </Text>
+                  </Pressable>
+                </View>
+                <View style={styles.innerScrollWrapper}> 
+                  <ScrollView
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator
+                    contentContainerStyle={{ paddingBottom: 8 }}
+                  >
+                    {pagedTickers.map((item, index) => {
+                      const isSel = !!selectedTickers[item.ID_ticker];
+                      return (
+                        <View key={item.ID_ticker}>
+                          <Pressable onPress={() => toggleSelect(item)} style={styles.tickerRow}>
+                            <View style={[styles.checkbox, { borderColor: colors.border, backgroundColor: colors.card }, isSel && { backgroundColor: colors.accent, borderColor: colors.accent }]}>
+                              <Text style={styles.checkboxMark}>{isSel ? '✓' : ''}</Text>
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.tickerName, { color: colors.text }]} numberOfLines={1}>{item.nome || item.ticker}</Text>
+                              <Text style={[styles.tickerSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>{item.ticker}</Text>
+                            </View>
+                            <Text style={[styles.tickerId, { color: colors.secondaryText }]}>#{item.ID_ticker}</Text>
+                          </Pressable>
+                          {index < pagedTickers.length - 1 && <View style={[styles.separator, { backgroundColor: colors.border }]} />}
                         </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.tickerName, { color: colors.text }]} numberOfLines={1}>{item.nome || item.ticker}</Text>
-                          <Text style={[styles.tickerSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>{item.ticker}</Text>
-                        </View>
-                        <Text style={[styles.tickerId, { color: colors.secondaryText }]}>#{item.ID_ticker}</Text>
-                      </Pressable>
-                      {!isLast && <View style={[styles.separator, { backgroundColor: colors.border }]} />}
-                    </View>
-                  );
-                })}
-              </View>
+                      );
+                    })}
+                    <View style={{ height: 4 }} />
+                  </ScrollView>
+                  {/* Gradient / fade when collapsed & not last page */}
+                  {!expandedTickers && canNext && (
+                    <View pointerEvents="none" style={[styles.fadeBottom, { backgroundColor: colors.card }]} />
+                  )}
+                </View>
+              </Animated.View>
+              {/* Pagination controls */}
+              {tickers.length > PAGE_SIZE && (
+                <View style={styles.paginationRow}>
+                  <Pressable disabled={!canPrev} onPress={() => canPrev && setPage(p => p - 1)} style={[styles.pageBtn, !canPrev && styles.pageBtnDisabled]}>
+                    <Text style={styles.pageBtnText}>{'<'}</Text>
+                  </Pressable>
+                  <Text style={[styles.pageIndicator, { color: colors.text }]}>Pagina {page + 1} / {maxPage + 1}</Text>
+                  <Pressable disabled={!canNext} onPress={() => canNext && setPage(p => p + 1)} style={[styles.pageBtn, !canNext && styles.pageBtnDisabled]}>
+                    <Text style={styles.pageBtnText}>{'>'}</Text>
+                  </Pressable>
+                </View>
+              )}
             </>
           )}
         </View>
@@ -567,5 +670,30 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
+  // New ticker list pagination / expansion styles
+  dragHandleWrapper: { alignItems: 'center', paddingTop: 4, paddingBottom: 4 },
+  dragHandlePress: { alignItems: 'center', justifyContent: 'center', paddingVertical: 4 },
+  dragHandleBar: { width: 44, height: 5, borderRadius: 3, marginBottom: 4, opacity: 0.7 },
+  handleLabel: { fontSize: 11, fontWeight: '500' },
+  flatList: { flexGrow: 0 },
+  flatListContent: { paddingBottom: 8 },
+  fadeBottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 56,
+    backgroundColor: 'transparent',
+    // gradient simulation via layered opacity (could replace with expo-linear-gradient)
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+  },
+  paginationRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 8 },
+  pageBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: '#E5E7EB' },
+  pageBtnDisabled: { opacity: 0.4 },
+  pageBtnText: { fontSize: 14, fontWeight: '700', color: '#111827' },
+  pageIndicator: { fontSize: 12, fontWeight: '600' },
+  tickerScrollableContainer: { overflow: 'hidden', width: '100%' },
+  innerScrollWrapper: { flex: 1, position: 'relative' },
   // pipeline styles removed (moved to dedicated screen)
 });

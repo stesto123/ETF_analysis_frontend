@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Text, LayoutChangeEvent, Pressable } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { ChartDataPoint } from '@/types';
@@ -56,6 +56,23 @@ export default function ETFLineChart(props: Props) {
   const { colors, isDark } = useTheme();
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const onContainerLayout = (e: LayoutChangeEvent) => setContainerWidth(e.nativeEvent.layout.width);
+  // tooltip state
+  const [activePoint, setActivePoint] = useState<{
+    x: number; // pixel x inside chart area
+    y: number; // pixel y inside chart area
+    value: number;
+    label: string;
+    color?: string;
+  } | null>(null);
+  // In React Native, setTimeout returns a number (not NodeJS.Timeout) when using the JS runtime.
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleHide = () => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => setActivePoint(null), 2800);
+  };
+  useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current); }, []);
+
+  // (isPercentageLike moved lower after required variables are declared)
 
   const isMulti = Array.isArray((props as MultiProps).multi);
   const innerWidth =
@@ -121,7 +138,30 @@ export default function ETFLineChart(props: Props) {
         return { key, label: s.label, ticker: s.ticker, color: base };
       });
 
-      return { labels: lbls, datasets: ds, title: 'Selected ETFs', legendItems };
+      // Condense date-like labels to readable short forms (e.g., 2025-09-17 -> 17 Sep)
+      const condensed = lbls.map((raw) => {
+        if (!raw) return raw;
+        // ISO date pattern
+        const isoMatch = raw.match(/^(\d{4})[-/](\d{2})[-/](\d{2})$/);
+        if (isoMatch) {
+          const [, y, m, d] = isoMatch;
+          const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            const mIdx = parseInt(m, 10) - 1;
+            return `${parseInt(d,10)} ${monthNames[mIdx]}`;
+        }
+        // DateTime pattern with time
+        const dateTime = raw.match(/^(\d{4})[-/](\d{2})[-/](\d{2})[ T](\d{2}):(\d{2})/);
+        if (dateTime) {
+          const [, y, m, d] = dateTime;
+          const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const mIdx = parseInt(m, 10) - 1;
+          return `${parseInt(d,10)} ${monthNames[mIdx]}`;
+        }
+        // Already short enough
+        if (raw.length <= 6) return raw;
+        return raw;
+      });
+      return { labels: condensed, datasets: ds, title: 'Selected ETFs', legendItems };
     } else {
       const sp = props as SingleProps;
       const prices = sp.data.map((p) => p.price);
@@ -233,15 +273,54 @@ export default function ETFLineChart(props: Props) {
   // detect compact mode from datasets count; mirrors logic above
   const isCompact = isMulti && Array.isArray((props as MultiProps).multi) && (props as MultiProps).multi.length >= 8;
 
-  // formatXLabel: show only a subset of labels to avoid overcrowding
-  const formatXLabel = (xValue: string) => {
+  // Heuristic: if multi and first dataset values appear within -200..200 and many have abs < 120
+  // OR title contains '%' treat as percentage.
+  const isPercentageLike = useMemo(() => {
+    if (!isMulti) return false;
+    if (/\%/i.test(title)) return true;
+    const ds0 = (datasets as any[])?.[0]?.data as number[] | undefined;
+    if (!ds0 || ds0.length < 2) return false;
+    const sample = ds0.slice(0, Math.min(40, ds0.length));
+    const withinRange = sample.filter(v => Math.abs(v) <= 200).length / sample.length;
+    return withinRange > 0.9;
+  }, [isMulti, datasets, title]);
+
+  // Precompute which indices to show to avoid overlap: first, last, and ~4 evenly spaced in between
+  const sparseLabelSet = useMemo(() => {
     const base = (dsLabels as string[] | undefined) ?? (labels as string[] | undefined);
-    if (!base || base.length <= 6) return xValue;
-    const step = Math.max(1, Math.ceil(base.length / 6));
-    const idx = base.indexOf(xValue);
-    if (idx === -1) return xValue;
-    return idx % step === 0 ? xValue : '';
-  };
+    if (!base) return new Set<string>();
+    const n = base.length;
+    if (n <= 10) return new Set(base.filter((v) => v));
+    const desired = 6; // total ticks including ends
+    const innerNeeded = desired - 2;
+    const step = (n - 1) / (innerNeeded + 1);
+    const keepIdx = new Set<number>();
+    keepIdx.add(0);
+    keepIdx.add(n - 1);
+    for (let k = 1; k <= innerNeeded; k++) {
+      keepIdx.add(Math.round(k * step));
+    }
+    const result = new Set<string>();
+    Array.from(keepIdx.values()).sort((a,b)=>a-b).forEach(i => {
+      if (base[i]) result.add(base[i]);
+    });
+    return result;
+  }, [dsLabels, labels]);
+
+  const formatXLabel = (xValue: string) => (sparseLabelSet.has(xValue) ? xValue : '');
+
+  // ===== Legend layout heuristic =====
+  const legendLayout = useMemo(() => {
+    if (!isMulti || !legendItems) return 'none';
+    const count = legendItems.length;
+    const cw = containerWidth || 0;
+    // Determine longest label length
+    const longest = legendItems.reduce((m, s) => Math.max(m, s.label.length), 0);
+    // Heuristics: if narrow width (<380) OR many items (>8) OR very long labels (>25 chars)
+    // then use stacked layout; else two-column wrap.
+    if (cw && (cw < 380 || count > 8 || longest > 25)) return 'stacked';
+    return 'wrap2';
+  }, [isMulti, legendItems, containerWidth]);
 
   // legend is produced from the datasets in the useMemo for multi; fall back to empty
   // (destructured above).
@@ -250,23 +329,115 @@ export default function ETFLineChart(props: Props) {
   <View style={[styles.container, { backgroundColor: colors.card }]} onLayout={onContainerLayout}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-        {isMulti && legendItems && legendItems.length > 0 && (
-          <View style={styles.legendRow}>
+      </View>
+
+      {innerWidth && chartHeight ? (
+        hasVisibleDatasets ? (
+          <View>
+            <LineChart
+              data={{ labels: dsLabels as any, datasets }}
+              width={innerWidth}
+              height={chartHeight}
+              chartConfig={chartConfig}
+              formatXLabel={formatXLabel}
+              bezier={false}
+              style={styles.chart}
+              withDots={false}
+              withShadow={false}
+              withVerticalLabels={true}
+              withHorizontalLabels={true}
+              withInnerLines={!isCompact}
+              withOuterLines={!isCompact}
+              fromZero={false}
+              yLabelsOffset={4}
+              xLabelsOffset={4}
+              onDataPointClick={(p) => {
+                // p = { index, value, x, y, dataset }
+                // Determine label from dsLabels if available
+                const baseLabels = dsLabels as string[] | undefined;
+                const label = baseLabels && baseLabels[p.index] ? String(baseLabels[p.index]) : `#${p.index + 1}`;
+                const pointColor = (p.dataset as any)?.color?.() ?? colors.text;
+                setActivePoint({ x: p.x, y: p.y, value: p.value, label, color: pointColor });
+                scheduleHide();
+              }}
+            />
+            {activePoint && (
+              <View pointerEvents="none" style={[StyleSheet.absoluteFill]}> 
+                {/* Vertical guide line */}
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: activePoint.x - 1,
+                    top: 0,
+                    bottom: 0,
+                    width: 2,
+                    backgroundColor: activePoint.color || colors.accent,
+                    opacity: 0.6,
+                  }}
+                />
+                {/* Tooltip bubble */}
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: Math.min(Math.max(activePoint.x - 60, 4), innerWidth - 120),
+                    top: Math.max(activePoint.y - 48, 4),
+                    backgroundColor: colors.card,
+                    paddingHorizontal: 8,
+                    paddingVertical: 6,
+                    borderRadius: 8,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: colors.border || 'rgba(0,0,0,0.15)',
+                    shadowColor: '#000',
+                    shadowOpacity: 0.15,
+                    shadowRadius: 4,
+                    shadowOffset: { width: 0, height: 2 },
+                    elevation: 6,
+                    maxWidth: 140,
+                  }}
+                >
+                  <Text style={{ color: colors.secondaryText, fontSize: 11 }} numberOfLines={1}>{activePoint.label}</Text>
+                  <Text style={{ color: activePoint.color || colors.text, fontWeight: '600', fontSize: 14 }}>
+                    {Number.isFinite(activePoint.value)
+                      ? isPercentageLike
+                        ? `${activePoint.value.toFixed(2)}%`
+                        : activePoint.value.toFixed(2)
+                      : '-'}
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+        ) : (
+          <View style={[styles.emptyContainer, { height: chartHeight, margin: 0, backgroundColor: colors.card }]}>
+            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>Nessuna serie visibile. Tocca una voce in legenda per mostrarla.</Text>
+          </View>
+        )
+      ) : (
+        <View style={{ height: MIN_HEIGHT }} />
+      )}
+      {isMulti && legendItems && legendItems.length > 0 && legendLayout !== 'none' && (
+        <View style={styles.legendContainerBottom}>
+          <View style={legendLayout === 'stacked' ? styles.legendColumn : styles.legendRow}> 
             {legendItems.map((it) => {
               const hidden = visibleMap[it.key] === false;
               return (
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Serie ${it.label}${hidden ? ' nascosta' : ''}`}
                   key={it.key}
-                  style={[styles.legendItem, hidden && styles.legendItemHidden]}
+                  style={[
+                    legendLayout === 'stacked' ? styles.legendItemStacked : styles.legendItem,
+                    hidden && styles.legendItemHidden,
+                  ]}
                   onPress={() => setVisibleMap((prev) => ({ ...prev, [it.key]: !prev[it.key] }))}
                 >
-                  <View style={[styles.legendDot, { backgroundColor: it.color }]} />
-                  <View style={{ maxWidth: 160 }}>
-                    <Text style={[styles.legendLabel, { color: colors.text }, hidden && styles.legendLabelHidden]} numberOfLines={1}>
+                  <View style={[styles.legendDot, { backgroundColor: it.color, marginTop: 4 }]} />
+                  <View style={styles.legendTextWrapper}>
+                    <Text style={[styles.legendLabel, { color: colors.text }, hidden && styles.legendLabelHidden]}>
                       {it.label}
                     </Text>
                     {it.ticker ? (
-                      <Text style={[styles.legendTicker, { color: colors.secondaryText }, hidden && styles.legendLabelHidden]} numberOfLines={1}>
+                      <Text style={[styles.legendTicker, { color: colors.secondaryText }, hidden && styles.legendLabelHidden]}>
                         ({it.ticker})
                       </Text>
                     ) : null}
@@ -275,37 +446,7 @@ export default function ETFLineChart(props: Props) {
               );
             })}
           </View>
-        )}
-      </View>
-
-      {innerWidth && chartHeight ? (
-        hasVisibleDatasets ? (
-          <LineChart
-            data={{ labels: dsLabels as any, datasets }}
-            width={innerWidth}
-            height={chartHeight}
-            chartConfig={chartConfig}
-            formatXLabel={formatXLabel}
-            bezier={false}
-            style={styles.chart}
-            withDots={false}
-            withShadow={false}
-            withVerticalLabels={true}
-            withHorizontalLabels={true}
-            withInnerLines={!isCompact}
-            withOuterLines={!isCompact}
-            fromZero={false}
-            yLabelsOffset={4}
-            xLabelsOffset={4}
-            onDataPointClick={undefined}
-          />
-        ) : (
-          <View style={[styles.emptyContainer, { height: chartHeight, margin: 0, backgroundColor: colors.card }]}>
-            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>Nessuna serie visibile. Tocca una voce in legenda per mostrarla.</Text>
-          </View>
-        )
-      ) : (
-        <View style={{ height: MIN_HEIGHT }} />
+        </View>
       )}
     </View>
   );
@@ -326,13 +467,17 @@ const styles = StyleSheet.create({
   },
   header: { marginBottom: 12 },
   title: { fontSize: 18, fontWeight: '700', marginBottom: 8, color: '#111827' },
-  legendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', marginRight: 12, marginTop: 4 },
+  legendRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  legendItem: { flexDirection: 'row', alignItems: 'flex-start', marginRight: 16, marginTop: 6, maxWidth: '48%' },
+  legendColumn: { flexDirection: 'column', flexWrap: 'nowrap' },
+  legendItemStacked: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 6, paddingRight: 4 },
   legendDot: { width: 10, height: 10, borderRadius: 5, marginRight: 6 },
-  legendLabel: { fontSize: 12, color: '#374151', maxWidth: 120 },
-  legendTicker: { fontSize: 11, color: '#6B7280', marginTop: 2 },
+  legendLabel: { fontSize: 12, color: '#374151', flexShrink: 1, flexWrap: 'wrap' },
+  legendTicker: { fontSize: 11, color: '#6B7280', marginTop: 2, flexShrink: 1, flexWrap: 'wrap' },
   legendItemHidden: { opacity: 0.45 },
   legendLabelHidden: { color: '#9CA3AF' },
+  legendTextWrapper: { flex: 1 },
+  legendContainerBottom: { marginTop: 8, paddingHorizontal: 4, paddingBottom: 4 },
 
   chart: { borderRadius: 16 },
   emptyContainer: {
