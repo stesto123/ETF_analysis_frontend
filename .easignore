@@ -1,0 +1,37 @@
+# Exclude dependencies and common caches
+node_modules
+npm-debug.*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Expo caches and local dev artifacts
+.expo
+.expo/*
+.expo-shared
+.expo-go
+
+# Web build outputs
+dist
+web-build
+web-dist
+
+# Android build artifacts (keep gradle wrapper files)
+android/.gradle
+android/build
+android/app/build
+android/**/build
+android/local.properties
+
+# iOS build artifacts
+ios/build
+ios/DerivedData
+ios/Pods
+
+# VCS/editor
+.git
+.git/**
+.github
+.vscode
+.DS_Store
+Thumbs.db
