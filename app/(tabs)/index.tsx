@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ETFQueryForm from '@/components/Form/ETFQueryForm';
 import ETFLineChart from '@/components/Chart/LineChart';
+import { getLineColor } from '@/utils/linePalette';
 import { useTheme } from '@/components/common/ThemeProvider';
 import LoadingSpinner from '@/components/common/LoadingSpinner';
 import ErrorDisplay from '@/components/common/ErrorDisplay';
@@ -87,6 +88,22 @@ export default function HomeScreen() {
   const [multiDatasets, setMultiDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
 
   const [lastRange, setLastRange] = useState<DateRange | null>(null);
+
+  // Stable selection order: sort by display name (nome || ticker)
+  const selectedArray = useMemo(() => {
+    const arr = Object.values(selectedTickers);
+    return arr.sort((a, b) => {
+      const an = (a as any).nome || a.ticker || '';
+      const bn = (b as any).nome || b.ticker || '';
+      return String(an).localeCompare(String(bn));
+    });
+  }, [selectedTickers]);
+  // Map from ID_ticker to palette index to mirror chart series order/colors
+  const selectedIndexById = useMemo(() => {
+    const m = new Map<number, number>();
+    selectedArray.forEach((t, i) => m.set(t.ID_ticker, i));
+    return m;
+  }, [selectedArray]);
 
   // responsive sizing
   const screenHeight = Dimensions.get('window').height;
@@ -275,8 +292,15 @@ export default function HomeScreen() {
     setError(null);
 
     try {
+      // deterministic order for color consistency in charts/legend
+      const toLoadOrdered = Object.values(selectedTickers).sort((a, b) => {
+        const an = (a as any).nome || a.ticker || '';
+        const bn = (b as any).nome || b.ticker || '';
+        return String(an).localeCompare(String(bn));
+      });
+
       const results = await Promise.all(
-        toLoad.map((t) =>
+        toLoadOrdered.map((t) =>
           apiService
             .fetchETFData(
               { id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date } as QueryParams,
@@ -352,7 +376,11 @@ export default function HomeScreen() {
     useCache: boolean = true,
     bucketing?: { globalStart: Date; bucketDays: number; bucketCount: number; labels: string[] }
   ) => {
-    const toLoad = Object.values(selectedTickers);
+    const toLoad = Object.values(selectedTickers).sort((a, b) => {
+      const an = (a as any).nome || a.ticker || '';
+      const bn = (b as any).nome || b.ticker || '';
+      return String(an).localeCompare(String(bn));
+    });
     if (toLoad.length === 0) return;
     try {
       const results = await Promise.all(
@@ -561,17 +589,21 @@ export default function HomeScreen() {
                   >
                     {pagedTickers.map((item, index) => {
                       const isSel = !!selectedTickers[item.ID_ticker];
+                      const selIdx = selectedIndexById.get(item.ID_ticker);
+                      const dotColor = isSel && selIdx !== undefined ? getLineColor(selIdx) : '#D1D5DB';
                       return (
                         <View key={item.ID_ticker}>
                           <Pressable onPress={() => toggleSelect(item)} style={styles.tickerRow}>
                             <View style={[styles.checkbox, { borderColor: colors.border, backgroundColor: colors.card }, isSel && { backgroundColor: colors.accent, borderColor: colors.accent }]}>
                               <Text style={styles.checkboxMark}>{isSel ? '✓' : ''}</Text>
                             </View>
+                            {/* colored dot matches chart/legend color for selected items; grey when not selected */}
+                            <View style={[styles.tickerDot, { backgroundColor: dotColor }]} />
                             <View style={{ flex: 1 }}>
                               <Text style={[styles.tickerName, { color: colors.text }]} numberOfLines={1}>{item.nome || item.ticker}</Text>
                               <Text style={[styles.tickerSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>{item.ticker}</Text>
                             </View>
-                            <Text style={[styles.tickerId, { color: colors.secondaryText }]}>#{item.ID_ticker}</Text>
+                            {/* removed numeric ID label */}
                           </Pressable>
                           {index < pagedTickers.length - 1 && <View style={[styles.separator, { backgroundColor: colors.border }]} />}
                         </View>
@@ -638,6 +670,7 @@ const styles = StyleSheet.create({
   tickerName: { fontSize: 15, fontWeight: '700', color: '#111827' },
   tickerSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
   tickerId: { fontSize: 12, color: '#6B7280', marginLeft: 8 },
+  tickerDot: { width: 8, height: 8, borderRadius: 4, marginRight: 4, opacity: 0.9 },
   badge: {
     minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6,
     backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center',
