@@ -13,6 +13,8 @@ const getLineColor = (idx: number) => {
   return FALLBACK[idx % FALLBACK.length];
 };
 
+type YAxisFormat = 'currency' | 'percent' | undefined;
+
 interface SingleProps {
   data: ChartDataPoint[];
   ticker: string;
@@ -23,6 +25,10 @@ interface SingleProps {
    * downsampled uniformly to approximately this size. Defaults to 60.
    */
   maxPoints?: number;
+  /** Force y-axis tick format. If omitted, a heuristic is used. */
+  yAxisFormat?: YAxisFormat;
+  /** Currency symbol used when yAxisFormat is 'currency'. Default: '$'. */
+  currencySymbol?: string;
 }
 
 interface MultiSerie {
@@ -43,6 +49,10 @@ interface MultiProps {
    * downsampled uniformly to approximately this size. Defaults to 60.
    */
   maxPoints?: number;
+  /** Force y-axis tick format. If omitted, a heuristic is used. */
+  yAxisFormat?: YAxisFormat;
+  /** Currency symbol used when yAxisFormat is 'currency'. Default: '$'. */
+  currencySymbol?: string;
 }
 
 type Props = SingleProps | MultiProps;
@@ -138,7 +148,7 @@ export default function ETFLineChart(props: Props) {
         return { key, label: s.label, ticker: s.ticker, color: base };
       });
 
-      // Condense date-like labels to readable short forms (e.g., 2025-09-17 -> 17 Sep)
+      // Condense date-like labels to readable short forms WITH YEAR (e.g., 2025-09-17 -> 17 Sep 2025)
       const condensed = lbls.map((raw) => {
         if (!raw) return raw;
         // ISO date pattern
@@ -147,7 +157,7 @@ export default function ETFLineChart(props: Props) {
           const [, y, m, d] = isoMatch;
           const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
             const mIdx = parseInt(m, 10) - 1;
-            return `${parseInt(d,10)} ${monthNames[mIdx]}`;
+            return `${parseInt(d,10)} ${monthNames[mIdx]} ${y}`;
         }
         // DateTime pattern with time
         const dateTime = raw.match(/^(\d{4})[-/](\d{2})[-/](\d{2})[ T](\d{2}):(\d{2})/);
@@ -155,7 +165,7 @@ export default function ETFLineChart(props: Props) {
           const [, y, m, d] = dateTime;
           const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
           const mIdx = parseInt(m, 10) - 1;
-          return `${parseInt(d,10)} ${monthNames[mIdx]}`;
+          return `${parseInt(d,10)} ${monthNames[mIdx]} ${y}`;
         }
         // Already short enough
         if (raw.length <= 6) return raw;
@@ -276,6 +286,9 @@ export default function ETFLineChart(props: Props) {
   // Heuristic: if multi and first dataset values appear within -200..200 and many have abs < 120
   // OR title contains '%' treat as percentage.
   const isPercentageLike = useMemo(() => {
+    // If caller forces unit, honor it
+    if ((props as any).yAxisFormat === 'percent') return true;
+    if ((props as any).yAxisFormat === 'currency') return false;
     if (!isMulti) return false;
     if (/\%/i.test(title)) return true;
     const ds0 = (datasets as any[])?.[0]?.data as number[] | undefined;
@@ -309,6 +322,30 @@ export default function ETFLineChart(props: Props) {
 
   const formatXLabel = (xValue: string) => (sparseLabelSet.has(xValue) ? xValue : '');
 
+  // Y-axis tick formatter based on explicit format prop or heuristic
+  const formatYLabel = useMemo(() => {
+    const fmt: YAxisFormat | undefined = (props as any).yAxisFormat;
+    const currencySymbol = (props as any).currencySymbol || '$';
+    if (fmt === 'percent') {
+      return (val: string) => {
+        const n = Number(val);
+        return Number.isFinite(n) ? `${Math.round(n)}%` : val;
+      };
+    }
+    if (fmt === 'currency') {
+      return (val: string) => {
+        const n = Number(val);
+        return Number.isFinite(n) ? `${currencySymbol}${Math.round(n)}` : val;
+      };
+    }
+    // fallback: use heuristic
+    return (val: string) => {
+      const n = Number(val);
+      if (!Number.isFinite(n)) return val;
+      return isPercentageLike ? `${Math.round(n)}%` : `$${Math.round(n)}`;
+    };
+  }, [(props as any).yAxisFormat, (props as any).currencySymbol, isPercentageLike]);
+
   // ===== Legend layout heuristic =====
   const legendLayout = useMemo(() => {
     if (!isMulti || !legendItems) return 'none';
@@ -340,6 +377,7 @@ export default function ETFLineChart(props: Props) {
               height={chartHeight}
               chartConfig={chartConfig}
               formatXLabel={formatXLabel}
+              formatYLabel={formatYLabel}
               bezier={false}
               style={styles.chart}
               withDots={false}
@@ -398,9 +436,9 @@ export default function ETFLineChart(props: Props) {
                   <Text style={{ color: colors.secondaryText, fontSize: 11 }} numberOfLines={1}>{activePoint.label}</Text>
                   <Text style={{ color: activePoint.color || colors.text, fontWeight: '600', fontSize: 14 }}>
                     {Number.isFinite(activePoint.value)
-                      ? isPercentageLike
+                      ? ((props as any).yAxisFormat === 'percent' || isPercentageLike)
                         ? `${activePoint.value.toFixed(2)}%`
-                        : activePoint.value.toFixed(2)
+                        : `${(props as any).currencySymbol || '$'}${activePoint.value.toFixed(2)}`
                       : '-'}
                   </Text>
                 </View>

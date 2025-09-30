@@ -65,7 +65,6 @@ export default function PipelineScreen() {
   const genKey = () => `row-${uidRef.current++}`;
   const [compItems, setCompItems] = useState([{ key: genKey() } as any]);
   const [areas, setAreas] = useState<Array<{ area_geografica: string; id_area_geografica: number }>>([]);
-  const [selectedArea, setSelectedArea] = useState<number | null>(null);
   const [areaTickersMap, setAreaTickersMap] = useState<Record<number, Array<{ ID_ticker: number; ticker: string; nome: string }>>>({});
   const [saving, setSaving] = useState(false);
   const [openSections, setOpenSections] = useState<OpenSections>(defaultOpen);
@@ -93,7 +92,6 @@ export default function PipelineScreen() {
   const toggleSection = (k: keyof OpenSections)=>{LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);setOpenSections(p=>{const n={...p,[k]:!p[k]};animate(k,!p[k]);return n;});};
 
   useEffect(()=>{apiService.getGeographicAreas(true).then(setAreas).catch(()=>setAreas([]));},[]);
-  useEffect(()=>{if(selectedArea==null||areaTickersMap[selectedArea]) return;apiService.getTickersByArea(selectedArea,true,true).then(list=>setAreaTickersMap(pr=>({...pr,[selectedArea]:list}))).catch(()=>{});},[selectedArea,areaTickersMap]);
   const startPipeline = useCallback(async()=>{setError(null);setStarting(true);try{const payload={id_portafoglio:Number(idPortafoglio),ammontare:Number(ammontare),strategia:strategia||'Simple PAC',data_inizio:dataInizio,data_fine:dataFine,capitale_iniziale:Number(capitaleIniziale)||0};const res=await apiService.runPipeline(payload as any);setJobId(res.job_id);setStatus(res.status??null);setPid(res.pid??null);setLogPath(res.log_path??null);if(pollingRef.current) pollingRef.current.cancelled=true;pollingRef.current={cancelled:false};const poll=async()=>{if(!res.job_id) return;try{const info=await apiService.getJobStatus(res.job_id);if(pollingRef.current?.cancelled)return;setStatus(info.status??null);if(info.status==='running') setTimeout(poll,3000);}catch(e){if(!pollingRef.current?.cancelled) setError(e instanceof Error?e.message:String(e));}};poll();}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setStarting(false);}},[idPortafoglio,ammontare,strategia,dataInizio,dataFine,capitaleIniziale]);
   useEffect(()=>()=>{if(pollingRef.current) pollingRef.current.cancelled=true;},[]);
   useEffect(()=>{if(!toast) return;const t=setTimeout(()=>setToast(null),4000);return()=>clearTimeout(t);},[toast]);
@@ -127,7 +125,7 @@ export default function PipelineScreen() {
     })();
     return () => { cancelled = true; };
   }, [selectedPortfolios]);
-  const addCompRow=()=>setCompItems(p=>[...p,{key:genKey(),areaId:selectedArea??undefined}]);
+  const addCompRow=()=>setCompItems(p=>[...p,{key:genKey()}]);
   const removeCompRow=(key:string)=>setCompItems(p=>p.filter(r=>r.key!==key));
   const updateCompRow=(key:string,patch:any)=>setCompItems(p=>p.map(r=>r.key===key?{...r,...patch}:r));
   const totalPercent=useMemo(()=>compItems.reduce((s,r)=>s+(Number(r.percentuale)||0),0),[compItems]);
@@ -270,17 +268,7 @@ export default function PipelineScreen() {
                     placeholderTextColor={colors.secondaryText}
                   />
                 </View>
-                <View style={styles.field}>
-                  <Text style={[styles.label, { color: colors.secondaryText }]}>Preferred Area (default for new rows)</Text>
-                  <View style={[styles.pickerWrapper, { backgroundColor: colors.card, borderColor: colors.border }]}>  
-                    <Picker selectedValue={selectedArea} onValueChange={(v) => setSelectedArea(v)}>
-                      <Picker.Item label="-- Select area --" value={null as any} />
-                      {areas.map(a => (
-                        <Picker.Item key={a.id_area_geografica} label={a.area_geografica} value={a.id_area_geografica} />
-                      ))}
-                    </Picker>
-                  </View>
-                </View>
+                {/* Preferred Area selector removed as requested */}
                 <Text style={[styles.label, { marginTop: 8, color: colors.secondaryText }]}>Composition (must sum to 100)</Text>
                 {compItems.map(row => (
                   <View key={row.key} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
@@ -464,7 +452,7 @@ export default function PipelineScreen() {
                 {resultsLoading && !portfolioDatasets && <Text style={[styles.small, { color: colors.secondaryText }]}>Loading results…</Text>}
                 {!resultsLoading && (!portfolioDatasets || !portfolioDatasets.length) && <Text style={[styles.small, { color: colors.secondaryText }]}>Select one or more portfolios from the table above.</Text>}
                 {portfolioDatasets && portfolioDatasets.length > 0 && (
-                  <View style={styles.chartCard}>
+                  <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <ETFLineChart
                       multi={portfolioDatasets.map(ds => ({ label: ds.label, data: ds.data, labels: ds.labels, colorHint: ds.colorHint as 'up' | 'down' }))}
                       data={[] as unknown as ChartDataPoint[]}

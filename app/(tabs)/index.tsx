@@ -511,6 +511,8 @@ export default function HomeScreen() {
           data={[] as unknown as ChartDataPoint[]}
           ticker="Selected ETFs"
           height={220}
+          yAxisFormat="currency"
+          currencySymbol="$"
         />
         {/* second chart: cumulative simple returns */}
         {cumDatasets && cumDatasets.length > 0 && (
@@ -519,6 +521,7 @@ export default function HomeScreen() {
             data={[] as unknown as ChartDataPoint[]}
             ticker="Cumulative Returns"
             height={180}
+            yAxisFormat="percent"
           />
         )}
       </View>
