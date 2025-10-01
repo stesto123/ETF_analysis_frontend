@@ -1,24 +1,35 @@
 // app/(tabs)/_layout.tsx
+import React from 'react';
 import { Tabs, Redirect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { TrendingUp, Settings } from 'lucide-react-native';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/components/common/ThemeProvider';
 import { useAuth } from '@clerk/clerk-expo';
 
+// Dev aid: log the first chars of the Clerk key so we can verify instance (pk_test vs pk_live)
+if (__DEV__) {
+  const pk = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
+  console.log('CLERK PK', pk ? pk.slice(0, 12) : '(missing)');
+}
+
 export default function TabLayout() {
   const { isLoaded, isSignedIn } = useAuth();
+  if (__DEV__) {
+    console.log('AUTH STATE', { isLoaded, isSignedIn });
+  }
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
 
-  const extraAndroidBottom = Platform.OS === 'android' ? 0 : 0;
-  const bottomPad = Math.max(insets.bottom, 0) + extraAndroidBottom;
+  const bottomPad = Math.max(insets.bottom, 0);
+  const baseHeight = 40; // barra più compatta, identica su iOS/Android
 
-  // riduciamo la base di altezza
-  const baseHeight = Platform.OS === 'ios' ? 40 : 40;
+  if (!isLoaded) {
+    return null; // o uno spinner
+  }
 
-  if (isLoaded && !isSignedIn) {
+  if (!isSignedIn) {
     return <Redirect href="/(auth)/sign-in" />;
   }
 
@@ -26,7 +37,6 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        sceneStyle: { backgroundColor: colors.background },
         tabBarHideOnKeyboard: true,
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.secondaryText,
@@ -43,14 +53,17 @@ export default function TabLayout() {
           fontWeight: '500',
           marginTop: -1,                  // label più vicina all’icona
         },
-        tabBarIconStyle: { marginTop: -1 }, // micro-shift verso l’alto
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: 'Analytics',
-          tabBarIcon: ({ size, color }) => <TrendingUp size={size} color={color} />,
+          tabBarIcon: ({ size, color }) => (
+            <View style={{ marginTop: -1 }}>
+              <TrendingUp size={size} color={color} />
+            </View>
+          ),
         }}
       />
       <Tabs.Screen
@@ -58,7 +71,9 @@ export default function TabLayout() {
         options={{
           title: 'Pipeline',
           tabBarIcon: ({ size, color }) => (
-            <Ionicons name="git-network-outline" size={size} color={color} />
+            <View style={{ marginTop: -1 }}>
+              <Ionicons name="git-network-outline" size={size} color={color} />
+            </View>
           ),
         }}
       />
@@ -66,7 +81,11 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: 'Settings',
-          tabBarIcon: ({ size, color }) => <Settings size={size} color={color} />,
+          tabBarIcon: ({ size, color }) => (
+            <View style={{ marginTop: -1 }}>
+              <Settings size={size} color={color} />
+            </View>
+          ),
         }}
       />
     </Tabs>

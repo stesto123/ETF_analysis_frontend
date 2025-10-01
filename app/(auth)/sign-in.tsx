@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, Platform } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useTheme } from '@/components/common/ThemeProvider';
 import { useSignIn } from '@clerk/clerk-expo';
 
@@ -31,6 +31,7 @@ export default function SignInScreen() {
       });
       setStep('code');
     } catch (e: any) {
+      console.log('SEND-CODE ERROR', JSON.stringify(e, null, 2));
       setError(e?.errors?.[0]?.message ?? 'Sign-in failed');
     } finally {
       setLoading(false);
@@ -48,10 +49,13 @@ export default function SignInScreen() {
       });
       if (attempt.status === 'complete') {
         await setActive({ session: attempt.createdSessionId });
+        router.replace('/(tabs)');
+        return;
       } else {
         setError('Invalid code');
       }
     } catch (e: any) {
+      console.log('SIGN-IN ERROR', JSON.stringify(e, null, 2));
       setError(e?.errors?.[0]?.message ?? 'Verification failed');
     } finally {
       setLoading(false);
@@ -102,4 +106,3 @@ export default function SignInScreen() {
     </View>
   );
 }
-
