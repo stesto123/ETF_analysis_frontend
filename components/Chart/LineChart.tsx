@@ -267,21 +267,21 @@ export default function ETFLineChart(props: Props) {
 
   const chartConfig = useMemo(
     () => ({
-    backgroundColor: colors.chartBackground,
-    backgroundGradientFrom: colors.chartBackground,
-    backgroundGradientTo: colors.chartBackground,
-    backgroundGradientFromOpacity: 1,
-    backgroundGradientToOpacity: 1,
+      backgroundColor: colors.chartBackground,
+      backgroundGradientFrom: colors.chartBackground,
+      backgroundGradientTo: colors.chartBackground,
+      backgroundGradientFromOpacity: 1,
+      backgroundGradientToOpacity: 1,
       decimalPlaces: 2,
       color: () => colors.text, // non usato per le linee (ogni dataset ha il suo color)
-  labelColor: () => colors.secondaryText,
+      labelColor: () => colors.secondaryText,
       propsForBackgroundLines: {
         stroke: colors.chartGrid,
         strokeDasharray: '',
         strokeWidth: 1,
       },
       style: { borderRadius: 16 },
-  propsForDots: { r: '0', strokeWidth: '0', stroke: 'transparent' },
+      propsForDots: { r: '0', strokeWidth: '0', stroke: 'transparent' },
     }),
     [colors]
   );
@@ -289,20 +289,23 @@ export default function ETFLineChart(props: Props) {
   // detect compact mode from datasets count; mirrors logic above
   const isCompact = isMulti && Array.isArray((props as MultiProps).multi) && (props as MultiProps).multi.length >= 8;
 
+  const forcedFormat: YAxisFormat | undefined = (props as any).yAxisFormat;
+  const forcedCurrencySymbol: string | undefined = (props as any).currencySymbol;
+
   // Heuristic: if multi and first dataset values appear within -200..200 and many have abs < 120
   // OR title contains '%' treat as percentage.
   const isPercentageLike = useMemo(() => {
     // If caller forces unit, honor it
-    if ((props as any).yAxisFormat === 'percent') return true;
-    if ((props as any).yAxisFormat === 'currency') return false;
+    if (forcedFormat === 'percent') return true;
+    if (forcedFormat === 'currency') return false;
     if (!isMulti) return false;
-    if (/\%/i.test(title)) return true;
+    if (/%/i.test(title)) return true;
     const ds0 = (datasets as any[])?.[0]?.data as number[] | undefined;
     if (!ds0 || ds0.length < 2) return false;
     const sample = ds0.slice(0, Math.min(40, ds0.length));
     const withinRange = sample.filter(v => Math.abs(v) <= 200).length / sample.length;
     return withinRange > 0.9;
-  }, [isMulti, datasets, title]);
+  }, [isMulti, datasets, title, forcedFormat]);
 
   // Precompute which indices to show to avoid overlap: first, last, and ~4 evenly spaced in between
   const sparseLabelSet = useMemo(() => {
@@ -330,8 +333,8 @@ export default function ETFLineChart(props: Props) {
 
   // Y-axis tick formatter based on explicit format prop or heuristic
   const formatYLabel = useMemo(() => {
-    const fmt: YAxisFormat | undefined = (props as any).yAxisFormat;
-    const currencySymbol = (props as any).currencySymbol || '$';
+    const fmt = forcedFormat;
+    const currencySymbol = forcedCurrencySymbol || '$';
     if (fmt === 'percent') {
       return (val: string) => {
         const n = Number(val);
@@ -348,9 +351,9 @@ export default function ETFLineChart(props: Props) {
     return (val: string) => {
       const n = Number(val);
       if (!Number.isFinite(n)) return val;
-      return isPercentageLike ? `${Math.round(n)}%` : `$${Math.round(n)}`;
+  return isPercentageLike ? `${Math.round(n)}%` : `${currencySymbol}${Math.round(n)}`;
     };
-  }, [(props as any).yAxisFormat, (props as any).currencySymbol, isPercentageLike]);
+  }, [forcedFormat, forcedCurrencySymbol, isPercentageLike]);
 
   // ===== Legend layout heuristic =====
   const legendLayout = useMemo(() => {

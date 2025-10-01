@@ -1,12 +1,10 @@
 // app/_layout.tsx
-import 'react-native-gesture-handler';
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { ClerkProvider, useAuth } from '@clerk/clerk-expo';
 import { tokenCache } from '@/utils/tokenCache';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-// eslint-disable-next-line import/no-duplicates
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as NavigationBar from 'expo-navigation-bar';
 import { ThemeProvider, useTheme } from '@/components/common/ThemeProvider';
@@ -58,14 +56,15 @@ function ThemedContent() {
   return (
     <>
       <Stack
-        initialRouteName={isSignedIn ? '(tabs)' : '(auth)'}
+        initialRouteName={isSignedIn ? '(tabs)' : '(auth)/sign-in'}
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        {/* Auth routes */}
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+  {/* Auth routes */}
+  <Stack.Screen name="(auth)/sign-in" options={{ headerShown: false }} />
+  <Stack.Screen name="(auth)/sign-up" options={{ headerShown: false }} />
         {/* Protected app routes */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />

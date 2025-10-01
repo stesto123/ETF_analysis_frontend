@@ -51,9 +51,9 @@ const aggregateCumulativeOnBuckets = (
   bucketDays: number,
   bucketCount: number
 ): number[] => {
-  const buckets: Array<{ day: number; value: number } | undefined> = new Array(bucketCount).fill(undefined);
+  const buckets: ({ day: number; value: number } | undefined)[] = new Array(bucketCount).fill(undefined);
   const n = Math.min(calendar_days.length, values.length);
-  const pts: Array<{ day: number; value: number }> = [];
+  const pts: { day: number; value: number }[] = [];
   for (let i = 0; i < n; i++) {
     const day = Number(calendar_days[i]);
     const value = Number(values[i]);

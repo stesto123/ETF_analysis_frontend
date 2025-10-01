@@ -44,6 +44,7 @@ export default function SettingsScreen() {
               await apiService.clearCache();
               Alert.alert('Success', 'Cache cleared successfully');
             } catch (error) {
+              console.error('Failed to clear cache', error);
               Alert.alert('Error', 'Failed to clear cache');
             }
           },

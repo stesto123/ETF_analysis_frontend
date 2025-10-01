@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, Platform } from 'react-native';
-import { Link } from 'expo-router';
 import { useTheme } from '@/components/common/ThemeProvider';
-import { useSignIn } from '@clerk/clerk-expo';
+import { useSignUp } from '@clerk/clerk-expo';
+import { Link } from 'expo-router';
 
-export default function SignInScreen() {
+export default function SignUpScreen() {
   const { colors } = useTheme();
-  const { isLoaded, signIn, setActive } = useSignIn();
+  const { isLoaded, signUp, setActive } = useSignUp();
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [step, setStep] = useState<'email' | 'code'>('email');
@@ -18,20 +18,11 @@ export default function SignInScreen() {
     setLoading(true);
     setError(null);
     try {
-      const attempt = await signIn.create({ identifier: email.trim() });
-      const emailFactor = attempt.supportedFirstFactors?.find(
-        (factor) => factor.strategy === 'email_code' && 'emailAddressId' in factor
-      ) as { strategy: 'email_code'; emailAddressId?: string } | undefined;
-      if (!emailFactor?.emailAddressId) {
-        throw new Error('Email verification is not available for this account.');
-      }
-      await signIn.prepareFirstFactor({
-        strategy: 'email_code',
-        emailAddressId: emailFactor.emailAddressId,
-      });
+      await signUp.create({ emailAddress: email });
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setStep('code');
     } catch (e: any) {
-      setError(e?.errors?.[0]?.message ?? 'Sign-in failed');
+      setError(e?.errors?.[0]?.message ?? 'Sign-up failed');
     } finally {
       setLoading(false);
     }
@@ -42,10 +33,7 @@ export default function SignInScreen() {
     setLoading(true);
     setError(null);
     try {
-      const attempt = await signIn.attemptFirstFactor({
-        strategy: 'email_code',
-        code,
-      });
+      const attempt = await signUp.attemptEmailAddressVerification({ code });
       if (attempt.status === 'complete') {
         await setActive({ session: attempt.createdSessionId });
       } else {
@@ -60,7 +48,7 @@ export default function SignInScreen() {
 
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: colors.background, justifyContent: 'center' }}>
-      <Text style={{ color: colors.text, fontSize: 24, marginBottom: 16 }}>Sign in</Text>
+      <Text style={{ color: colors.text, fontSize: 24, marginBottom: 16 }}>Create account</Text>
       {error && <Text style={{ color: 'tomato', marginBottom: 8 }}>{error}</Text>}
       {step === 'email' ? (
         <>
@@ -74,7 +62,11 @@ export default function SignInScreen() {
             placeholderTextColor={colors.secondaryText}
             style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, color: colors.text, padding: 10, borderRadius: 8, marginBottom: 12 }}
           />
-          <Pressable disabled={loading || !email} onPress={start} style={{ backgroundColor: colors.accent, padding: 12, borderRadius: 8, opacity: loading || !email ? 0.6 : 1 }}>
+          <Pressable
+            disabled={loading || !email}
+            onPress={start}
+            style={{ backgroundColor: colors.accent, padding: 12, borderRadius: 8, opacity: loading || !email ? 0.6 : 1 }}
+          >
             <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '600' }}>{loading ? 'Sending...' : 'Send code'}</Text>
           </Pressable>
         </>
@@ -89,17 +81,20 @@ export default function SignInScreen() {
             placeholderTextColor={colors.secondaryText}
             style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, color: colors.text, padding: 10, borderRadius: 8, marginBottom: 12 }}
           />
-          <Pressable disabled={loading || code.length < 4} onPress={verify} style={{ backgroundColor: colors.accent, padding: 12, borderRadius: 8, opacity: loading || code.length < 4 ? 0.6 : 1 }}>
-            <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '600' }}>{loading ? 'Verifying...' : 'Verify'}</Text>
+          <Pressable
+            disabled={loading || code.length < 4}
+            onPress={verify}
+            style={{ backgroundColor: colors.accent, padding: 12, borderRadius: 8, opacity: loading || code.length < 4 ? 0.6 : 1 }}
+          >
+            <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '600' }}>{loading ? 'Verifying...' : 'Complete sign-up'}</Text>
           </Pressable>
         </>
       )}
       <View style={{ marginTop: 16 }}>
-        <Link href="/(auth)/sign-up" style={{ color: colors.accent, textAlign: 'center', fontWeight: '600' }}>
-          Don&apos;t have an account? Sign up
+        <Link href="/(auth)/sign-in" style={{ color: colors.accent, textAlign: 'center', fontWeight: '600' }}>
+          Already have an account? Sign in
         </Link>
       </View>
     </View>
   );
 }
-
