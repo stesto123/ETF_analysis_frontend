@@ -2,6 +2,8 @@
 import 'react-native-gesture-handler';
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
+import { ClerkProvider, SignedIn, SignedOut } from '@clerk/clerk-expo';
+import { tokenCache } from '@/utils/tokenCache';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -14,14 +16,16 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider>
-        <ChartSettingsProvider>
-          <SafeAreaProvider>
-            {/* Consume theme inside to set StatusBar style */}
-            <ThemedContent />
-          </SafeAreaProvider>
-        </ChartSettingsProvider>
-      </ThemeProvider>
+      <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY as string} tokenCache={tokenCache}>
+        <ThemeProvider>
+          <ChartSettingsProvider>
+            <SafeAreaProvider>
+              {/* Consume theme inside to set StatusBar style */}
+              <ThemedContent />
+            </SafeAreaProvider>
+          </ChartSettingsProvider>
+        </ThemeProvider>
+      </ClerkProvider>
     </GestureHandlerRootView>
   );
 }
@@ -48,7 +52,10 @@ function ThemedContent() {
               contentStyle: { backgroundColor: colors.background },
             }}
           >
-            <Stack.Screen name="(tabs)" />
+            {/* Auth routes */}
+            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+            {/* Protected app routes */}
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="+not-found" />
           </Stack>
           <StatusBar style={isDark ? 'light' : 'dark'} />
