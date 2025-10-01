@@ -7,8 +7,8 @@ import { useChartSettings, CHART_MAX_POINTS_LIMITS } from '@/components/common/C
 import { useTheme } from '@/components/common/ThemeProvider';
 
 export default function SettingsScreen() {
-  const { theme, setTheme, isDark, colors } = useTheme();
-  const { maxPoints, setMaxPoints, loading } = useChartSettings();
+  const { setTheme, isDark, colors } = useTheme();
+  const { maxPoints, setMaxPoints } = useChartSettings();
   const [draft, setDraft] = useState(String(maxPoints));
   const [feedback, setFeedback] = useState<string | null>(null);
 

@@ -63,7 +63,7 @@ const MIN_HEIGHT = 160;
 const MAX_HEIGHT = 360;
 
 export default function ETFLineChart(props: Props) {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const onContainerLayout = (e: LayoutChangeEvent) => setContainerWidth(e.nativeEvent.layout.width);
   // tooltip state
@@ -91,22 +91,28 @@ export default function ETFLineChart(props: Props) {
   // ===== costruzione dati =====
   const [visibleMap, setVisibleMap] = useState<Record<string, boolean>>({});
 
+  const multiKeys = useMemo(() => {
+    if (!isMulti) return [] as string[];
+    const mp = (props as MultiProps).multi || [];
+    return mp.map((s, i) => `${s.ticker ?? s.label}__${i}`);
+  }, [isMulti, props]);
+
   useEffect(() => {
     if (!isMulti) return;
-    const mp = (props as MultiProps).multi || [];
-    // initialize visibility map if keys differ
-    const keys = mp.map((s, i) => `${s.ticker ?? s.label}__${i}`);
+    const keys = multiKeys;
     let changed = false;
     if (keys.length !== Object.keys(visibleMap).length) changed = true;
     else {
-      for (const k of keys) if (!(k in visibleMap)) { changed = true; break; }
+      for (const k of keys) {
+        if (!(k in visibleMap)) { changed = true; break; }
+      }
     }
     if (changed) {
       const m: Record<string, boolean> = {};
       keys.forEach((k) => (m[k] = true));
       setVisibleMap(m);
     }
-  }, [isMulti, (props as MultiProps).multi?.length]);
+  }, [isMulti, multiKeys, visibleMap]);
 
   const { labels, datasets: fullDatasets, title, legendItems } = useMemo(() => {
     if (isMulti) {

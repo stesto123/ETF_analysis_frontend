@@ -57,6 +57,30 @@ yarn install
 npm install -g @expo/cli
 ```
 
+### 4. Configura Clerk (Autenticazione)
+
+```bash
+# Installa l'SDK Clerk per Expo (già eseguito nel progetto ma utile se reinstalli)
+npm install @clerk/clerk-expo
+
+# Allinea la versione nativa di Secure Store con Expo
+npx expo install expo-secure-store
+```
+
+1. Crea un file `.env` (oppure copia `.env.example`):
+
+  ```bash
+  cp .env.example .env
+  ```
+
+2. Imposta la Publishable Key fornita da Clerk nel file `.env`:
+
+  ```env
+  EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2xvc2UtYnVmZmFsby0yMi5jbGVyay5hY2NvdW50cy5kZXYk
+  ```
+
+3. Riavvia il server Expo se era già in esecuzione, affinché le variabili d'ambiente vengano caricate.
+
 ## 📱 Come Testare l'App
 
 ### Metodo 1: Expo Go (Consigliato per iniziare)

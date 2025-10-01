@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Dimensions, PanResponder, Animated } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ETFQueryForm from '@/components/Form/ETFQueryForm';
 import ETFLineChart from '@/components/Chart/LineChart';
@@ -23,6 +22,106 @@ type SelectedMap = Record<number, { ID_ticker: number; ticker: string; nome: str
 type MultiDataset = { label: string; data: number[]; colorHint?: 'up' | 'down'; ticker?: string };
 // allow optional labels per dataset (shared across series)
 type MultiDatasetWithLabels = MultiDataset & { labels?: string[] };
+
+const parseYYYYMMDD = (n: number) => {
+  const y = Math.floor(n / 10000);
+  const m = Math.floor((n % 10000) / 100) - 1;
+  const d = n % 100;
+  return new Date(y, m, d);
+};
+
+const daysBetween = (a: Date, b: Date) => Math.max(1, Math.round((+b - +a) / 86400000));
+
+const diffDays = (a: Date, b: Date) => Math.max(0, Math.floor((+b - +a) / 86400000));
+
+const chooseBucketDays = (spanDays: number, maxPoints = 60) => {
+  let bucketDays: number;
+  if (spanDays <= 60) bucketDays = 1;
+  else if (spanDays <= 180) bucketDays = 7;
+  else if (spanDays <= 720) bucketDays = 30;
+  else bucketDays = 90;
+  const est = Math.ceil(spanDays / bucketDays);
+  return est > maxPoints ? Math.ceil(spanDays / maxPoints) : bucketDays;
+};
+
+const aggregateCumulativeOnBuckets = (
+  calendar_days: number[],
+  values: number[],
+  globalStart: Date,
+  bucketDays: number,
+  bucketCount: number
+): number[] => {
+  const buckets: Array<{ day: number; value: number } | undefined> = new Array(bucketCount).fill(undefined);
+  const n = Math.min(calendar_days.length, values.length);
+  const pts: Array<{ day: number; value: number }> = [];
+  for (let i = 0; i < n; i++) {
+    const day = Number(calendar_days[i]);
+    const value = Number(values[i]);
+    if (!Number.isFinite(day) || !Number.isFinite(value)) continue;
+    pts.push({ day, value });
+  }
+  pts.sort((a, b) => a.day - b.day);
+  for (const p of pts) {
+    const d = parseYYYYMMDD(p.day);
+    let idx = Math.floor(diffDays(globalStart, d) / bucketDays);
+    if (idx < 0) idx = 0;
+    if (idx >= bucketCount) idx = bucketCount - 1;
+    const cur = buckets[idx];
+    if (!cur || p.day > cur.day) {
+      buckets[idx] = { day: p.day, value: p.value };
+    }
+  }
+  const series: number[] = [];
+  let prev = 0;
+  for (let i = 0; i < bucketCount; i++) {
+    const cell = buckets[i];
+    if (cell && !Number.isNaN(cell.value)) { prev = cell.value; break; }
+  }
+  for (let i = 0; i < bucketCount; i++) {
+    const cell = buckets[i];
+    if (cell && !Number.isNaN(cell.value)) prev = cell.value;
+    series.push(prev);
+  }
+  return series;
+};
+
+const aggregateOnBuckets = (
+  rows: ETFData[],
+  globalStart: Date,
+  bucketDays: number,
+  bucketCount: number
+): { data: number[]; upOrDown: 'up' | 'down' } => {
+  const sorted = [...rows].sort((a, b) => a.calendar_id - b.calendar_id);
+  const acc = Array.from({ length: bucketCount }, () => ({ sum: 0, cnt: 0 }));
+
+  for (const r of sorted) {
+    const d = parseYYYYMMDD(r.calendar_id);
+    let idx = Math.floor(diffDays(globalStart, d) / bucketDays);
+    if (idx < 0) idx = 0;
+    if (idx >= bucketCount) idx = bucketCount - 1;
+    const price = parseFloat(r.close_price);
+    const cell = acc[idx];
+    cell.sum += price;
+    cell.cnt += 1;
+  }
+
+  const series: number[] = [];
+  let prev = sorted.length ? parseFloat(sorted[0].close_price) : 0;
+  for (let i = 0; i < bucketCount; i++) {
+    const cell = acc[i];
+    if (cell.cnt > 0) {
+      prev = cell.sum / cell.cnt;
+      series.push(prev);
+    } else {
+      series.push(prev);
+    }
+  }
+
+  const first = series[0] ?? 0;
+  const last = series[series.length - 1] ?? first;
+  const upOrDown: 'up' | 'down' = last >= first ? 'up' : 'down';
+  return { data: series, upOrDown };
+};
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -50,7 +149,7 @@ export default function HomeScreen() {
       duration: 220,
       useNativeDriver: false,
     }).start();
-  }, [expandedTickers, collapsedMaxHeight, expandedMaxHeight]);
+  }, [expandedTickers, collapsedMaxHeight, expandedMaxHeight, animatedHeight]);
 
   // Derived paginated slice
   const pagedTickers = useMemo(() => {
@@ -62,7 +161,7 @@ export default function HomeScreen() {
   useEffect(() => {
     const maxPage = Math.max(0, Math.floor((tickers.length - 1) / PAGE_SIZE));
     if (page > maxPage) setPage(0);
-  }, [tickers.length]);
+  }, [tickers.length, page]);
 
   useEffect(() => { setPage(0); }, [selectedArea]);
 
@@ -105,9 +204,8 @@ export default function HomeScreen() {
     return m;
   }, [selectedArray]);
 
-  // responsive sizing
-  const screenHeight = Dimensions.get('window').height;
   // responsive sizing (kept for possible future use)
+  // const screenHeight = Dimensions.get('window').height;
   // const priceChartHeight = Math.min(260, Math.max(160, Math.round(screenHeight * 0.28)));
   // const cumChartHeight = Math.min(200, Math.max(140, Math.round(screenHeight * 0.22)));
   // main list acts as ticker list; no nested virtualization
@@ -146,116 +244,6 @@ export default function HomeScreen() {
       return () => { cancelled = true; };
     }, [selectedArea, areas]);
 
-  // ===== Aggregazione unificata per grafico unico =====
-  const parseYYYYMMDD = (n: number) => {
-    const y = Math.floor(n / 10000);
-    const m = Math.floor((n % 10000) / 100) - 1;
-    const d = n % 100;
-    return new Date(y, m, d);
-  };
-  // kept helper removed to silence unused var lint; recreate if needed
-  const daysBetween = (a: Date, b: Date) => Math.max(1, Math.round((+b - +a) / 86400000));
-  // precise non-negative floor days difference for bucket indexing (0 when same day)
-  const diffDays = (a: Date, b: Date) => Math.max(0, Math.floor((+b - +a) / 86400000));
-
-  // Decidi la granularità comune (in giorni) in base allo span globale
-  const chooseBucketDays = (spanDays: number, maxPoints = 60) => {
-    let bucketDays: number;
-    if (spanDays <= 60) bucketDays = 1;
-    else if (spanDays <= 180) bucketDays = 7;
-    else if (spanDays <= 720) bucketDays = 30;
-    else bucketDays = 90;
-    const est = Math.ceil(spanDays / bucketDays);
-    return est > maxPoints ? Math.ceil(spanDays / maxPoints) : bucketDays;
-  };
-
-  // Aggrega una serie cumulativa (calendar_days + values) sui bucket comuni
-  const aggregateCumulativeOnBuckets = (
-    calendar_days: number[],
-    values: number[],
-    globalStart: Date,
-    bucketDays: number,
-    bucketCount: number
-  ): number[] => {
-    // Track the latest day seen per bucket to make this independent from input order
-    const buckets: Array<{ day: number; value: number } | undefined> = new Array(bucketCount).fill(undefined);
-    const n = Math.min(calendar_days.length, values.length);
-    // zip and sort by day ascending to normalize order
-    const pts: Array<{ day: number; value: number }> = [];
-    for (let i = 0; i < n; i++) {
-      const day = Number(calendar_days[i]);
-      const value = Number(values[i]);
-      if (!Number.isFinite(day) || !Number.isFinite(value)) continue;
-      pts.push({ day, value });
-    }
-    pts.sort((a, b) => a.day - b.day);
-    for (const p of pts) {
-      const d = parseYYYYMMDD(p.day);
-      let idx = Math.floor(diffDays(globalStart, d) / bucketDays);
-      if (idx < 0) idx = 0;
-      if (idx >= bucketCount) idx = bucketCount - 1;
-      // keep the latest calendar day value per bucket
-      const cur = buckets[idx];
-      if (!cur || p.day > cur.day) {
-        buckets[idx] = { day: p.day, value: p.value };
-      }
-    }
-    // forward-fill
-    const series: number[] = [];
-    let prev = 0;
-    // initialize prev with first defined if exists
-    for (let i = 0; i < bucketCount; i++) {
-      const cell = buckets[i];
-      if (cell && !Number.isNaN(cell.value)) { prev = cell.value; break; }
-    }
-    for (let i = 0; i < bucketCount; i++) {
-      const cell = buckets[i];
-      if (cell && !Number.isNaN(cell.value)) prev = cell.value;
-      series.push(prev);
-    }
-    return series;
-  };
-
-  // Aggrega una serie (ETF rows) sui bucket comuni
-  const aggregateOnBuckets = (
-    rows: ETFData[],
-    globalStart: Date,
-    bucketDays: number,
-    bucketCount: number
-  ): { data: number[]; upOrDown: 'up' | 'down' } => {
-    const sorted = [...rows].sort((a, b) => a.calendar_id - b.calendar_id);
-    const acc = Array.from({ length: bucketCount }, () => ({ sum: 0, cnt: 0 }));
-
-    for (const r of sorted) {
-      const d = parseYYYYMMDD(r.calendar_id);
-  let idx = Math.floor(diffDays(globalStart, d) / bucketDays);
-      if (idx < 0) idx = 0;
-      if (idx >= bucketCount) idx = bucketCount - 1;
-      const price = parseFloat(r.close_price);
-      const cell = acc[idx];
-      cell.sum += price;
-      cell.cnt += 1;
-    }
-
-    const series: number[] = [];
-    let prev = sorted.length ? parseFloat(sorted[0].close_price) : 0;
-    for (let i = 0; i < bucketCount; i++) {
-      const cell = acc[i];
-      if (cell.cnt > 0) {
-        prev = cell.sum / cell.cnt;
-        series.push(prev);
-      } else {
-        // forward-fill per mantenere continuità visiva
-        series.push(prev);
-      }
-    }
-
-    const first = series[0] ?? 0;
-    const last = series[series.length - 1] ?? first;
-    const upOrDown: 'up' | 'down' = last >= first ? 'up' : 'down';
-    return { data: series, upOrDown };
-  };
-
   // ===== Selezione ETF (toggle) =====
   const toggleSelect = (t: AreaTicker) => {
     setSelectedTickers((prev) => {
@@ -283,182 +271,187 @@ export default function HomeScreen() {
     });
   };
 
-  // ===== Fetch selezionati -> build datasets unificati =====
-  const fetchSelected = async (range: DateRange, useCache: boolean = true) => {
-    const toLoad = Object.values(selectedTickers);
-    if (toLoad.length === 0) return;
+  const [cumDatasets, setCumDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
 
-    setLoading(true);
-    setError(null);
-
-    try {
-      // deterministic order for color consistency in charts/legend
-      const toLoadOrdered = Object.values(selectedTickers).sort((a, b) => {
+  const fetchCumulativeForSelected = useCallback(
+    async (
+      range: DateRange,
+      useCache: boolean = true,
+      bucketing?: { globalStart: Date; bucketDays: number; bucketCount: number; labels: string[] }
+    ) => {
+      const toLoad = Object.values(selectedTickers).sort((a, b) => {
         const an = (a as any).nome || a.ticker || '';
         const bn = (b as any).nome || b.ticker || '';
         return String(an).localeCompare(String(bn));
       });
+      if (toLoad.length === 0) return;
+      try {
+        const results = await Promise.all(
+          toLoad.map((t) =>
+            apiService
+              .fetchCumulativeReturns(
+                { id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date },
+                useCache
+              )
+              .then((r) => ({ t, r }))
+          )
+        );
 
-      const results = await Promise.all(
-        toLoadOrdered.map((t) =>
-          apiService
-            .fetchETFData(
-              { id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date } as QueryParams,
-              useCache
-            )
-            .then((rows) => ({ t, rows }))
-        )
-      );
+        let labels: string[] = [];
+        let globalStart: Date | null = null;
+        let bucketDays = 1;
+        let bucketCount = 0;
 
-      // Globale start/end
-      let minCal = Infinity;
-      let maxCal = -Infinity;
-      results.forEach(({ rows }) => {
-        if (!rows.length) return;
-        const first = rows.reduce((m, r) => Math.min(m, r.calendar_id), rows[0].calendar_id);
-        const last = rows.reduce((m, r) => Math.max(m, r.calendar_id), rows[0].calendar_id);
-        minCal = Math.min(minCal, first);
-        maxCal = Math.max(maxCal, last);
-      });
+        if (bucketing) {
+          labels = bucketing.labels;
+          globalStart = bucketing.globalStart;
+          bucketDays = bucketing.bucketDays;
+          bucketCount = bucketing.bucketCount;
+        } else {
+          let minCal = Infinity;
+          let maxCal = -Infinity;
+          results.forEach(({ r }) => {
+            if (!Array.isArray(r.calendar_days) || r.calendar_days.length === 0) return;
+            const first = r.calendar_days[0];
+            const last = r.calendar_days[r.calendar_days.length - 1];
+            minCal = Math.min(minCal, first);
+            maxCal = Math.max(maxCal, last);
+          });
+          if (!isFinite(minCal) || !isFinite(maxCal)) {
+            setCumDatasets(null);
+            return;
+          }
+          globalStart = parseYYYYMMDD(minCal);
+          const globalEnd = parseYYYYMMDD(maxCal);
+          const spanDays = daysBetween(globalStart, globalEnd);
+          bucketDays = chooseBucketDays(spanDays, 60);
+          bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
+          const buildLabel = (d: Date) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+          };
+          labels = [];
+          for (let i = 0; i < bucketCount; i++) {
+            const dt = new Date(globalStart.getTime() + i * bucketDays * 86400000);
+            labels.push(buildLabel(dt));
+          }
+        }
 
-      if (!isFinite(minCal) || !isFinite(maxCal)) {
-        setMultiDatasets(null);
-        setLastRange(range);
-        setLoading(false);
-        return;
+        const datasets: MultiDatasetWithLabels[] = results.map(({ t, r }) => {
+          const rawSeries = aggregateCumulativeOnBuckets(
+            Array.isArray(r.calendar_days) ? r.calendar_days : [],
+            Array.isArray(r.simple) ? r.simple : [],
+            globalStart!,
+            bucketDays,
+            bucketCount
+          );
+          const series = rawSeries.map((v) => (Number.isFinite(v) ? v * 100 : v));
+          const first = series[0] ?? 0;
+          const last = series[series.length - 1] ?? first;
+          const upOrDown: 'up' | 'down' = last >= first ? 'up' : 'down';
+          const label = (r.name || t.nome || t.ticker) + ' (%)';
+          return { label, ticker: t.ticker, data: series, colorHint: upOrDown, labels };
+        });
+        setCumDatasets(datasets);
+      } catch {
+        setCumDatasets(null);
       }
+    },
+    [selectedTickers]
+  );
 
-      const globalStart = parseYYYYMMDD(minCal);
-      const globalEnd = parseYYYYMMDD(maxCal);
-      const spanDays = daysBetween(globalStart, globalEnd);
-      const bucketDays = chooseBucketDays(spanDays, 60);
-      const bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
+  // ===== Fetch selezionati -> build datasets unificati =====
+  const fetchSelected = useCallback(
+    async (range: DateRange, useCache: boolean = true) => {
+      const toLoad = Object.values(selectedTickers);
+      if (toLoad.length === 0) return;
 
-      // build shared labels from buckets (YYYY-MM-DD)
-      const buildLabel = (d: Date) => {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
-      };
-      const labels: string[] = [];
-      for (let i = 0; i < bucketCount; i++) {
-        const dt = new Date(globalStart.getTime() + i * bucketDays * 86400000);
-        labels.push(buildLabel(dt));
-      }
+      setLoading(true);
+      setError(null);
 
-      const datasets: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
-        const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount);
-        // try to extract a display name from rows (backend may include nome in /api/dati)
-        const rowNome = rows.find(r => typeof (r as any).nome === 'string') as any;
-        const displayName = (rowNome && rowNome.nome) || t.nome || t.ticker;
-        return { label: displayName, ticker: t.ticker, data: agg.data, colorHint: agg.upOrDown, labels };
-      });
+      try {
+        const toLoadOrdered = Object.values(selectedTickers).sort((a, b) => {
+          const an = (a as any).nome || a.ticker || '';
+          const bn = (b as any).nome || b.ticker || '';
+          return String(an).localeCompare(String(bn));
+        });
 
-      setMultiDatasets(datasets);
-      // fetch cumulative returns using the SAME bucketing/labels for consistency
-      fetchCumulativeForSelected(range, useCache, { globalStart, bucketDays, bucketCount, labels })
-        .catch(() => setCumDatasets(null));
-      setLastRange(range);
-    } catch (e) {
-      setMultiDatasets(null);
-      setError(e instanceof Error ? e.message : 'Errore inatteso durante il caricamento');
-    } finally {
-      setLoading(false);
-    }
-  };
+        const results = await Promise.all(
+          toLoadOrdered.map((t) =>
+            apiService
+              .fetchETFData(
+                { id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date } as QueryParams,
+                useCache
+              )
+              .then((rows) => ({ t, rows }))
+          )
+        );
 
-  // ------- cumulative returns (second chart) -------
-  const [cumDatasets, setCumDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
-
-  const fetchCumulativeForSelected = async (
-    range: DateRange,
-    useCache: boolean = true,
-    bucketing?: { globalStart: Date; bucketDays: number; bucketCount: number; labels: string[] }
-  ) => {
-    const toLoad = Object.values(selectedTickers).sort((a, b) => {
-      const an = (a as any).nome || a.ticker || '';
-      const bn = (b as any).nome || b.ticker || '';
-      return String(an).localeCompare(String(bn));
-    });
-    if (toLoad.length === 0) return;
-    try {
-      const results = await Promise.all(
-        toLoad.map((t) => apiService.fetchCumulativeReturns({ id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date }, useCache).then((r) => ({ t, r })))
-      );
-
-      let labels: string[] = [];
-      let globalStart: Date | null = null;
-      let bucketDays = 1;
-      let bucketCount = 0;
-
-      if (bucketing) {
-        labels = bucketing.labels;
-        globalStart = bucketing.globalStart;
-        bucketDays = bucketing.bucketDays;
-        bucketCount = bucketing.bucketCount;
-      } else {
-        // fallback: derive common bucketing from cum series span
         let minCal = Infinity;
         let maxCal = -Infinity;
-        results.forEach(({ r }) => {
-          if (!Array.isArray(r.calendar_days) || r.calendar_days.length === 0) return;
-          const first = r.calendar_days[0];
-          const last = r.calendar_days[r.calendar_days.length - 1];
+        results.forEach(({ rows }) => {
+          if (!rows.length) return;
+          const first = rows.reduce((m, r) => Math.min(m, r.calendar_id), rows[0].calendar_id);
+          const last = rows.reduce((m, r) => Math.max(m, r.calendar_id), rows[0].calendar_id);
           minCal = Math.min(minCal, first);
           maxCal = Math.max(maxCal, last);
         });
+
         if (!isFinite(minCal) || !isFinite(maxCal)) {
-          setCumDatasets(null);
+          setMultiDatasets(null);
+          setLastRange(range);
+          setLoading(false);
           return;
         }
-        globalStart = parseYYYYMMDD(minCal);
+
+        const globalStart = parseYYYYMMDD(minCal);
         const globalEnd = parseYYYYMMDD(maxCal);
         const spanDays = daysBetween(globalStart, globalEnd);
-        bucketDays = chooseBucketDays(spanDays, 60);
-        bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
+        const bucketDays = chooseBucketDays(spanDays, 60);
+        const bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
+
         const buildLabel = (d: Date) => {
           const y = d.getFullYear();
           const m = String(d.getMonth() + 1).padStart(2, '0');
           const day = String(d.getDate()).padStart(2, '0');
           return `${y}-${m}-${day}`;
         };
-        labels = [];
+        const labels: string[] = [];
         for (let i = 0; i < bucketCount; i++) {
           const dt = new Date(globalStart.getTime() + i * bucketDays * 86400000);
           labels.push(buildLabel(dt));
         }
-      }
 
-      // downsample cumulative returns to match buckets
-      const datasets: MultiDatasetWithLabels[] = results.map(({ t, r }) => {
-        const rawSeries = aggregateCumulativeOnBuckets(
-          Array.isArray(r.calendar_days) ? r.calendar_days : [],
-          Array.isArray(r.simple) ? r.simple : [],
-          globalStart!,
-          bucketDays,
-          bucketCount
+        const datasets: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
+          const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount);
+          const rowNome = rows.find((r) => typeof (r as any).nome === 'string') as any;
+          const displayName = (rowNome && rowNome.nome) || t.nome || t.ticker;
+          return { label: displayName, ticker: t.ticker, data: agg.data, colorHint: agg.upOrDown, labels };
+        });
+
+        setMultiDatasets(datasets);
+        void fetchCumulativeForSelected(range, useCache, { globalStart, bucketDays, bucketCount, labels }).catch(() =>
+          setCumDatasets(null)
         );
-        // Convert from decimal returns (e.g., 0.1) to percentage values (10) for display
-        const series = rawSeries.map(v => (Number.isFinite(v) ? v * 100 : v));
-        const first = series[0] ?? 0;
-        const last = series[series.length - 1] ?? first;
-        const upOrDown: 'up' | 'down' = last >= first ? 'up' : 'down';
-        const label = (r.name || t.nome || t.ticker) + ' (%)';
-        return { label, ticker: t.ticker, data: series, colorHint: upOrDown, labels };
-      });
-      setCumDatasets(datasets);
-    } catch {
-      setCumDatasets(null);
-    }
-  };
+        setLastRange(range);
+      } catch (e) {
+        setMultiDatasets(null);
+        setError(e instanceof Error ? e.message : 'Errore inatteso durante il caricamento');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [selectedTickers, fetchCumulativeForSelected]
+  );
 
   const handleSubmit = useCallback(
     (params: QueryParams) => {
       const range: DateRange = { start_date: params.start_date, end_date: params.end_date };
       fetchSelected(range, true);
     },
-  [selectedTickers, fetchSelected]
+    [fetchSelected]
   );
 
   const handleRefresh = useCallback(async () => {

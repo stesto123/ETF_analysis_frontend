@@ -2,14 +2,16 @@
 import 'react-native-gesture-handler';
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
-import { ClerkProvider, SignedIn, SignedOut } from '@clerk/clerk-expo';
+import { ClerkProvider, useAuth } from '@clerk/clerk-expo';
 import { tokenCache } from '@/utils/tokenCache';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+// eslint-disable-next-line import/no-duplicates
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as NavigationBar from 'expo-navigation-bar';
 import { ThemeProvider, useTheme } from '@/components/common/ThemeProvider';
 import { ChartSettingsProvider } from '@/components/common/ChartSettingsProvider';
+import { ActivityIndicator, View } from 'react-native';
 
 export default function RootLayout() {
   // Lasciamo a ThemedContent l'aggiornamento dei colori della system navigation bar
@@ -32,6 +34,7 @@ export default function RootLayout() {
 
 function ThemedContent() {
   const { isDark, colors } = useTheme();
+  const { isLoaded, isSignedIn } = useAuth();
 
   // Android Navigation Bar styling bound to theme
   useEffect(() => {
@@ -44,21 +47,30 @@ function ThemedContent() {
       }
     })();
   }, [colors.background, isDark]);
+  if (!isLoaded) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
+
   return (
     <>
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: colors.background },
-            }}
-          >
-            {/* Auth routes */}
-            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-            {/* Protected app routes */}
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="+not-found" />
-          </Stack>
-          <StatusBar style={isDark ? 'light' : 'dark'} />
+      <Stack
+        initialRouteName={isSignedIn ? '(tabs)' : '(auth)'}
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        {/* Auth routes */}
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        {/* Protected app routes */}
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="+not-found" />
+      </Stack>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
     </>
   );
 }

@@ -64,8 +64,8 @@ export default function PipelineScreen() {
   const uidRef = useRef(1);
   const genKey = () => `row-${uidRef.current++}`;
   const [compItems, setCompItems] = useState([{ key: genKey() } as any]);
-  const [areas, setAreas] = useState<Array<{ area_geografica: string; id_area_geografica: number }>>([]);
-  const [areaTickersMap, setAreaTickersMap] = useState<Record<number, Array<{ ID_ticker: number; ticker: string; nome: string }>>>({});
+  const [areas, setAreas] = useState<{ area_geografica: string; id_area_geografica: number }[]>([]);
+  const [areaTickersMap, setAreaTickersMap] = useState<Record<number, { ID_ticker: number; ticker: string; nome: string }[]>>({});
   const [saving, setSaving] = useState(false);
   const [openSections, setOpenSections] = useState<OpenSections>(defaultOpen);
   const sectionOpacity = useRef<Record<keyof OpenSections, Animated.Value>>({
