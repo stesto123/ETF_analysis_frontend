@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, Platform } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, TextInput, Pressable, Platform, ScrollView } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useTheme } from '@/components/common/ThemeProvider';
 import { useSignIn } from '@clerk/clerk-expo';
@@ -12,26 +12,30 @@ export default function SignInScreen() {
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [lastInfo, setLastInfo] = useState<any>(null);
+
+  const pkPrefix = useMemo(() => (process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || '').slice(0, 10), []);
 
   const start = async () => {
     if (!isLoaded) return;
     setLoading(true);
     setError(null);
     try {
-      const attempt = await signIn.create({ identifier: email.trim() });
-      const emailFactor = attempt.supportedFirstFactors?.find(
-        (factor) => factor.strategy === 'email_code' && 'emailAddressId' in factor
-      ) as { strategy: 'email_code'; emailAddressId?: string } | undefined;
-      if (!emailFactor?.emailAddressId) {
-        throw new Error('Email verification is not available for this account.');
+      const created = await signIn.create({ identifier: email.trim() });
+      setLastInfo({ step: 'after-create', status: created?.status, supportedFirstFactors: created?.supportedFirstFactors });
+      const emailFactor = (created as any)?.supportedFirstFactors?.find(
+        (f: any) => f?.strategy === 'email_code' && f?.emailAddressId
+      );
+      const emailAddressId = emailFactor?.emailAddressId as string | undefined;
+      if (!emailAddressId) {
+        throw new Error('Email verification is not available. Check Clerk Email Code settings.');
       }
-      await signIn.prepareFirstFactor({
-        strategy: 'email_code',
-        emailAddressId: emailFactor.emailAddressId,
-      });
+      const prep = await signIn.prepareFirstFactor({ strategy: 'email_code', emailAddressId });
+      setLastInfo((prev: any) => ({ ...prev, step: 'after-prepare', prepareStatus: prep?.status }));
       setStep('code');
     } catch (e: any) {
       console.log('SEND-CODE ERROR', JSON.stringify(e, null, 2));
+      setLastInfo({ step: 'error', error: e });
       setError(e?.errors?.[0]?.message ?? 'Sign-in failed');
     } finally {
       setLoading(false);
@@ -47,6 +51,7 @@ export default function SignInScreen() {
         strategy: 'email_code',
         code,
       });
+      setLastInfo((prev: any) => ({ ...prev, step: 'after-attempt', attemptStatus: attempt?.status }));
       if (attempt.status === 'complete') {
         await setActive({ session: attempt.createdSessionId });
         router.replace('/(tabs)');
@@ -56,6 +61,7 @@ export default function SignInScreen() {
       }
     } catch (e: any) {
       console.log('SIGN-IN ERROR', JSON.stringify(e, null, 2));
+      setLastInfo({ step: 'error', error: e });
       setError(e?.errors?.[0]?.message ?? 'Verification failed');
     } finally {
       setLoading(false);
@@ -64,8 +70,18 @@ export default function SignInScreen() {
 
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: colors.background, justifyContent: 'center' }}>
+      {__DEV__ && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: 8, backgroundColor: '#1f2937' }}>
+          <Text style={{ color: '#93c5fd', fontWeight: '700' }}>Clerk Debug</Text>
+          <Text style={{ color: '#e5e7eb' }}>PK: {pkPrefix}…</Text>
+          <Text style={{ color: '#e5e7eb' }}>isLoaded: {String(isLoaded)}</Text>
+          <Text numberOfLines={2} style={{ color: '#e5e7eb' }}>lastInfo: {(() => {
+            try { return JSON.stringify(lastInfo)?.slice(0, 200) + (JSON.stringify(lastInfo)?.length > 200 ? '…' : ''); } catch { return 'n/a'; }
+          })()}</Text>
+        </View>
+      )}
       <Text style={{ color: colors.text, fontSize: 24, marginBottom: 16 }}>Sign in</Text>
-      {error && <Text style={{ color: 'tomato', marginBottom: 8 }}>{error}</Text>}
+  {error && <Text style={{ color: 'tomato', marginBottom: 8 }}>{error}</Text>}
       {step === 'email' ? (
         <>
           <Text style={{ color: colors.secondaryText, marginBottom: 6 }}>Email</Text>
