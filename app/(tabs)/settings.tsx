@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, TextInput 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Trash2, Info } from 'lucide-react-native';
 import { apiService } from '@/services/api';
+import SignOutButton from '@/components/common/SignOutButton';
 import { useChartSettings, CHART_MAX_POINTS_LIMITS } from '@/components/common/ChartSettingsProvider';
 import { useTheme } from '@/components/common/ThemeProvider';
 
@@ -142,6 +143,10 @@ export default function SettingsScreen() {
               </View>
             </View>
           </TouchableOpacity>
+
+          <View style={{ marginTop: 12 }}>
+            <SignOutButton />
+          </View>
         </View>
 
         <View style={[styles.apiInfo, { backgroundColor: colors.card, borderLeftColor: colors.accent }] }>

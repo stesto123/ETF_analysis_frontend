@@ -13,6 +13,7 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastInfo, setLastInfo] = useState<any>(null);
+  const [showFullDebug, setShowFullDebug] = useState(false);
 
   const pkPrefix = useMemo(() => (process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || '').slice(0, 10), []);
 
@@ -75,9 +76,22 @@ export default function SignInScreen() {
           <Text style={{ color: '#93c5fd', fontWeight: '700' }}>Clerk Debug</Text>
           <Text style={{ color: '#e5e7eb' }}>PK: {pkPrefix}…</Text>
           <Text style={{ color: '#e5e7eb' }}>isLoaded: {String(isLoaded)}</Text>
-          <Text numberOfLines={2} style={{ color: '#e5e7eb' }}>lastInfo: {(() => {
-            try { return JSON.stringify(lastInfo)?.slice(0, 200) + (JSON.stringify(lastInfo)?.length > 200 ? '…' : ''); } catch { return 'n/a'; }
-          })()}</Text>
+          <Text style={{ color: '#93c5fd', marginTop: 4, fontWeight: '600' }}>lastInfo</Text>
+          <ScrollView style={showFullDebug ? undefined : { maxHeight: 200 }}>
+            <Text style={{ color: '#e5e7eb', fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }), fontSize: 12 }}>
+              {(() => {
+                try { return JSON.stringify(lastInfo, null, 2); } catch { return 'n/a'; }
+              })()}
+            </Text>
+          </ScrollView>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+            <Pressable onPress={() => setShowFullDebug((v) => !v)} style={{ backgroundColor: '#374151', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6 }}>
+              <Text style={{ color: '#e5e7eb' }}>{showFullDebug ? 'Collapse' : 'Expand'}</Text>
+            </Pressable>
+            <Pressable onPress={() => { try { console.log('CLERK lastInfo FULL', JSON.stringify(lastInfo, null, 2)); } catch {} }} style={{ backgroundColor: '#374151', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6 }}>
+              <Text style={{ color: '#e5e7eb' }}>Log to console</Text>
+            </Pressable>
+          </View>
         </View>
       )}
       <Text style={{ color: colors.text, fontSize: 24, marginBottom: 16 }}>Sign in</Text>
@@ -117,6 +131,10 @@ export default function SignInScreen() {
       <View style={{ marginTop: 16 }}>
         <Link href="/(auth)/sign-up" style={{ color: colors.accent, textAlign: 'center', fontWeight: '600' }}>
           Don&apos;t have an account? Sign up
+        </Link>
+        <View style={{ height: 8 }} />
+        <Link href="/(auth)/sign-in-password" style={{ color: colors.accent, textAlign: 'center' }}>
+          Prefer password? Use email + password
         </Link>
       </View>
     </View>

@@ -56,15 +56,14 @@ function ThemedContent() {
   return (
     <>
       <Stack
-        initialRouteName={isSignedIn ? '(tabs)' : '(auth)/sign-in'}
+        initialRouteName={isSignedIn ? '(tabs)' : '(auth)'}
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-  {/* Auth routes */}
-  <Stack.Screen name="(auth)/sign-in" options={{ headerShown: false }} />
-  <Stack.Screen name="(auth)/sign-up" options={{ headerShown: false }} />
+        {/* Auth route group */}
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         {/* Protected app routes */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />

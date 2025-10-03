@@ -94,6 +94,10 @@ export default function SignUpScreen() {
         <Link href="/(auth)/sign-in" style={{ color: colors.accent, textAlign: 'center', fontWeight: '600' }}>
           Already have an account? Sign in
         </Link>
+        <View style={{ height: 8 }} />
+        <Link href="/(auth)/sign-up-password" style={{ color: colors.accent, textAlign: 'center' }}>
+          Prefer password? Use email + password
+        </Link>
       </View>
     </View>
   );
