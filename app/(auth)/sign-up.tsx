@@ -15,15 +15,16 @@ export default function SignUpScreen() {
   // Handle submission of sign-up form
   const onSignUpPress = async () => {
     if (!isLoaded) return
-
-    console.log(emailAddress, password)
+    const email = emailAddress.trim();
+    const pass = password;
+    if (!email || !pass) {
+      console.warn('Missing email or password');
+      return;
+    }
 
     // Start sign-up process using email and password provided
     try {
-      await signUp.create({
-        emailAddress,
-        password,
-      })
+      await signUp.create({ emailAddress: email, password: pass })
 
       // Send user an email with verification code
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' })
@@ -31,10 +32,11 @@ export default function SignUpScreen() {
       // Set 'pendingVerification' to true to display second form
       // and capture OTP code
       setPendingVerification(true)
-    } catch (err) {
+    } catch (err: any) {
       // See https://clerk.com/docs/guides/development/custom-flows/error-handling
       // for more info on error handling
-      console.error(JSON.stringify(err, null, 2))
+      const clerkErr = err?.errors || err;
+      console.error('SignUp create error:', JSON.stringify(clerkErr, null, 2))
     }
   }
 
@@ -58,10 +60,11 @@ export default function SignUpScreen() {
         // complete further steps.
         console.error(JSON.stringify(signUpAttempt, null, 2))
       }
-    } catch (err) {
+    } catch (err: any) {
       // See https://clerk.com/docs/guides/development/custom-flows/error-handling
       // for more info on error handling
-      console.error(JSON.stringify(err, null, 2))
+      const clerkErr = err?.errors || err;
+      console.error('SignUp verify error:', JSON.stringify(clerkErr, null, 2))
     }
   }
 

@@ -9,6 +9,10 @@ export default function Page() {
 
   const [emailAddress, setEmailAddress] = React.useState('')
   const [password, setPassword] = React.useState('')
+  if (__DEV__) {
+    const pk = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || ''
+    console.log('CLERK PK', pk ? pk.slice(0, 12) : '(missing)')
+  }
 
   // Handle the submission of the sign-in form
   const onSignInPress = async () => {

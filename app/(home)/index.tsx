@@ -1,7 +1,6 @@
 import { SignedIn, SignedOut, useUser } from '@clerk/clerk-expo'
 import { Link, Redirect } from 'expo-router'
 import { Text, View } from 'react-native'
-import { SignOutButton } from '@/app/components/SignOutButton'
 
 export default function Page() {
   const { user } = useUser()

@@ -17,8 +17,8 @@ export default function SignOutButton({ confirm = true, label = 'Sign out', styl
   const doSignOut = async () => {
     try {
   await signOut();
-  // After sign-out, route to a concrete auth route
-  router.replace('/(auth)/sign-in-password');
+  // After sign-out, route to existing auth route
+  router.replace('/(auth)/sign-in');
     } catch (e) {
       console.error('Sign out failed', e);
     }
