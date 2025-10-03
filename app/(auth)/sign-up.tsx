@@ -1,104 +1,112 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, Platform } from 'react-native';
-import { useTheme } from '@/components/common/ThemeProvider';
-import { useSignUp } from '@clerk/clerk-expo';
-import { Link } from 'expo-router';
+import * as React from 'react'
+import { Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { useSignUp } from '@clerk/clerk-expo'
+import { Link, useRouter } from 'expo-router'
 
 export default function SignUpScreen() {
-  const { colors } = useTheme();
-  const { isLoaded, signUp, setActive } = useSignUp();
-  const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
-  const [step, setStep] = useState<'email' | 'code'>('email');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { isLoaded, signUp, setActive } = useSignUp()
+  const router = useRouter()
 
-  const start = async () => {
-    if (!isLoaded) return;
-    setLoading(true);
-    setError(null);
+  const [emailAddress, setEmailAddress] = React.useState('')
+  const [password, setPassword] = React.useState('')
+  const [pendingVerification, setPendingVerification] = React.useState(false)
+  const [code, setCode] = React.useState('')
+
+  // Handle submission of sign-up form
+  const onSignUpPress = async () => {
+    if (!isLoaded) return
+
+    console.log(emailAddress, password)
+
+    // Start sign-up process using email and password provided
     try {
-      await signUp.create({ emailAddress: email });
-      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-      setStep('code');
-    } catch (e: any) {
-      setError(e?.errors?.[0]?.message ?? 'Sign-up failed');
-    } finally {
-      setLoading(false);
+      await signUp.create({
+        emailAddress,
+        password,
+      })
+
+      // Send user an email with verification code
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' })
+
+      // Set 'pendingVerification' to true to display second form
+      // and capture OTP code
+      setPendingVerification(true)
+    } catch (err) {
+      // See https://clerk.com/docs/guides/development/custom-flows/error-handling
+      // for more info on error handling
+      console.error(JSON.stringify(err, null, 2))
     }
-  };
+  }
 
-  const verify = async () => {
-    if (!isLoaded) return;
-    setLoading(true);
-    setError(null);
+  // Handle submission of verification form
+  const onVerifyPress = async () => {
+    if (!isLoaded) return
+
     try {
-      const attempt = await signUp.attemptEmailAddressVerification({ code });
-      if (attempt.status === 'complete') {
-        await setActive({ session: attempt.createdSessionId });
+      // Use the code the user provided to attempt verification
+      const signUpAttempt = await signUp.attemptEmailAddressVerification({
+        code,
+      })
+
+      // If verification was completed, set the session to active
+      // and redirect the user
+      if (signUpAttempt.status === 'complete') {
+        await setActive({ session: signUpAttempt.createdSessionId })
+        router.replace('/')
       } else {
-        setError('Invalid code');
+        // If the status is not complete, check why. User may need to
+        // complete further steps.
+        console.error(JSON.stringify(signUpAttempt, null, 2))
       }
-    } catch (e: any) {
-      setError(e?.errors?.[0]?.message ?? 'Verification failed');
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      // See https://clerk.com/docs/guides/development/custom-flows/error-handling
+      // for more info on error handling
+      console.error(JSON.stringify(err, null, 2))
     }
-  };
+  }
+
+  if (pendingVerification) {
+    return (
+      <>
+        <Text>Verify your email</Text>
+        <TextInput
+          value={code}
+          placeholder="Enter your verification code"
+          onChangeText={(code) => setCode(code)}
+        />
+        <TouchableOpacity onPress={onVerifyPress}>
+          <Text>Verify</Text>
+        </TouchableOpacity>
+      </>
+    )
+  }
 
   return (
-    <View style={{ flex: 1, padding: 16, backgroundColor: colors.background, justifyContent: 'center' }}>
-      <Text style={{ color: colors.text, fontSize: 24, marginBottom: 16 }}>Create account</Text>
-      {error && <Text style={{ color: 'tomato', marginBottom: 8 }}>{error}</Text>}
-      {step === 'email' ? (
-        <>
-          <Text style={{ color: colors.secondaryText, marginBottom: 6 }}>Email</Text>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            placeholder="you@example.com"
-            placeholderTextColor={colors.secondaryText}
-            style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, color: colors.text, padding: 10, borderRadius: 8, marginBottom: 12 }}
-          />
-          <Pressable
-            disabled={loading || !email}
-            onPress={start}
-            style={{ backgroundColor: colors.accent, padding: 12, borderRadius: 8, opacity: loading || !email ? 0.6 : 1 }}
-          >
-            <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '600' }}>{loading ? 'Sending...' : 'Send code'}</Text>
-          </Pressable>
-        </>
-      ) : (
-        <>
-          <Text style={{ color: colors.secondaryText, marginBottom: 6 }}>Verification code</Text>
-          <TextInput
-            value={code}
-            onChangeText={setCode}
-            keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
-            placeholder="123456"
-            placeholderTextColor={colors.secondaryText}
-            style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, color: colors.text, padding: 10, borderRadius: 8, marginBottom: 12 }}
-          />
-          <Pressable
-            disabled={loading || code.length < 4}
-            onPress={verify}
-            style={{ backgroundColor: colors.accent, padding: 12, borderRadius: 8, opacity: loading || code.length < 4 ? 0.6 : 1 }}
-          >
-            <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '600' }}>{loading ? 'Verifying...' : 'Complete sign-up'}</Text>
-          </Pressable>
-        </>
-      )}
-      <View style={{ marginTop: 16 }}>
-        <Link href="/(auth)/sign-in" style={{ color: colors.accent, textAlign: 'center', fontWeight: '600' }}>
-          Already have an account? Sign in
-        </Link>
-        <View style={{ height: 8 }} />
-        <Link href="/(auth)/sign-up-password" style={{ color: colors.accent, textAlign: 'center' }}>
-          Prefer password? Use email + password
-        </Link>
-      </View>
+    <View>
+      <>
+        <Text>Sign up</Text>
+        <TextInput
+          autoCapitalize="none"
+          value={emailAddress}
+          placeholder="Enter email"
+          onChangeText={(email) => setEmailAddress(email)}
+        />
+        <TextInput
+          value={password}
+          placeholder="Enter password"
+          secureTextEntry={true}
+          onChangeText={(password) => setPassword(password)}
+        />
+        <TouchableOpacity onPress={onSignUpPress}>
+          <Text>Continue</Text>
+        </TouchableOpacity>
+        <View style={{ display: 'flex', flexDirection: 'row', gap: 3 }}>
+          <Text>Already have an account?</Text>
+          <Link href="/sign-in">
+            <Text>Sign in</Text>
+          </Link>
+        </View>
+      </>
     </View>
-  );
+  )
 }

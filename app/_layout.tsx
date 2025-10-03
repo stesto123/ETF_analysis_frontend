@@ -2,7 +2,12 @@
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { ClerkProvider, useAuth } from '@clerk/clerk-expo';
+// Opzione A: se usi il token cache built-in
+// import { tokenCache } from '@clerk/clerk-expo';
+
+// Opzione B: se hai un wrapper personalizzato (come nel tuo progetto)
 import { tokenCache } from '@/utils/tokenCache';
+
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -12,15 +17,16 @@ import { ChartSettingsProvider } from '@/components/common/ChartSettingsProvider
 import { ActivityIndicator, View } from 'react-native';
 
 export default function RootLayout() {
-  // Lasciamo a ThemedContent l'aggiornamento dei colori della system navigation bar
-
+  // Basta che ClerkProvider stia più in alto di qualunque hook/useAuth o componenti che lo usano
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY as string} tokenCache={tokenCache}>
+      <ClerkProvider
+        publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY as string}
+        tokenCache={tokenCache}
+      >
         <ThemeProvider>
           <ChartSettingsProvider>
             <SafeAreaProvider>
-              {/* Consume theme inside to set StatusBar style */}
               <ThemedContent />
             </SafeAreaProvider>
           </ChartSettingsProvider>
@@ -41,10 +47,12 @@ function ThemedContent() {
         await NavigationBar.setVisibilityAsync('visible');
         await NavigationBar.setButtonStyleAsync(isDark ? 'light' : 'dark');
       } catch {
-        // Non-Android or missing API: ignore
+        // Non-Android o API assente: ignora
       }
     })();
   }, [colors.background, isDark]);
+
+  // Finché Clerk non ha caricato lo stato auth, mostra uno splash coerente col tema
   if (!isLoaded) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
@@ -62,9 +70,9 @@ function ThemedContent() {
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        {/* Auth route group */}
+        {/* Gruppo auth */}
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        {/* Protected app routes */}
+        {/* Rotte protette */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
