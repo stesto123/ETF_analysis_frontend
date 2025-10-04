@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ETFData, APIError, QueryParams } from '@/types';
+import { getClerkToken } from '@/utils/clerkToken';
 
 const API_BASE_URL = 'https://wa-etf-analysis-d0enavd0h5e9f5gr.italynorth-01.azurewebsites.net'
 
@@ -18,6 +19,16 @@ type CreatePortfolioResponse = { ID_Portafoglio: number; Descrizione_Portafoglio
 type CompositionItemPost = { ID_ticker?: number; ticker?: string; percentuale: number | string };
 
 class APIService {
+  // ------- Auth header helper -------
+  private async withAuth(headers: Record<string, string> = {}): Promise<Record<string, string>> {
+    try {
+      const token = await getClerkToken();
+      if (token) {
+        return { ...headers, Authorization: `Bearer ${token}` };
+      }
+    } catch {}
+    return headers;
+  }
   // ------- Cache helpers (generic) -------
   private async getCache<T>(key: string, ttlMs: number): Promise<T | null> {
     try {
@@ -64,7 +75,7 @@ class APIService {
 
       const response = await fetch(url.toString(), {
         method: 'GET',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        headers: await this.withAuth({ Accept: 'application/json', 'Content-Type': 'application/json' }),
       });
 
       if (!response.ok) {
@@ -92,7 +103,7 @@ class APIService {
     }
 
     const url = new URL('/api/aree_geografiche', API_BASE_URL);
-    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
     if (!res.ok) throw new Error(`Failed to fetch areas: ${res.status}`);
     const data: GeographicArea[] = await res.json();
     await this.setCache(cacheKey, data);
@@ -120,7 +131,7 @@ class APIService {
     if (flag_is_needed) {
       url.searchParams.append('flag_is_needed', '1');
     }
-    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
     if (!res.ok) throw new Error(`Failed to fetch tickers by area: ${res.status}`);
     const raw = await res.json();
     // normalize to ensure nome exists even if backend lacks it
@@ -146,7 +157,7 @@ class APIService {
     const url = new URL('/api/composizione_portafoglio', API_BASE_URL);
     if (id_portafoglio != null) url.searchParams.append('id_portafoglio', String(id_portafoglio));
 
-    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
     if (!res.ok) {
       const txt = await res.text();
       throw new Error(`Failed to fetch portfolio composition (${res.status}): ${txt}`);
@@ -176,7 +187,7 @@ class APIService {
     url.searchParams.append('start_date', params.start_date);
     url.searchParams.append('end_date', params.end_date);
 
-    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
     if (!res.ok) throw new Error(`Failed to fetch cumulative returns: ${res.status}`);
     const body = await res.json();
 
@@ -244,7 +255,7 @@ class APIService {
     if (payload.capitale_iniziale == null) payload.capitale_iniziale = 0;
     const res = await fetch(`${API_BASE_URL}/api/run_pipeline`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -257,7 +268,7 @@ class APIService {
   async getJobStatus(job_id: string): Promise<{ job_id: string; status: string; exit_code?: number | null; log_path?: string; finished_at?: number; started_at?: number }> {
     const url = new URL('/api/job_status', API_BASE_URL);
     url.searchParams.append('job_id', job_id);
-    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
     if (!res.ok) {
       const txt = await res.text();
       throw new Error(`Failed to get job status (${res.status}): ${txt}`);
@@ -290,7 +301,7 @@ class APIService {
     const url = `${API_BASE_URL}/api/portafogli`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -334,7 +345,7 @@ class APIService {
     const url = `${API_BASE_URL}/api/composizione_portafoglio`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
       body: JSON.stringify({ id_portafoglio, items, descrizione }),
     });
     if (!res.ok) {
@@ -362,7 +373,7 @@ class APIService {
     let lastErr: string | null = null;
     for (const url of tryUrls) {
       try {
-        const res = await fetch(url, { method: 'DELETE', headers: { Accept: 'application/json' } });
+  const res = await fetch(url, { method: 'DELETE', headers: await this.withAuth({ Accept: 'application/json' }) });
         if (!res.ok) {
           const txt = await res.text().catch(() => '');
           throw new Error(`HTTP ${res.status} ${txt}`);

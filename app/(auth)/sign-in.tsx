@@ -14,11 +14,14 @@ export default function Page() {
   const [password, setPassword] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [showPassword, setShowPassword] = React.useState(false)
 
-  if (__DEV__) {
-    const pk = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || ''
-    console.log('CLERK PK', pk ? pk.slice(0, 12) : '(missing)')
-  }
+  React.useEffect(() => {
+    if (__DEV__) {
+      const pk = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || ''
+      console.log('LOG CLERK PK', pk ? pk.slice(0, 12) : '(missing)')
+    }
+  }, [])
 
   const onSignInPress = async () => {
     if (!isLoaded || submitting) return
@@ -69,14 +72,24 @@ export default function Page() {
 
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, { color: colors.secondaryText }]}>Password</Text>
-              <TextInput
-                value={password}
-                placeholder="••••••••"
-                placeholderTextColor={colors.secondaryText}
-                secureTextEntry
-                onChangeText={setPassword}
-                style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
-              />
+              <View style={{ position: 'relative' }}>
+                <TextInput
+                  value={password}
+                  placeholder="••••••••"
+                  placeholderTextColor={colors.secondaryText}
+                  secureTextEntry={!showPassword}
+                  onChangeText={setPassword}
+                  style={[styles.input, { paddingRight: 80, backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword((v) => !v)}
+                  style={{ position: 'absolute', right: 10, top: 0, bottom: 0, justifyContent: 'center' }}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  <Text style={{ color: colors.accent, fontWeight: '600' }}>{showPassword ? 'Hide' : 'Show'}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             {!!error && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}

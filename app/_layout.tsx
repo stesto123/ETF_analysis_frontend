@@ -16,6 +16,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 import { ThemeProvider, useTheme } from '@/components/common/ThemeProvider';
 import { ChartSettingsProvider } from '@/components/common/ChartSettingsProvider';
 import { ActivityIndicator, View } from 'react-native';
+import { setClerkTokenGetter } from '@/utils/clerkToken';
 
 export default function RootLayout() {
   // Basta che ClerkProvider stia più in alto di qualunque hook/useAuth o componenti che lo usano
@@ -28,6 +29,7 @@ export default function RootLayout() {
         <ThemeProvider>
           <ChartSettingsProvider>
             <SafeAreaProvider>
+              <ClerkTokenBridge />
               <ThemedContent />
             </SafeAreaProvider>
           </ChartSettingsProvider>
@@ -80,4 +82,24 @@ function ThemedContent() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
     </>
   );
+}
+
+function ClerkTokenBridge() {
+  const { getToken } = useAuth();
+  // Optionally use a JWT template configured in Clerk dashboard
+  const template = process.env.EXPO_PUBLIC_CLERK_JWT_TEMPLATE;
+
+  useEffect(() => {
+    // Install getter; returns a fresh token when called
+    setClerkTokenGetter(async () => {
+      try {
+        const token = await getToken({ template: template || undefined });
+        return token ?? null;
+      } catch {
+        return null;
+      }
+    });
+  }, [getToken, template]);
+
+  return null;
 }
