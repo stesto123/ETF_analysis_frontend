@@ -89,17 +89,31 @@ function ClerkTokenBridge() {
   // Optionally use a JWT template configured in Clerk dashboard
   const template = process.env.EXPO_PUBLIC_CLERK_JWT_TEMPLATE;
 
-  useEffect(() => {
-    // Install getter; returns a fresh token when called
-    setClerkTokenGetter(async () => {
-      try {
-        const token = await getToken({ template: template || undefined });
-        return token ?? null;
-      } catch {
-        return null;
+  // Register the getter synchronously to minimize race conditions with first API calls
+  setClerkTokenGetter(async () => {
+    try {
+      // Try with template (if provided), otherwise default
+      let token: string | null = null;
+      if (template) {
+        token = await getToken({ template, skipCache: true });
+      } else {
+        token = await getToken({ skipCache: true });
       }
-    });
-  }, [getToken, template]);
+      // Fallback: if template was set but returned null, try without template
+      if (!token && template) {
+        token = await getToken({ skipCache: true });
+      }
+      return token ?? null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (__DEV__) {
+      console.log('ClerkTokenBridge ready', { template: template || '(none)' });
+    }
+  }, [template]);
 
   return null;
 }

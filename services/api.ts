@@ -24,9 +24,21 @@ class APIService {
     try {
       const token = await getClerkToken();
       if (token) {
+        // Debug logging of the token when it's attached to the request
+        const dbg = process.env.EXPO_PUBLIC_LOG_AUTH_TOKEN?.toLowerCase();
+        if (dbg === 'full' || dbg === 'true' || dbg === '1') {
+          const shown = dbg === 'full' ? token : `${token.slice(0, 12)}...${token.slice(-6)}`;
+          console.log('[auth] Attaching Authorization Bearer token:', shown);
+        }
         return { ...headers, Authorization: `Bearer ${token}` };
       }
-    } catch {}
+      // Only log missing token if debug flag explicitly asks for it
+      if (process.env.EXPO_PUBLIC_LOG_AUTH_TOKEN?.toLowerCase() === 'full') {
+        console.warn('[auth] No token found');
+      }
+    } catch (error) {
+      console.error('[auth] Error getting token:', error);
+    }
     return headers;
   }
   // ------- Cache helpers (generic) -------
@@ -285,7 +297,7 @@ class APIService {
     }
     const url = new URL('/api/risultati_portafoglio', API_BASE_URL);
     if (id_portafoglio != null) url.searchParams.append('id_portafoglio', String(id_portafoglio));
-    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
     if (!res.ok) throw new Error(`Failed to fetch portfolio results: ${res.status}`);
     const data: PortfolioResultRow[] = await res.json();
     await this.setCache(cacheKey, data);
@@ -322,7 +334,7 @@ class APIService {
     const url = `${API_BASE_URL}/api/portafoglio`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
       body: JSON.stringify({ descrizione }),
     });
     if (!res.ok) {
