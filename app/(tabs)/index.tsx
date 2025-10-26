@@ -9,15 +9,14 @@ import { useTheme } from '@/components/common/ThemeProvider';
 import LoadingSpinner from '@/components/common/LoadingSpinner';
 import ErrorDisplay from '@/components/common/ErrorDisplay';
 import EmptyState from '@/components/common/EmptyState';
-import AreaChips from '@/components/Filter/AreaChips';
+import AreaChips, { GeographyOption as AreaChipGeographyOption } from '@/components/Filter/AreaChips';
 
 import { apiService } from '@/services/api';
-import { ETFData, QueryParams, ChartDataPoint } from '@/types';
+import { PricePoint, QueryParams, ChartDataPoint, GeographyGroup, TickerSummary } from '@/types';
 
-type GeographicArea = { area_geografica: string; id_area_geografica: number };
-type AreaTicker = { ID_ticker: number; ticker: string; nome: string };
+type GeographyOption = AreaChipGeographyOption;
 type DateRange = { start_date: string; end_date: string };
-type SelectedMap = Record<number, { ID_ticker: number; ticker: string; nome: string }>;
+type SelectedMap = Record<number, TickerSummary>;
 
 type MultiDataset = { label: string; data: number[]; colorHint?: 'up' | 'down'; ticker?: string };
 // allow optional labels per dataset (shared across series)
@@ -86,7 +85,7 @@ const aggregateCumulativeOnBuckets = (
 };
 
 const aggregateOnBuckets = (
-  rows: ETFData[],
+  rows: PricePoint[],
   globalStart: Date,
   bucketDays: number,
   bucketCount: number
@@ -99,14 +98,14 @@ const aggregateOnBuckets = (
     let idx = Math.floor(diffDays(globalStart, d) / bucketDays);
     if (idx < 0) idx = 0;
     if (idx >= bucketCount) idx = bucketCount - 1;
-    const price = parseFloat(r.close_price);
+    const price = Number(r.close_price);
     const cell = acc[idx];
     cell.sum += price;
     cell.cnt += 1;
   }
 
   const series: number[] = [];
-  let prev = sorted.length ? parseFloat(sorted[0].close_price) : 0;
+  let prev = sorted.length ? Number(sorted[0].close_price) : 0;
   for (let i = 0; i < bucketCount; i++) {
     const cell = acc[i];
     if (cell.cnt > 0) {
@@ -130,9 +129,20 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [areas, setAreas] = useState<GeographicArea[]>([]);
+  const [geographies, setGeographies] = useState<GeographyGroup[]>([]);
+  const geographyOptions = useMemo<GeographyOption[]>(
+    () =>
+      geographies.map(({ geography_id, geography_name, continent, country, iso_code }) => ({
+        geography_id,
+        geography_name,
+        continent,
+        country,
+        iso_code,
+      })),
+    [geographies]
+  );
   const [selectedArea, setSelectedArea] = useState<number | null>(null);
-  const [tickers, setTickers] = useState<AreaTicker[]>([]);
+  const [tickers, setTickers] = useState<TickerSummary[]>([]);
   const [tickersLoading, setTickersLoading] = useState(false);
   // Pagination & expandable panel state
   const PAGE_SIZE = 50;
@@ -192,15 +202,15 @@ export default function HomeScreen() {
   const selectedArray = useMemo(() => {
     const arr = Object.values(selectedTickers);
     return arr.sort((a, b) => {
-      const an = (a as any).nome || a.ticker || '';
-      const bn = (b as any).nome || b.ticker || '';
-      return String(an).localeCompare(String(bn));
+      const an = (a.name || a.symbol || '').toString();
+      const bn = (b.name || b.symbol || '').toString();
+      return an.localeCompare(bn);
     });
   }, [selectedTickers]);
-  // Map from ID_ticker to palette index to mirror chart series order/colors
+  // Map from ticker_id to palette index to mirror chart series order/colors
   const selectedIndexById = useMemo(() => {
     const m = new Map<number, number>();
-    selectedArray.forEach((t, i) => m.set(t.ID_ticker, i));
+    selectedArray.forEach((t, i) => m.set(t.ticker_id, i));
     return m;
   }, [selectedArray]);
 
@@ -211,61 +221,73 @@ export default function HomeScreen() {
   // main list acts as ticker list; no nested virtualization
 
   useEffect(() => {
-    apiService.getGeographicAreas().then(setAreas).catch(() => setAreas([]));
+    let cancelled = false;
+    setTickersLoading(true);
+    apiService
+      .getGeographies(true)
+      .then((items) => {
+        if (!cancelled) setGeographies(items);
+      })
+      .catch(() => {
+        if (!cancelled) setGeographies([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTickersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-    // Caricamento tickers per area o tutte le aree
-    useEffect(() => {
-      let cancelled = false;
-      const load = async () => {
-        if (areas.length === 0) { setTickers([]); return; }
-        setTickersLoading(true);
-        try {
-          if (selectedArea == null) {
-            // Aggrega tutti i tickers di tutte le aree
-            const lists = await Promise.all(
-              areas.map(a => apiService.getTickersByArea(a.id_area_geografica, true).catch(() => []))
-            );
-            const map: Record<number, AreaTicker> = {};
-            lists.forEach(lst => {
-              lst.forEach(t => { map[t.ID_ticker] = t; });
-            });
-            const merged = Object.values(map).sort((a,b) => a.ticker.localeCompare(b.ticker));
-            if (!cancelled) setTickers(merged);
-          } else {
-            const list = await apiService.getTickersByArea(selectedArea, true).catch(() => []);
-            if (!cancelled) setTickers(list);
+  // Aggiorna l'elenco dei ticker in base all'area selezionata
+  useEffect(() => {
+    if (geographies.length === 0) {
+      setTickers([]);
+      return;
+    }
+
+    if (selectedArea == null) {
+      const map = new Map<number, TickerSummary>();
+      geographies.forEach((group) => {
+        group.tickers.forEach((ticker) => {
+          if (ticker && typeof ticker.ticker_id === 'number' && !map.has(ticker.ticker_id)) {
+            map.set(ticker.ticker_id, ticker);
           }
-        } finally {
-          if (!cancelled) setTickersLoading(false);
-        }
-      };
-      load();
-      return () => { cancelled = true; };
-    }, [selectedArea, areas]);
+        });
+      });
+      const merged = Array.from(map.values()).sort((a, b) => (a.symbol || '').localeCompare(b.symbol || ''));
+      setTickers(merged);
+    } else {
+      const group = geographies.find((g) => g.geography_id === selectedArea);
+      const list = group ? [...group.tickers].sort((a, b) => (a.symbol || '').localeCompare(b.symbol || '')) : [];
+      setTickers(list);
+    }
+  }, [geographies, selectedArea]);
 
   // ===== Selezione ETF (toggle) =====
-  const toggleSelect = (t: AreaTicker) => {
+  const toggleSelect = (t: TickerSummary) => {
     setSelectedTickers((prev) => {
       const next = { ...prev };
-      if (next[t.ID_ticker]) delete next[t.ID_ticker];
-      else next[t.ID_ticker] = { ID_ticker: t.ID_ticker, ticker: t.ticker, nome: t.nome };
+      if (next[t.ticker_id]) delete next[t.ticker_id];
+      else next[t.ticker_id] = t;
       return next;
     });
   };
 
   const allCurrentSelected = useMemo(() => {
     if (tickers.length === 0) return false;
-    return tickers.every((t) => !!selectedTickers[t.ID_ticker]);
+    return tickers.every((t) => !!selectedTickers[t.ticker_id]);
   }, [tickers, selectedTickers]);
 
   const toggleSelectAllInArea = () => {
     setSelectedTickers((prev) => {
       const next: SelectedMap = { ...prev };
       if (allCurrentSelected) {
-        tickers.forEach((t) => delete next[t.ID_ticker]);
+        tickers.forEach((t) => delete next[t.ticker_id]);
       } else {
-        tickers.forEach((t) => (next[t.ID_ticker] = { ID_ticker: t.ID_ticker, ticker: t.ticker, nome: t.nome }));
+        tickers.forEach((t) => {
+          next[t.ticker_id] = t;
+        });
       }
       return next;
     });
@@ -280,9 +302,9 @@ export default function HomeScreen() {
       bucketing?: { globalStart: Date; bucketDays: number; bucketCount: number; labels: string[] }
     ) => {
       const toLoad = Object.values(selectedTickers).sort((a, b) => {
-        const an = (a as any).nome || a.ticker || '';
-        const bn = (b as any).nome || b.ticker || '';
-        return String(an).localeCompare(String(bn));
+        const an = (a.name || a.symbol || '').toString();
+        const bn = (b.name || b.symbol || '').toString();
+        return an.localeCompare(bn);
       });
       if (toLoad.length === 0) return;
       try {
@@ -290,7 +312,7 @@ export default function HomeScreen() {
           toLoad.map((t) =>
             apiService
               .fetchCumulativeReturns(
-                { id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date },
+                { id_ticker: t.ticker_id, start_date: range.start_date, end_date: range.end_date },
                 useCache
               )
               .then((r) => ({ t, r }))
@@ -351,8 +373,9 @@ export default function HomeScreen() {
           const first = series[0] ?? 0;
           const last = series[series.length - 1] ?? first;
           const upOrDown: 'up' | 'down' = last >= first ? 'up' : 'down';
-          const label = (r.name || t.nome || t.ticker) + ' (%)';
-          return { label, ticker: t.ticker, data: series, colorHint: upOrDown, labels };
+          const labelBase = (r.name || t.name || t.symbol || '').toString();
+          const label = `${labelBase || 'ETF'} (%)`;
+          return { label, ticker: t.symbol, data: series, colorHint: upOrDown, labels };
         });
         setCumDatasets(datasets);
       } catch {
@@ -373,21 +396,24 @@ export default function HomeScreen() {
 
       try {
         const toLoadOrdered = Object.values(selectedTickers).sort((a, b) => {
-          const an = (a as any).nome || a.ticker || '';
-          const bn = (b as any).nome || b.ticker || '';
-          return String(an).localeCompare(String(bn));
+          const an = (a.name || a.symbol || '').toString();
+          const bn = (b.name || b.symbol || '').toString();
+          return an.localeCompare(bn);
         });
 
-        const results = await Promise.all(
-          toLoadOrdered.map((t) =>
-            apiService
-              .fetchETFData(
-                { id_ticker: t.ID_ticker, start_date: range.start_date, end_date: range.end_date } as QueryParams,
-                useCache
-              )
-              .then((rows) => ({ t, rows }))
-          )
+        const tickerIds = toLoadOrdered.map((t) => t.ticker_id);
+        const seriesList = await apiService.fetchETFData(
+          {
+            tickerIds,
+            startCalendarId: range.start_date,
+            endCalendarId: range.end_date,
+          },
+          useCache
         );
+        const seriesMap = new Map<number, PricePoint[]>(
+          seriesList.map((series) => [series.ticker_id, series.points])
+        );
+        const results = toLoadOrdered.map((t) => ({ t, rows: seriesMap.get(t.ticker_id) ?? [] }));
 
         let minCal = Infinity;
         let maxCal = -Infinity;
@@ -426,9 +452,8 @@ export default function HomeScreen() {
 
         const datasets: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
           const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount);
-          const rowNome = rows.find((r) => typeof (r as any).nome === 'string') as any;
-          const displayName = (rowNome && rowNome.nome) || t.nome || t.ticker;
-          return { label: displayName, ticker: t.ticker, data: agg.data, colorHint: agg.upOrDown, labels };
+          const displayName = t.name || t.symbol;
+          return { label: displayName, ticker: t.symbol, data: agg.data, colorHint: agg.upOrDown, labels };
         });
 
         setMultiDatasets(datasets);
@@ -535,10 +560,10 @@ export default function HomeScreen() {
         contentContainerStyle={{ paddingBottom: Math.max(24, insets.bottom + 12) }}
       >
         <AreaChips
-          areas={areas}
+          areas={geographyOptions}
           selectedId={selectedArea}
           onSelect={setSelectedArea}
-          loading={loading}
+          loading={tickersLoading}
         />
   <View style={[styles.tickersCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.tickersHeader}>
@@ -553,7 +578,7 @@ export default function HomeScreen() {
             <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Caricamento ETF…</Text>
           ) : tickers.length === 0 ? (
             <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>
-              {selectedArea == null ? 'Nessun ETF trovato (lista vuota).' : 'Nessun ETF trovato per quest’area.'}
+              {selectedArea == null ? 'Nessun ticker attivo assegnato alle geografie.' : 'Nessun ticker attivo per quest’area.'}
             </Text>
           ) : (
             <>
@@ -584,11 +609,11 @@ export default function HomeScreen() {
                     contentContainerStyle={{ paddingBottom: 8 }}
                   >
                     {pagedTickers.map((item, index) => {
-                      const isSel = !!selectedTickers[item.ID_ticker];
-                      const selIdx = selectedIndexById.get(item.ID_ticker);
+                      const isSel = !!selectedTickers[item.ticker_id];
+                      const selIdx = selectedIndexById.get(item.ticker_id);
                       const dotColor = isSel && selIdx !== undefined ? getLineColor(selIdx) : '#D1D5DB';
                       return (
-                        <View key={item.ID_ticker}>
+                        <View key={item.ticker_id}>
                           <Pressable onPress={() => toggleSelect(item)} style={styles.tickerRow}>
                             <View style={[styles.checkbox, { borderColor: colors.border, backgroundColor: colors.card }, isSel && { backgroundColor: colors.accent, borderColor: colors.accent }]}>
                               <Text style={styles.checkboxMark}>{isSel ? '✓' : ''}</Text>
@@ -596,8 +621,11 @@ export default function HomeScreen() {
                             {/* colored dot matches chart/legend color for selected items; grey when not selected */}
                             <View style={[styles.tickerDot, { backgroundColor: dotColor }]} />
                             <View style={{ flex: 1 }}>
-                              <Text style={[styles.tickerName, { color: colors.text }]} numberOfLines={1}>{item.nome || item.ticker}</Text>
-                              <Text style={[styles.tickerSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>{item.ticker}</Text>
+                              <Text style={[styles.tickerName, { color: colors.text }]} numberOfLines={1}>{item.name || item.symbol}</Text>
+                              <Text style={[styles.tickerSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>
+                                {item.symbol}
+                                {item.asset_class ? ` • ${item.asset_class}` : ''}
+                              </Text>
                             </View>
                             {/* removed numeric ID label */}
                           </Pressable>

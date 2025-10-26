@@ -1,11 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ETFData, APIError, QueryParams } from '@/types';
+import {
+  QueryParams,
+  GeographyGroup,
+  GeographyResponse,
+  TickerSummary,
+  PriceHistoryResponse,
+  TickerPriceSeries,
+  PricePoint,
+} from '@/types';
 import { getClerkToken } from '@/utils/clerkToken';
 
-const API_BASE_URL = 'https://wa-etf-analysis-d0enavd0h5e9f5gr.italynorth-01.azurewebsites.net'
-
-type GeographicArea = { area_geografica: string; id_area_geografica: number };
-type AreaTicker = { ID_ticker: number; ticker: string; nome: string };
+const API_BASE_URL = 'https://etf-analysis-wa-befhb2gng3ejhchz.italynorth-01.azurewebsites.net'
 type PortfolioItem = { [key: string]: any };
 type PortfolioResultRow = {
   calendar_id: number;
@@ -66,92 +71,134 @@ class APIService {
     }
   }
 
-  // ------- ETF data (già presente) -------
-  private async getETFCacheKey(params: QueryParams): Promise<string> {
-    return `etf_data_${params.id_ticker}_${params.start_date}_${params.end_date}`;
+  // ------- Price history (nuovo endpoint) -------
+  private buildPriceCacheKey(tickerIds: number[], start?: string | number, end?: string | number): string {
+    const idsKey = tickerIds.slice().sort((a, b) => a - b).join(',');
+    const startKey = start != null ? String(start) : 'any';
+    const endKey = end != null ? String(end) : 'any';
+    return `price_history_${idsKey}_${startKey}_${endKey}`;
   }
 
-  async fetchETFData(params: QueryParams, useCache: boolean = true): Promise<ETFData[]> {
-    const cacheKey = await this.getETFCacheKey(params);
-
-    if (useCache) {
-      const cached = await this.getCache<ETFData[]>(cacheKey, 60 * 60 * 1000); // 1h
-      if (cached) return cached;
-    }
-
-    try {
-      const url = new URL('/api/dati', API_BASE_URL);
-      url.searchParams.append('id_ticker', params.id_ticker.toString());
-      url.searchParams.append('start_date', params.start_date);
-      url.searchParams.append('end_date', params.end_date);
-
-      const response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: await this.withAuth({ Accept: 'application/json', 'Content-Type': 'application/json' }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data: ETFData[] = await response.json();
-      if (!Array.isArray(data)) throw new Error('Invalid response format: expected array');
-
-      await this.setCache(cacheKey, data);
-      return data;
-    } catch (error) {
-      console.error('API request failed:', error);
-      if (error instanceof Error) throw new Error(`Failed to fetch ETF data: ${error.message}`);
-      throw new Error('Failed to fetch ETF data: Unknown error');
-    }
-  }
-
-  // ------- NUOVI METODI: aree & tickers -------
-  async getGeographicAreas(useCache: boolean = true): Promise<GeographicArea[]> {
-    const cacheKey = 'areas_all';
-    if (useCache) {
-      const cached = await this.getCache<GeographicArea[]>(cacheKey, 24 * 60 * 60 * 1000); // 24h
-      if (cached) return cached;
-    }
-
-    const url = new URL('/api/aree_geografiche', API_BASE_URL);
-  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
-    if (!res.ok) throw new Error(`Failed to fetch areas: ${res.status}`);
-    const data: GeographicArea[] = await res.json();
-    await this.setCache(cacheKey, data);
-    return data;
-  }
-
-  async getTickersByArea(
-    id_area_geografica: number,
-    flag_is_needed: boolean = true,
+  async fetchETFData(
+    params: { tickerIds: number[]; startCalendarId?: string | number; endCalendarId?: string | number; startDate?: string; endDate?: string },
     useCache: boolean = true
-  ): Promise<AreaTicker[]> {
-    // bump cache version to invalidate old entries without 'nome'
-    const cacheKey = `tickers_area_${id_area_geografica}_flag_${flag_is_needed}_v2`;
+  ): Promise<TickerPriceSeries[]> {
+    const validIds = Array.isArray(params.tickerIds)
+      ? params.tickerIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+      : [];
+    if (validIds.length === 0) return [];
+
+    const startCal: string | number | undefined =
+      params.startCalendarId ?? params.startDate ?? undefined;
+    const endCal: string | number | undefined =
+      params.endCalendarId ?? params.endDate ?? undefined;
+    const cacheKey = this.buildPriceCacheKey(validIds, startCal, endCal);
+
     if (useCache) {
-      const cached = await this.getCache<AreaTicker[]>(cacheKey, 6 * 60 * 60 * 1000); // 6h
-      if (cached) {
-        const hasNames = Array.isArray(cached) && cached.every((t) => t && typeof (t as any).nome === 'string');
-        if (hasNames) return cached;
-        // fall through to refetch if old cache missing 'nome'
-      }
+      const cached = await this.getCache<TickerPriceSeries[]>(cacheKey, 60 * 60 * 1000); // 1h
+      if (cached) return cached;
     }
 
-    const url = new URL('/api/tickers_by_area', API_BASE_URL);
-    url.searchParams.append('id_area_geografica', String(id_area_geografica));
-    if (flag_is_needed) {
-      url.searchParams.append('flag_is_needed', '1');
+    const url = new URL('/api/data/prices', API_BASE_URL);
+    validIds.forEach((id) => url.searchParams.append('ticker_id', String(id)));
+    if (startCal != null) url.searchParams.append('start_calendar_id', String(startCal));
+    if (endCal != null) url.searchParams.append('end_calendar_id', String(endCal));
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: await this.withAuth({ Accept: 'application/json' }),
+    });
+
+    if (!response.ok) {
+      const txt = await response.text().catch(() => '');
+      throw new Error(`Failed to fetch price history (${response.status}): ${txt}`);
     }
-  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
-    if (!res.ok) throw new Error(`Failed to fetch tickers by area: ${res.status}`);
-    const raw = await res.json();
-    // normalize to ensure nome exists even if backend lacks it
-    const data: AreaTicker[] = Array.isArray(raw)
-      ? raw.map((t: any) => ({ ID_ticker: t.ID_ticker, ticker: t.ticker, nome: typeof t.nome === 'string' ? t.nome : t.ticker }))
-      : [];
-    await this.setCache(cacheKey, data);
-    return data;
+
+    const body: PriceHistoryResponse | null = await response
+      .json()
+      .catch(() => null);
+    if (!body || !Array.isArray(body.items)) {
+      return [];
+    }
+
+    const items: TickerPriceSeries[] = body.items
+      .map((series) => {
+        const tickerId = Number(series.ticker_id);
+        if (!Number.isFinite(tickerId)) return null;
+        const points: PricePoint[] = Array.isArray(series.points)
+          ? series.points
+              .map((point) => {
+                if (!point || typeof point !== 'object') return null;
+                const calendar = Number((point as any).calendar_id);
+                const close = Number((point as any).close_price);
+                if (!Number.isFinite(calendar) || !Number.isFinite(close)) return null;
+                const volumeRaw = (point as any).volume;
+                const volumeNumber = volumeRaw == null ? null : Number(volumeRaw);
+                const volume = volumeNumber != null && Number.isFinite(volumeNumber) ? volumeNumber : null;
+                return { calendar_id: calendar, close_price: close, volume };
+              })
+              .filter((p): p is PricePoint => p != null)
+          : [];
+        return { ticker_id: tickerId, points };
+      })
+      .filter((item): item is TickerPriceSeries => item != null);
+
+    await this.setCache(cacheKey, items);
+    return items;
+  }
+
+  // ------- Geografie & tickers (nuovo endpoint) -------
+  async getGeographies(useCache: boolean = true): Promise<GeographyGroup[]> {
+    const cacheKey = 'geographies_all_v2';
+    if (useCache) {
+      const cached = await this.getCache<GeographyGroup[]>(cacheKey, 6 * 60 * 60 * 1000); // 6h
+      if (cached) return cached;
+    }
+
+    const url = new URL('/api/data/geographies', API_BASE_URL);
+    const res = await fetch(url.toString(), {
+      headers: await this.withAuth({ Accept: 'application/json' }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Failed to fetch geographies (${res.status}): ${txt}`);
+    }
+
+    const body: GeographyResponse | null = await res
+      .json()
+      .catch(() => null);
+    if (!body || !Array.isArray(body.items)) {
+      throw new Error('Invalid geographies response format');
+    }
+
+    const items: GeographyGroup[] = body.items.map((group) => {
+      const rawId = Number(group.geography_id);
+      const geography_id = Number.isFinite(rawId) ? rawId : -1;
+      const geography_name = String(group.geography_name ?? '');
+      const continent = typeof group.continent === 'string' ? group.continent.trim() : null;
+      const country = typeof group.country === 'string' ? group.country.trim() : null;
+      const isoRaw = typeof group.iso_code === 'string' ? group.iso_code.trim() : null;
+      const iso_code = isoRaw ? isoRaw.toUpperCase() : null;
+
+      const tickers: TickerSummary[] = Array.isArray(group.tickers)
+        ? group.tickers
+            .map((t) => {
+              if (!t || typeof t !== 'object') return null;
+              const ticker_id = Number((t as any).ticker_id);
+              if (!Number.isFinite(ticker_id)) return null;
+              const symbol = typeof t.symbol === 'string' ? t.symbol : '';
+              const name = typeof t.name === 'string' ? t.name : undefined;
+              const asset_class = typeof t.asset_class === 'string' ? t.asset_class : undefined;
+              return { ticker_id, symbol, name, asset_class } as TickerSummary;
+            })
+            .filter((t): t is TickerSummary => t != null)
+        : [];
+
+      return { geography_id, geography_name, continent, country, iso_code, tickers };
+    });
+
+    await this.setCache(cacheKey, items);
+    return items;
   }
 
   /**
@@ -247,7 +294,8 @@ class APIService {
       const keys = await AsyncStorage.getAllKeys();
       const keysToRemove = keys.filter((k) =>
         k.startsWith('etf_data_') ||
-        k === 'areas_all' ||
+  k === 'areas_all' ||
+  k === 'geographies_all_v1' ||
         k.startsWith('tickers_area_') ||
         k.startsWith('cum_returns_') ||
         k === 'portfolios_all' ||
@@ -412,4 +460,4 @@ class APIService {
 }
 
 export const apiService = new APIService();
-export type { GeographicArea, AreaTicker, PortfolioResultRow, CreatePortfolioResponse };
+export type { GeographyGroup, TickerSummary, PortfolioResultRow, CreatePortfolioResponse };

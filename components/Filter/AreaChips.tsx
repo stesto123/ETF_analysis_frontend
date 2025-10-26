@@ -2,13 +2,16 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet, FlatList } from 'react-native';
 import { useTheme } from '@/components/common/ThemeProvider';
 
-export type GeographicArea = {
-  area_geografica: string;
-  id_area_geografica: number;
+export type GeographyOption = {
+  geography_name: string;
+  geography_id: number;
+  continent?: string | null;
+  country?: string | null;
+  iso_code?: string | null;
 };
 
 type Props = {
-  areas: GeographicArea[];
+  areas: GeographyOption[];
   selectedId: number | null;
   onSelect: (id: number | null) => void;
   loading?: boolean;
@@ -16,7 +19,7 @@ type Props = {
 
 const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) => {
   // Aggiungo una "Tutti" per deselezionare
-  const data = [{ area_geografica: 'Tutte', id_area_geografica: -1 }, ...areas];
+  const data = [{ geography_name: 'Tutte', geography_id: -1 }, ...areas];
 
   const { colors, isDark } = useTheme();
   return (
@@ -25,19 +28,21 @@ const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) =>
 
       <FlatList
         data={data}
-        keyExtractor={(item) => String(item.id_area_geografica)}
+  keyExtractor={(item) => String(item.geography_id)}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => {
           const isSelected =
-            (selectedId === null && item.id_area_geografica === -1) ||
-            selectedId === item.id_area_geografica;
+            (selectedId === null && item.geography_id === -1) ||
+            selectedId === item.geography_id;
+          const secondary = item.iso_code || item.country || item.continent || '';
+          const label = secondary ? `${item.geography_name} (${secondary})` : item.geography_name;
 
           return (
             <Pressable
               onPress={() =>
-                onSelect(item.id_area_geografica === -1 ? null : item.id_area_geografica)
+                onSelect(item.geography_id === -1 ? null : item.geography_id)
               }
               style={({ pressed }) => [
                 [styles.chip, { borderColor: colors.border, backgroundColor: colors.card }],
@@ -47,14 +52,14 @@ const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) =>
               android_ripple={{ color: isDark ? '#334155' : '#e5e7eb', borderless: false }}
             >
               <Text style={[styles.chipText, { color: colors.text }, isSelected && { color: '#FFFFFF' }]}>
-                {item.area_geografica}
+                {label}
               </Text>
             </Pressable>
           );
         }}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>{loading ? 'Caricamento aree…' : 'Nessuna area'}</Text>
+            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>{loading ? 'Caricamento geografie…' : 'Nessuna geografia'}</Text>
           </View>
         }
       />

@@ -21,7 +21,7 @@ import { apiService } from '@/services/api';
 import ETFLineChart from '@/components/Chart/LineChart';
 import { useTheme } from '@/components/common/ThemeProvider';
 import Toast, { ToastType } from '@/components/common/Toast';
-import { ChartDataPoint } from '@/types';
+import { ChartDataPoint, GeographyGroup, TickerSummary } from '@/types';
 
 // Section open state persistence
 type OpenSections = { composition: boolean; create: boolean; run: boolean; chart: boolean };
@@ -64,8 +64,7 @@ export default function PipelineScreen() {
   const uidRef = useRef(1);
   const genKey = () => `row-${uidRef.current++}`;
   const [compItems, setCompItems] = useState([{ key: genKey() } as any]);
-  const [areas, setAreas] = useState<{ area_geografica: string; id_area_geografica: number }[]>([]);
-  const [areaTickersMap, setAreaTickersMap] = useState<Record<number, { ID_ticker: number; ticker: string; nome: string }[]>>({});
+  const [geographies, setGeographies] = useState<GeographyGroup[]>([]);
   const [saving, setSaving] = useState(false);
   const [openSections, setOpenSections] = useState<OpenSections>(defaultOpen);
   const sectionOpacity = useRef<Record<keyof OpenSections, Animated.Value>>({
@@ -91,7 +90,27 @@ export default function PipelineScreen() {
   useEffect(()=>{AsyncStorage.setItem(OPEN_SECTIONS_KEY, JSON.stringify(openSections)).catch(()=>{});},[openSections]);
   const toggleSection = (k: keyof OpenSections)=>{LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);setOpenSections(p=>{const n={...p,[k]:!p[k]};animate(k,!p[k]);return n;});};
 
-  useEffect(()=>{apiService.getGeographicAreas(true).then(setAreas).catch(()=>setAreas([]));},[]);
+  useEffect(() => {
+    let mounted = true;
+    apiService
+      .getGeographies(true)
+      .then((items) => {
+        if (mounted) setGeographies(items);
+      })
+      .catch(() => {
+        if (mounted) setGeographies([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+  const tickerOptionsByArea = useMemo(() => {
+    const map: Record<number, TickerSummary[]> = {};
+    geographies.forEach((group) => {
+      map[group.geography_id] = group.tickers ?? [];
+    });
+    return map;
+  }, [geographies]);
   const startPipeline = useCallback(async()=>{setError(null);setStarting(true);try{const payload={id_portafoglio:Number(idPortafoglio),ammontare:Number(ammontare),strategia:strategia||'Simple PAC',data_inizio:dataInizio,data_fine:dataFine,capitale_iniziale:Number(capitaleIniziale)||0};const res=await apiService.runPipeline(payload as any);setJobId(res.job_id);setStatus(res.status??null);setPid(res.pid??null);setLogPath(res.log_path??null);if(pollingRef.current) pollingRef.current.cancelled=true;pollingRef.current={cancelled:false};const poll=async()=>{if(!res.job_id) return;try{const info=await apiService.getJobStatus(res.job_id);if(pollingRef.current?.cancelled)return;setStatus(info.status??null);if(info.status==='running') setTimeout(poll,3000);}catch(e){if(!pollingRef.current?.cancelled) setError(e instanceof Error?e.message:String(e));}};poll();}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setStarting(false);}},[idPortafoglio,ammontare,strategia,dataInizio,dataFine,capitaleIniziale]);
   useEffect(()=>()=>{if(pollingRef.current) pollingRef.current.cancelled=true;},[]);
   useEffect(()=>{if(!toast) return;const t=setTimeout(()=>setToast(null),4000);return()=>clearTimeout(t);},[toast]);
@@ -129,7 +148,7 @@ export default function PipelineScreen() {
   const removeCompRow=(key:string)=>setCompItems(p=>p.filter(r=>r.key!==key));
   const updateCompRow=(key:string,patch:any)=>setCompItems(p=>p.map(r=>r.key===key?{...r,...patch}:r));
   const totalPercent=useMemo(()=>compItems.reduce((s,r)=>s+(Number(r.percentuale)||0),0),[compItems]);
-  const createPortfolioAndSave=async()=>{setTableError(null);if(!newDescrizione.trim()){setTableError('Enter a portfolio description');return;}if(!compItems.length){setTableError('Add at least one composition row');return;}if(Math.abs(totalPercent-100)>0.01){setTableError('Percentages must sum to 100');return;}const composizione=compItems.map(r=>({ID_ticker:r.ID_ticker,percentuale:r.percentuale})).filter(r=>(typeof r.ID_ticker==='number')&&r.percentuale!=null).map(r=>({ID_ticker:r.ID_ticker,percentuale:String(Number(r.percentuale))}));if(!composizione.length){setTableError('Select valid tickers and percentages');return;}setSaving(true);try{await apiService.savePortfolioWithComposition({descrizione_portafoglio:newDescrizione.trim(),composizione});setNewDescrizione('');setCompItems([{key:genKey()}]);const data=await apiService.getPortfolioComposition();setPortfolios(data);setToast({type:'success',message:'Portfolio created and composition saved.'});}catch(e){const msg=e instanceof Error?e.message:String(e);setTableError(msg);setToast({type:'error',message:`Save error: ${msg}`});}finally{setSaving(false);} };
+  const createPortfolioAndSave=async()=>{setTableError(null);if(!newDescrizione.trim()){setTableError('Enter a portfolio description');return;}if(!compItems.length){setTableError('Add at least one composition row');return;}if(Math.abs(totalPercent-100)>0.01){setTableError('Percentages must sum to 100');return;}const composizione=compItems.map(r=>({ID_ticker:r.ticker_id,percentuale:r.percentuale})).filter(r=>(typeof r.ID_ticker==='number')&&r.percentuale!=null).map(r=>({ID_ticker:r.ID_ticker,percentuale:String(Number(r.percentuale))}));if(!composizione.length){setTableError('Select valid tickers and percentages');return;}setSaving(true);try{await apiService.savePortfolioWithComposition({descrizione_portafoglio:newDescrizione.trim(),composizione});setNewDescrizione('');setCompItems([{key:genKey()}]);const data=await apiService.getPortfolioComposition();setPortfolios(data);setToast({type:'success',message:'Portfolio created and composition saved.'});}catch(e){const msg=e instanceof Error?e.message:String(e);setTableError(msg);setToast({type:'error',message:`Save error: ${msg}`});}finally{setSaving(false);} };
   const portfolioDatasets=useMemo(()=>{const ids=Object.keys(selectedPortfolios).filter(k=>selectedPortfolios[Number(k)]).map(Number);if(!ids.length)return null;const startInt=chartStartDate.length===8?parseInt(chartStartDate,10):null;const endInt=chartEndDate.length===8?parseInt(chartEndDate,10):null;const datasets=ids.map(pid=>{const rows=(portfolioResults[pid]||[]).slice().sort((a,b)=>a.calendar_id-b.calendar_id);const filtered=rows.filter(r=>{if(startInt&&r.calendar_id<startInt)return false; if(endInt&&r.calendar_id>endInt)return false; return true;});const data=filtered.map(r=>r.valore_totale);const labels=filtered.map(r=>{const s=String(r.calendar_id);return s.length===8?`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`:s;});return {label:`P${pid}`,data,labels,colorHint:data.length&&data[data.length-1]>=data[0]?'up':'down' as const};}).filter(ds=>ds.data.length>0);return datasets.length?datasets:null;},[portfolioResults,selectedPortfolios,chartStartDate,chartEndDate]);
   const renderPortfolioTable = (items: any[]) => {
     if (!items || !items.length) return <></>;
@@ -277,32 +296,38 @@ export default function PipelineScreen() {
                         selectedValue={row.areaId ?? null}
                         onValueChange={(v) => {
                           const areaId = typeof v === 'number' ? v : undefined;
-                          if (typeof areaId === 'number' && !areaTickersMap[areaId]) {
-                            apiService.getTickersByArea(areaId, true, true).then(list => setAreaTickersMap(pr => ({ ...pr, [areaId]: list }))).catch(() => { });
-                          }
-                          updateCompRow(row.key, { areaId, ID_ticker: undefined, ticker: undefined });
+                          updateCompRow(row.key, { areaId, ticker_id: undefined, symbol: undefined, name: undefined });
                         }}
                       >
                         <Picker.Item label="Area" value={null as any} />
-                        {areas.map(a => (
-                          <Picker.Item key={a.id_area_geografica} label={a.area_geografica} value={a.id_area_geografica} />
+                        {geographies.map(g => (
+                          <Picker.Item key={g.geography_id} label={g.geography_name} value={g.geography_id} />
                         ))}
                       </Picker>
                     </View>
                     <View style={[styles.pickerWrapper, { flex: 1.2, marginRight: 8, opacity: row.areaId ? 1 : 0.6, backgroundColor: colors.card, borderColor: colors.border }]}>  
                       <Picker
                         enabled={!!row.areaId}
-                        selectedValue={row.ID_ticker ?? null}
+                        selectedValue={row.ticker_id ?? null}
                         onValueChange={(v) => {
                           const id = typeof v === 'number' ? v : undefined;
-                          const list = row.areaId ? areaTickersMap[row.areaId] || [] : [];
-                          const found = typeof id === 'number' ? list.find(t => t.ID_ticker === id) : undefined;
-                          updateCompRow(row.key, { ID_ticker: id, ticker: found?.ticker });
+                          const list = row.areaId ? tickerOptionsByArea[row.areaId] || [] : [];
+                          const found = typeof id === 'number' ? list.find(t => t.ticker_id === id) : undefined;
+                          updateCompRow(row.key, {
+                            ticker_id: id,
+                            symbol: found?.symbol,
+                            name: found?.name,
+                            asset_class: found?.asset_class,
+                          });
                         }}
                       >
                         <Picker.Item label="Ticker" value={null as any} />
-                        {(row.areaId ? areaTickersMap[row.areaId] || [] : []).map(t => (
-                          <Picker.Item key={t.ID_ticker} label={`${t.nome || t.ticker} (${t.ticker})`} value={t.ID_ticker} />
+                        {(row.areaId ? tickerOptionsByArea[row.areaId] || [] : []).map(t => (
+                          <Picker.Item
+                            key={t.ticker_id}
+                            label={`${t.name || t.symbol} (${t.symbol})${t.asset_class ? ` • ${t.asset_class}` : ''}`}
+                            value={t.ticker_id}
+                          />
                         ))}
                       </Picker>
                     </View>
