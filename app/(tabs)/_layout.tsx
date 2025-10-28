@@ -2,7 +2,7 @@
 import React from 'react';
 import { Tabs, Redirect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { TrendingUp, Settings } from 'lucide-react-native';
+import { TrendingUp, Settings, MessageCircle } from 'lucide-react-native';
 import { Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/components/common/ThemeProvider';
@@ -62,6 +62,18 @@ export default function TabLayout() {
           tabBarIcon: ({ size, color }) => (
             <View style={{ marginTop: -1 }}>
               <TrendingUp size={size} color={color} />
+            </View>
+          ),
+        }}
+      />   
+    
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: 'Chat',
+          tabBarIcon: ({ size, color }) => (
+            <View style={{ marginTop: -1 }}>
+              <MessageCircle size={size} color={color} />
             </View>
           ),
         }}
