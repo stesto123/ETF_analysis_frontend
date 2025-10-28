@@ -4,6 +4,7 @@ import { Link, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { useTheme } from '@/components/common/ThemeProvider'
+import { apiService } from '@/services/api'
 
 export default function Page() {
   const { signIn, setActive, isLoaded } = useSignIn()
@@ -28,12 +29,18 @@ export default function Page() {
     setError(null)
     setSubmitting(true)
     try {
+      const email = emailAddress.trim()
       const signInAttempt = await signIn.create({
-        identifier: emailAddress.trim(),
+        identifier: email,
         password,
       })
       if (signInAttempt.status === 'complete') {
         await setActive({ session: signInAttempt.createdSessionId })
+        try {
+          await apiService.ensureUserProfile({ email, username: email.split('@')[0] })
+        } catch (syncErr) {
+          console.warn('User sync failed after sign-in', syncErr)
+        }
         router.replace('/')
       } else {
         console.error(JSON.stringify(signInAttempt, null, 2))

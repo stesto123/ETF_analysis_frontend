@@ -1,3 +1,4 @@
+import { apiService } from '@/services/api'
 import * as React from 'react'
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -45,9 +46,15 @@ export default function SignUpScreen() {
     setError(null)
     setSubmitting(true)
     try {
+      const email = emailAddress.trim()
       const signUpAttempt = await signUp.attemptEmailAddressVerification({ code })
       if (signUpAttempt.status === 'complete') {
         await setActive({ session: signUpAttempt.createdSessionId })
+        try {
+          await apiService.ensureUserProfile({ email, username: email.split('@')[0] })
+        } catch (syncErr) {
+          console.warn('User sync failed after sign-up', syncErr)
+        }
         router.replace('/')
       } else {
         console.error(JSON.stringify(signUpAttempt, null, 2))

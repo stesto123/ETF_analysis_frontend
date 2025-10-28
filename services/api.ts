@@ -10,7 +10,8 @@ import {
 } from '@/types';
 import { getClerkToken } from '@/utils/clerkToken';
 
-const API_BASE_URL = 'https://etf-analysis-wa-befhb2gng3ejhchz.italynorth-01.azurewebsites.net'
+const DEFAULT_API_BASE_URL = 'https://etf-analysis-wa-befhb2gng3ejhchz.italynorth-01.azurewebsites.net';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
 type PortfolioItem = { [key: string]: any };
 type PortfolioResultRow = {
   calendar_id: number;
@@ -45,6 +46,28 @@ class APIService {
       console.error('[auth] Error getting token:', error);
     }
     return headers;
+  }
+
+  // ------- User profile sync -------
+  async ensureUserProfile(payload: { email?: string | null; username?: string | null }): Promise<void> {
+    const email = payload.email?.trim() ?? null;
+    let username = payload.username?.trim() ?? null;
+    if (!username && email) {
+      username = email.split('@')[0] || email;
+    }
+
+    const res = await fetch(`${API_BASE_URL}/api/users/sync`, {
+      method: 'POST',
+      headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
+      body: JSON.stringify({
+        email,
+        username,
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Failed to sync user profile (${res.status}): ${txt}`);
+    }
   }
   // ------- Cache helpers (generic) -------
   private async getCache<T>(key: string, ttlMs: number): Promise<T | null> {
