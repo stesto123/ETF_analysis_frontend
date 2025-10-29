@@ -10,11 +10,13 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Send } from 'lucide-react-native';
 import { useTheme } from '@/components/common/ThemeProvider';
 import { apiService } from '@/services/api';
 import type { ChatCompletionMessage } from '@/services/api';
+import { Link, usePathname } from 'expo-router';
+import type { Href } from 'expo-router';
 
 type ChatMessage = {
   id: string;
@@ -24,6 +26,8 @@ type ChatMessage = {
 
 export default function ChatScreen() {
   const { colors, isDark } = useTheme();
+  const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'assistant-welcome',
@@ -141,7 +145,16 @@ export default function ChatScreen() {
             )}
           </ScrollView>
 
-          <View style={[styles.inputRow, { borderTopColor: colors.border, backgroundColor: colors.card }]}> 
+          <View
+            style={[
+              styles.inputRow,
+              {
+                borderTopColor: colors.border,
+                backgroundColor: colors.card,
+                paddingBottom: (insets.bottom || 0) + 6,
+              },
+            ]}
+          >
             <TextInput
               style={[
                 styles.input,

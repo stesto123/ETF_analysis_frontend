@@ -103,6 +103,18 @@ function ClerkTokenBridge() {
       if (!token && template) {
         token = await getToken({ skipCache: true });
       }
+      if (__DEV__ && process.env.EXPO_PUBLIC_LOG_AUTH_TOKEN) {
+        const mode = process.env.EXPO_PUBLIC_LOG_AUTH_TOKEN.toLowerCase();
+        if (token) {
+          if (mode === 'full') {
+            console.log('[clerk] JWT token:', token);
+          } else {
+            console.log('[clerk] JWT token:', `${token.slice(0, 12)}...${token.slice(-6)}`);
+          }
+        } else {
+          console.log('[clerk] JWT token: <null>');
+        }
+      }
       return token ?? null;
     } catch {
       return null;

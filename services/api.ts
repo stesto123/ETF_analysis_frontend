@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import {
   QueryParams,
   GeographyGroup,
@@ -11,7 +13,53 @@ import {
 import { getClerkToken } from '@/utils/clerkToken';
 
 const DEFAULT_API_BASE_URL = 'https://etf-analysis-wa-befhb2gng3ejhchz.italynorth-01.azurewebsites.net';
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
+const configExtra = Constants.expoConfig?.extra as { apiBaseUrl?: string; apiTarget?: string } | undefined;
+const CONFIG_API_BASE_URL = configExtra?.apiBaseUrl;
+
+function resolveDevHost(): string | null {
+  const expoConfigHost = Constants.expoConfig?.hostUri;
+  if (expoConfigHost) {
+    return expoConfigHost.split(':')[0];
+  }
+  // Legacy manifest properties in Expo Go / dev mode
+  const legacyDebuggerHost = (Constants as any).manifest?.debuggerHost as string | undefined;
+  if (legacyDebuggerHost) {
+    return legacyDebuggerHost.split(':')[0];
+  }
+  const manifest2Host = (Constants as any).manifest2?.extra?.expoGo?.developer?.host as string | undefined;
+  if (manifest2Host) {
+    return manifest2Host.split(':')[0];
+  }
+  return null;
+}
+
+function normalizeBaseUrl(baseUrl: string): string {
+  if (!baseUrl) return baseUrl;
+  const needsLocalRewrite = baseUrl.includes('127.0.0.1') || baseUrl.includes('localhost');
+  if (!needsLocalRewrite) {
+    return baseUrl;
+  }
+
+  // Expo Go / web dev server host
+  const host = resolveDevHost();
+  if (host) {
+    return baseUrl.replace('127.0.0.1', host).replace('localhost', host);
+  }
+
+  if (Platform.OS === 'android') {
+    // Android emulator special loopback
+    return baseUrl.replace('127.0.0.1', '10.0.2.2').replace('localhost', '10.0.2.2');
+  }
+
+  return baseUrl;
+}
+
+const RAW_API_BASE_URL = CONFIG_API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
+const API_BASE_URL = normalizeBaseUrl(RAW_API_BASE_URL);
+
+if (__DEV__) {
+  console.log('[api] Base URL:', API_BASE_URL, '(from target:', configExtra?.apiTarget ?? 'default', ')');
+}
 type ChatCompletionMessage = {
   role: 'assistant' | 'user' | 'system';
   content: string;
@@ -155,10 +203,30 @@ class APIService {
     return `price_history_${idsKey}_${startKey}_${endKey}`;
   }
 
+  /**
+   * Fetch price history and cumulative returns for ETF(s).
+   * Ogni point ora include anche simple_return (ignora log_return).
+   * La struttura attesa è:
+   * {
+   *   items: [
+   *     {
+   *       ticker_id: number,
+   *       points: [
+   *         {
+   *           calendar_id: number,
+   *           close_price: number,
+   *           volume: number | null,
+   *           simple_return: number | null
+   *         }, ...
+   *       ]
+   *     }, ...
+   *   ]
+   * }
+   */
   async fetchETFData(
     params: { tickerIds: number[]; startCalendarId?: string | number; endCalendarId?: string | number; startDate?: string; endDate?: string },
     useCache: boolean = true
-  ): Promise<TickerPriceSeries[]> {
+  ): Promise<Array<{ ticker_id: number; points: Array<{ calendar_id: number; close_price: number; volume: number | null; simple_return: number | null }> }>> {
     const validIds = Array.isArray(params.tickerIds)
       ? params.tickerIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
       : [];
@@ -171,7 +239,7 @@ class APIService {
     const cacheKey = this.buildPriceCacheKey(validIds, startCal, endCal);
 
     if (useCache) {
-      const cached = await this.getCache<TickerPriceSeries[]>(cacheKey, 60 * 60 * 1000); // 1h
+      const cached = await this.getCache<any>(cacheKey, 60 * 60 * 1000); // 1h
       if (cached) return cached;
     }
 
@@ -190,34 +258,30 @@ class APIService {
       throw new Error(`Failed to fetch price history (${response.status}): ${txt}`);
     }
 
-    const body: PriceHistoryResponse | null = await response
-      .json()
-      .catch(() => null);
+    const body = await response.json().catch(() => null);
     if (!body || !Array.isArray(body.items)) {
       return [];
     }
 
-    const items: TickerPriceSeries[] = body.items
-      .map((series) => {
-        const tickerId = Number(series.ticker_id);
-        if (!Number.isFinite(tickerId)) return null;
-        const points: PricePoint[] = Array.isArray(series.points)
-          ? series.points
-              .map((point) => {
-                if (!point || typeof point !== 'object') return null;
-                const calendar = Number((point as any).calendar_id);
-                const close = Number((point as any).close_price);
-                if (!Number.isFinite(calendar) || !Number.isFinite(close)) return null;
-                const volumeRaw = (point as any).volume;
-                const volumeNumber = volumeRaw == null ? null : Number(volumeRaw);
-                const volume = volumeNumber != null && Number.isFinite(volumeNumber) ? volumeNumber : null;
-                return { calendar_id: calendar, close_price: close, volume };
-              })
-              .filter((p): p is PricePoint => p != null)
-          : [];
-        return { ticker_id: tickerId, points };
-      })
-      .filter((item): item is TickerPriceSeries => item != null);
+    // Mappa la nuova struttura, includendo simple_return e ignorando log_return
+    const items = body.items.map((series: any) => {
+      const tickerId = Number(series.ticker_id);
+      if (!Number.isFinite(tickerId)) return null;
+      const points = Array.isArray(series.points)
+        ? series.points.map((point: any) => {
+            if (!point || typeof point !== 'object') return null;
+            const calendar = Number(point.calendar_id);
+            const close = Number(point.close_price);
+            if (!Number.isFinite(calendar) || !Number.isFinite(close)) return null;
+            const volumeRaw = point.volume;
+            const volumeNumber = volumeRaw == null ? null : Number(volumeRaw);
+            const volume = volumeNumber != null && Number.isFinite(volumeNumber) ? volumeNumber : null;
+            const simple_return = point.simple_return != null && !isNaN(Number(point.simple_return)) ? Number(point.simple_return) : null;
+            return { calendar_id: calendar, close_price: close, volume, simple_return };
+          }).filter((p: any) => p != null)
+        : [];
+      return { ticker_id: tickerId, points };
+    }).filter((item: any) => item != null);
 
     await this.setCache(cacheKey, items);
     return items;
@@ -303,66 +367,6 @@ class APIService {
     return data;
   }
 
-  /**
-   * Fetch cumulative returns for an ETF (returns arrays: calendar_days, simple_cum, log_cum)
-   */
-  async fetchCumulativeReturns(
-    params: QueryParams,
-    useCache: boolean = true
-  ): Promise<{ calendar_days: number[]; simple: number[]; log: number[]; name?: string }>
-  {
-    const cacheKey = `cum_returns_${params.id_ticker}_${params.start_date}_${params.end_date}`;
-    if (useCache) {
-      const cached = await this.getCache<{ calendar_days: number[]; simple: number[]; log: number[]; name?: string }>(cacheKey, 60 * 60 * 1000); // 1h
-      if (cached) return cached;
-    }
-
-    const url = new URL('/api/cumulative_returns', API_BASE_URL);
-    url.searchParams.append('id_ticker', params.id_ticker.toString());
-    url.searchParams.append('start_date', params.start_date);
-    url.searchParams.append('end_date', params.end_date);
-
-  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
-    if (!res.ok) throw new Error(`Failed to fetch cumulative returns: ${res.status}`);
-    const body = await res.json();
-
-    // backend may return a tuple/array
-    // old: [calendar_days, simple_cum, log_cum]
-    // new: [calendar_days, names, simple_cum, log_cum]
-    if (Array.isArray(body)) {
-      if (body.length >= 4) {
-        const calendar_days = Array.isArray(body[0]) ? body[0].map((v: any) => Number(v)) : [];
-        const namesArr = Array.isArray(body[1]) ? body[1].map((v: any) => String(v)) : [];
-        const simple = Array.isArray(body[2]) ? body[2].map((v: any) => Number(v)) : [];
-        const log = Array.isArray(body[3]) ? body[3].map((v: any) => Number(v)) : [];
-        const name = namesArr.find((n: string) => n && n.trim().length > 0);
-        const out = { calendar_days, simple, log, name };
-        await this.setCache(cacheKey, out);
-        return out;
-      }
-      if (body.length >= 3) {
-        const calendar_days = Array.isArray(body[0]) ? body[0].map((v: any) => Number(v)) : [];
-        const simple = Array.isArray(body[1]) ? body[1].map((v: any) => Number(v)) : [];
-        const log = Array.isArray(body[2]) ? body[2].map((v: any) => Number(v)) : [];
-        const out = { calendar_days, simple, log };
-        await this.setCache(cacheKey, out);
-        return out;
-      }
-    }
-
-    // or an object { calendar_days: [...], simple: [...], log: [...], name?: string }
-    if (body && typeof body === 'object') {
-      const calendar_days = Array.isArray((body as any).calendar_days) ? (body as any).calendar_days.map((v: any) => Number(v)) : [];
-      const simple = Array.isArray((body as any).simple) ? (body as any).simple.map((v: any) => Number(v)) : [];
-      const log = Array.isArray((body as any).log) ? (body as any).log.map((v: any) => Number(v)) : [];
-      const name = typeof (body as any).name === 'string' ? (body as any).name : undefined;
-      const out = { calendar_days, simple, log, name };
-      await this.setCache(cacheKey, out);
-      return out;
-    }
-
-    throw new Error('Invalid cumulative returns response format');
-  }
 
   // ------- Utility -------
   async clearCache(): Promise<void> {
