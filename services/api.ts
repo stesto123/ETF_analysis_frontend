@@ -12,6 +12,17 @@ import { getClerkToken } from '@/utils/clerkToken';
 
 const DEFAULT_API_BASE_URL = 'https://etf-analysis-wa-befhb2gng3ejhchz.italynorth-01.azurewebsites.net';
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
+type ChatCompletionMessage = {
+  role: 'assistant' | 'user' | 'system';
+  content: string;
+};
+type ChatCompletionRequest = {
+  messages: ChatCompletionMessage[];
+  conversation_id?: string | null;
+  stream?: boolean;
+  model?: string;
+  temperature?: number;
+};
 type PortfolioItem = { [key: string]: any };
 type PortfolioResultRow = {
   calendar_id: number;
@@ -68,6 +79,48 @@ class APIService {
       const txt = await res.text().catch(() => '');
       throw new Error(`Failed to sync user profile (${res.status}): ${txt}`);
     }
+  }
+
+  // ------- Chat completions -------
+  async createChatCompletion(payload: ChatCompletionRequest): Promise<ChatCompletionMessage> {
+    const url = `${API_BASE_URL}/api/chat/complete`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
+      body: JSON.stringify(payload),
+    });
+
+    const raw = await res.text().catch(() => '');
+    let body: any = null;
+    if (raw) {
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        body = null;
+      }
+    }
+
+    if (!res.ok) {
+      const detail = typeof body?.detail === 'string' ? body.detail : raw;
+      throw new Error(`Chat backend error ${res.status}${detail ? `: ${detail}` : ''}`);
+    }
+
+    const messageCandidate = body?.message ?? body?.choices?.[0]?.message ?? body;
+    let content: string | undefined;
+    if (typeof messageCandidate?.content === 'string') {
+      content = messageCandidate.content.trim();
+    } else if (typeof messageCandidate === 'string') {
+      content = messageCandidate.trim();
+    } else if (raw) {
+      content = raw.trim();
+    }
+    const role = typeof messageCandidate?.role === 'string' ? messageCandidate.role : 'assistant';
+
+    if (!content) {
+      throw new Error('Chat backend response missing content');
+    }
+
+    return { role: role === 'user' ? 'assistant' : role, content };
   }
   // ------- Cache helpers (generic) -------
   private async getCache<T>(key: string, ttlMs: number): Promise<T | null> {
@@ -483,4 +536,4 @@ class APIService {
 }
 
 export const apiService = new APIService();
-export type { GeographyGroup, TickerSummary, PortfolioResultRow, CreatePortfolioResponse };
+export type { GeographyGroup, TickerSummary, PortfolioResultRow, CreatePortfolioResponse, ChatCompletionMessage };

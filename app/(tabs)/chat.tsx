@@ -13,20 +13,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Send } from 'lucide-react-native';
 import { useTheme } from '@/components/common/ThemeProvider';
+import { apiService } from '@/services/api';
+import type { ChatCompletionMessage } from '@/services/api';
 
 type ChatMessage = {
   id: string;
   role: 'assistant' | 'user' | 'error';
   content: string;
 };
-
-type OpenAIMessage = {
-  role: 'system' | 'assistant' | 'user';
-  content: string;
-};
-
-const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY ;
-const OPENAI_MODEL = process.env.EXPO_PUBLIC_OPENAI_MODEL ;
 
 export default function ChatScreen() {
   const { colors, isDark } = useTheme();
@@ -61,72 +55,31 @@ export default function ChatScreen() {
     setMessages(optimisticMessages);
     setInput('');
 
-    if (!OPENAI_API_KEY) {
-      setMessages([
-        ...optimisticMessages,
-        {
-          id: `error-${Date.now()}`,
-          role: 'error',
-          content: 'Configura EXPO_PUBLIC_OPENAI_API_KEY nel file .env.',
-        },
-      ]);
-      return;
-    }
-
     setIsSending(true);
 
-    // Serialize the conversation for the OpenAI Chat Completions endpoint
-    const payloadMessages: OpenAIMessage[] = [
-      {
-        role: 'system',
-        content: 'Sei un assistente fintech che risponde in italiano in modo conciso e utile.',
-      },
-      ...optimisticMessages
-        .filter((message): message is ChatMessage & { role: 'assistant' | 'user' } => message.role !== 'error')
-        .map((message) => ({ role: message.role, content: message.content })),
-    ];
+    const conversationMessages: ChatCompletionMessage[] = optimisticMessages
+      .filter((message): message is ChatMessage & { role: 'assistant' | 'user' } => message.role === 'assistant' || message.role === 'user')
+      .map((message) => ({ role: message.role, content: message.content }));
 
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: OPENAI_MODEL,
-          messages: payloadMessages,
-          temperature: 0.3,
-          stream: false,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`OpenAI API error ${response.status}`);
-      }
-
-      const data = await response.json();
-      const assistantContent = data?.choices?.[0]?.message?.content?.trim();
-
-      if (!assistantContent) {
-        throw new Error('Risposta del modello vuota');
-      }
+      const assistantReply = await apiService.createChatCompletion({ messages: conversationMessages });
 
       const assistantMessage: ChatMessage = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
-        content: assistantContent,
+        content: assistantReply.content,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
-      console.error('Errore nella chat con OpenAI', error);
+      console.error('Errore nella chat con il backend', error);
+      const fallbackMessage = 'Si è verificato un problema nel contattare il modello. Riprova più tardi.';
       setMessages((prev) => [
         ...prev,
         {
           id: `error-${Date.now()}`,
           role: 'error',
-          content: 'Si è verificato un problema nel contattare il modello. Riprova più tardi.',
+          content: fallbackMessage,
         },
       ]);
     } finally {
