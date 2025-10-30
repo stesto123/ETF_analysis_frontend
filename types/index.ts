@@ -19,6 +19,7 @@ export type PricePoint = {
   calendar_id: number;
   close_price: number;
   volume: number | null;
+  simple_return: number | null;
 };
 
 export type TickerPriceSeries = {

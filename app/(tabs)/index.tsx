@@ -88,7 +88,8 @@ const aggregateOnBuckets = (
   rows: PricePoint[],
   globalStart: Date,
   bucketDays: number,
-  bucketCount: number
+  bucketCount: number,
+  valueKey: keyof PricePoint = 'close_price'
 ): { data: number[]; upOrDown: 'up' | 'down' } => {
   const sorted = [...rows].sort((a, b) => a.calendar_id - b.calendar_id);
   const acc = Array.from({ length: bucketCount }, () => ({ sum: 0, cnt: 0 }));
@@ -98,14 +99,17 @@ const aggregateOnBuckets = (
     let idx = Math.floor(diffDays(globalStart, d) / bucketDays);
     if (idx < 0) idx = 0;
     if (idx >= bucketCount) idx = bucketCount - 1;
-    const price = Number(r.close_price);
-    const cell = acc[idx];
-    cell.sum += price;
-    cell.cnt += 1;
+    const val = r[valueKey];
+    const num = val != null && Number.isFinite(Number(val)) ? Number(val) : null;
+    if (num != null) {
+      const cell = acc[idx];
+      cell.sum += num;
+      cell.cnt += 1;
+    }
   }
 
   const series: number[] = [];
-  let prev = sorted.length ? Number(sorted[0].close_price) : 0;
+  let prev = sorted.length && sorted[0][valueKey] != null && Number.isFinite(Number(sorted[0][valueKey])) ? Number(sorted[0][valueKey]) : 0;
   for (let i = 0; i < bucketCount; i++) {
     const cell = acc[i];
     if (cell.cnt > 0) {
@@ -295,96 +299,6 @@ export default function HomeScreen() {
 
   const [cumDatasets, setCumDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
 
-  const fetchCumulativeForSelected = useCallback(
-    async (
-      range: DateRange,
-      useCache: boolean = true,
-      bucketing?: { globalStart: Date; bucketDays: number; bucketCount: number; labels: string[] }
-    ) => {
-      const toLoad = Object.values(selectedTickers).sort((a, b) => {
-        const an = (a.name || a.symbol || '').toString();
-        const bn = (b.name || b.symbol || '').toString();
-        return an.localeCompare(bn);
-      });
-      if (toLoad.length === 0) return;
-      try {
-        const results = await Promise.all(
-          toLoad.map((t) =>
-            apiService
-              .fetchCumulativeReturns(
-                { id_ticker: t.ticker_id, start_date: range.start_date, end_date: range.end_date },
-                useCache
-              )
-              .then((r) => ({ t, r }))
-          )
-        );
-
-        let labels: string[] = [];
-        let globalStart: Date | null = null;
-        let bucketDays = 1;
-        let bucketCount = 0;
-
-        if (bucketing) {
-          labels = bucketing.labels;
-          globalStart = bucketing.globalStart;
-          bucketDays = bucketing.bucketDays;
-          bucketCount = bucketing.bucketCount;
-        } else {
-          let minCal = Infinity;
-          let maxCal = -Infinity;
-          results.forEach(({ r }) => {
-            if (!Array.isArray(r.calendar_days) || r.calendar_days.length === 0) return;
-            const first = r.calendar_days[0];
-            const last = r.calendar_days[r.calendar_days.length - 1];
-            minCal = Math.min(minCal, first);
-            maxCal = Math.max(maxCal, last);
-          });
-          if (!isFinite(minCal) || !isFinite(maxCal)) {
-            setCumDatasets(null);
-            return;
-          }
-          globalStart = parseYYYYMMDD(minCal);
-          const globalEnd = parseYYYYMMDD(maxCal);
-          const spanDays = daysBetween(globalStart, globalEnd);
-          bucketDays = chooseBucketDays(spanDays, 60);
-          bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
-          const buildLabel = (d: Date) => {
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${y}-${m}-${day}`;
-          };
-          labels = [];
-          for (let i = 0; i < bucketCount; i++) {
-            const dt = new Date(globalStart.getTime() + i * bucketDays * 86400000);
-            labels.push(buildLabel(dt));
-          }
-        }
-
-        const datasets: MultiDatasetWithLabels[] = results.map(({ t, r }) => {
-          const rawSeries = aggregateCumulativeOnBuckets(
-            Array.isArray(r.calendar_days) ? r.calendar_days : [],
-            Array.isArray(r.simple) ? r.simple : [],
-            globalStart!,
-            bucketDays,
-            bucketCount
-          );
-          const series = rawSeries.map((v) => (Number.isFinite(v) ? v * 100 : v));
-          const first = series[0] ?? 0;
-          const last = series[series.length - 1] ?? first;
-          const upOrDown: 'up' | 'down' = last >= first ? 'up' : 'down';
-          const labelBase = (r.name || t.name || t.symbol || '').toString();
-          const label = `${labelBase || 'ETF'} (%)`;
-          return { label, ticker: t.symbol, data: series, colorHint: upOrDown, labels };
-        });
-        setCumDatasets(datasets);
-      } catch {
-        setCumDatasets(null);
-      }
-    },
-    [selectedTickers]
-  );
-
   // ===== Fetch selezionati -> build datasets unificati =====
   const fetchSelected = useCallback(
     async (range: DateRange, useCache: boolean = true) => {
@@ -457,9 +371,16 @@ export default function HomeScreen() {
         });
 
         setMultiDatasets(datasets);
-        void fetchCumulativeForSelected(range, useCache, { globalStart, bucketDays, bucketCount, labels }).catch(() =>
-          setCumDatasets(null)
-        );
+        // Popola cumDatasets direttamente dai dati ricevuti (simple_return)
+        const cumDatasetsNew: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
+          // Aggrega simple_return sugli stessi bucket dei prezzi
+          const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount, 'simple_return');
+          const displayName = t.name || t.symbol;
+          // Trasforma in percentuale e filtra null
+          const dataPerc: number[] = agg.data.map((v: number) => (Number.isFinite(v) ? v * 100 : 0));
+          return { label: displayName + ' (%)', ticker: t.symbol, data: dataPerc, colorHint: agg.upOrDown, labels };
+        });
+        setCumDatasets(cumDatasetsNew);
         setLastRange(range);
       } catch (e) {
         setMultiDatasets(null);
@@ -468,7 +389,7 @@ export default function HomeScreen() {
         setLoading(false);
       }
     },
-    [selectedTickers, fetchCumulativeForSelected]
+  [selectedTickers]
   );
 
   const handleSubmit = useCallback(
