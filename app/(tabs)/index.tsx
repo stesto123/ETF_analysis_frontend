@@ -373,8 +373,8 @@ export default function HomeScreen() {
         setMultiDatasets(datasets);
         // Popola cumDatasets direttamente dai dati ricevuti (simple_return)
         const cumDatasetsNew: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
-          // Aggrega simple_return sugli stessi bucket dei prezzi
-          const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount, 'simple_return');
+          // Aggrega cumulative_return sugli stessi bucket dei prezzi
+          const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount, 'cumulative_return');
           const displayName = t.name || t.symbol;
           // Trasforma in percentuale e filtra null
           const dataPerc: number[] = agg.data.map((v: number) => (Number.isFinite(v) ? v * 100 : 0));

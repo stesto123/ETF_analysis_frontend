@@ -89,12 +89,7 @@ class APIService {
     try {
       const token = await getClerkToken();
       if (token) {
-        // Debug logging of the token when it's attached to the request
-        const dbg = process.env.EXPO_PUBLIC_LOG_AUTH_TOKEN?.toLowerCase();
-        if (dbg === 'full' || dbg === 'true' || dbg === '1') {
-          const shown = dbg === 'full' ? token : `${token.slice(0, 12)}...${token.slice(-6)}`;
-          console.log('[auth] Attaching Authorization Bearer token:', shown);
-        }
+        // Rimosso log del token
         return { ...headers, Authorization: `Bearer ${token}` };
       }
       // Only log missing token if debug flag explicitly asks for it
@@ -276,8 +271,8 @@ class APIService {
             const volumeRaw = point.volume;
             const volumeNumber = volumeRaw == null ? null : Number(volumeRaw);
             const volume = volumeNumber != null && Number.isFinite(volumeNumber) ? volumeNumber : null;
-            const simple_return = point.simple_return != null && !isNaN(Number(point.simple_return)) ? Number(point.simple_return) : null;
-            return { calendar_id: calendar, close_price: close, volume, simple_return };
+            const cumulative_return = point.cumulative_return != null && !isNaN(Number(point.cumulative_return)) ? Number(point.cumulative_return) : 0;
+            return { calendar_id: calendar, close_price: close, volume, cumulative_return };
           }).filter((p: any) => p != null)
         : [];
       return { ticker_id: tickerId, points };
@@ -437,33 +432,58 @@ class APIService {
    * Backend supports creating/updating a portfolio and its composition in a single call:
    * POST /api/portafogli with body { descrizione_portafoglio, composizione: [{ ID_ticker|ticker, percentuale }] }
    */
-  async savePortfolioWithComposition(payload: { descrizione_portafoglio: string; composizione: CompositionItemPost[] }): Promise<any> {
-    const url = `${API_BASE_URL}/api/portafogli`;
-    const res = await fetch(url, {
+  /**
+   * Crea un nuovo portafoglio e la sua composizione usando i nuovi endpoint.
+   * Prima crea il portafoglio, poi la composizione con il bulk endpoint.
+   */
+  async savePortfolioWithComposition(payload: { name: string; compositions: Array<{ ticker_id: number; weight: number }>; user_id?: number }): Promise<any> {
+    // 1. Crea il portafoglio
+    const urlPortfolio = `${API_BASE_URL}/api/portfolios`;
+    const resPortfolio = await fetch(urlPortfolio, {
       method: 'POST',
       headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ name: payload.name, user_id: payload.user_id }),
     });
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`Failed to save portfolio ${url} (${res.status}): ${txt}`);
+    if (!resPortfolio.ok) {
+      const txt = await resPortfolio.text();
+      throw new Error(`Failed to create portfolio ${urlPortfolio} (${resPortfolio.status}): ${txt}`);
     }
-    const data = await res.json().catch(() => ({ ok: true }));
+    const portfolio = await resPortfolio.json();
+    const portfolio_id = portfolio.id || portfolio.portfolio_id;
+    if (!portfolio_id) throw new Error('Portfolio creation did not return an id');
+
+    // 2. Crea la composizione con il bulk endpoint
+    const urlComp = new URL(`${API_BASE_URL}/api/portfolios/composition/bulk`);
+    if (payload.user_id != null) urlComp.searchParams.append('user_id', String(payload.user_id));
+    const compositions = payload.compositions.map(c => ({ portfolio_id, ticker_id: c.ticker_id, weight: c.weight }));
+    const resComp = await fetch(urlComp.toString(), {
+      method: 'POST',
+      headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
+      body: JSON.stringify({ compositions }),
+    });
+    if (!resComp.ok) {
+      const txt = await resComp.text();
+      throw new Error(`Failed to set composition (bulk) ${urlComp} (${resComp.status}): ${txt}`);
+    }
+    const compData = await resComp.json();
     // Invalidate portfolios caches
     try {
       const keys = await AsyncStorage.getAllKeys();
       const toRemove = keys.filter((k) => k === 'portfolios_all' || k.startsWith('portfolios_'));
       if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
     } catch {}
-    return data;
+    return { portfolio, composition: compData };
   }
 
-  async createPortfolio(descrizione: string): Promise<CreatePortfolioResponse> {
-    const url = `${API_BASE_URL}/api/portafoglio`;
+  /**
+   * Crea un nuovo portafoglio usando il nuovo endpoint.
+   */
+  async createPortfolio(name: string, user_id?: number): Promise<any> {
+    const url = `${API_BASE_URL}/api/portfolios`;
     const res = await fetch(url, {
       method: 'POST',
       headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-      body: JSON.stringify({ descrizione }),
+      body: JSON.stringify({ name, user_id }),
     });
     if (!res.ok) {
       const txt = await res.text();
@@ -474,23 +494,28 @@ class APIService {
     try {
       await AsyncStorage.multiRemove(['portfolios_all']);
     } catch {}
-    return data as CreatePortfolioResponse;
+    return data;
   }
 
+  /**
+   * Imposta la composizione di un portafoglio tramite bulk endpoint.
+   * compositions: array di { portfolio_id, ticker_id, weight }
+   * user_id: opzionale, se richiesto dal backend
+   */
   async setPortfolioComposition(
-    id_portafoglio: number,
-    items: Array<{ ID_ticker: number; percentuale: number }>,
-    descrizione?: string
-  ): Promise<{ ok: true } | any> {
-    const url = `${API_BASE_URL}/api/composizione_portafoglio`;
-    const res = await fetch(url, {
+    compositions: Array<{ portfolio_id: number; ticker_id: number; weight: number }>,
+    user_id?: number
+  ): Promise<any> {
+    const url = new URL(`${API_BASE_URL}/api/portfolios/composition/bulk`);
+    if (user_id != null) url.searchParams.append('user_id', String(user_id));
+    const res = await fetch(url.toString(), {
       method: 'POST',
       headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-      body: JSON.stringify({ id_portafoglio, items, descrizione }),
+      body: JSON.stringify({ compositions }),
     });
     if (!res.ok) {
       const txt = await res.text();
-      throw new Error(`Failed to set composition ${url} (${res.status}): ${txt}`);
+      throw new Error(`Failed to set composition (bulk) ${url} (${res.status}): ${txt}`);
     }
     const data = await res.json().catch(() => ({ ok: true }));
     // invalidate caches related to portfolios
@@ -535,6 +560,7 @@ class APIService {
         lastErr = e instanceof Error ? e.message : String(e);
       }
     }
+      console.error(`[API ERROR] deletePortfolio: Failed to delete portfolio id=${id_portafoglio}: ${lastErr ?? 'unknown error'}`);
     throw new Error(`Failed to delete portfolio id=${id_portafoglio}: ${lastErr ?? 'unknown error'}`);
   }
 }
