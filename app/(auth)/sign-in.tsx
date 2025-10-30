@@ -114,7 +114,7 @@ export default function Page() {
             </TouchableOpacity>
 
             <View style={styles.bottomRow}>
-              <Text style={[styles.bottomText, { color: colors.secondaryText }]}>Don't have an account?</Text>
+              <Text style={[styles.bottomText, { color: colors.secondaryText }]}>Don&apos;t have an account?</Text>
               <Link href="/(auth)/sign-up">
                 <Text style={[styles.linkText, { color: colors.accent }]}>Sign up</Text>
               </Link>

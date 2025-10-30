@@ -16,21 +16,33 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Swipeable } from 'react-native-gesture-handler';
 import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useUser } from '@clerk/clerk-expo';
 
 import { apiService } from '@/services/api';
 import ETFLineChart from '@/components/Chart/LineChart';
 import { useTheme } from '@/components/common/ThemeProvider';
 import Toast, { ToastType } from '@/components/common/Toast';
-import { ChartDataPoint, GeographyGroup, TickerSummary } from '@/types';
+import { ChartDataPoint, GeographyGroup, PortfolioCompositionEntry, PortfolioSummary, TickerSummary } from '@/types';
 
 // Section open state persistence
 type OpenSections = { composition: boolean; create: boolean; run: boolean; chart: boolean };
 const OPEN_SECTIONS_KEY = 'pipeline_open_sections_v1';
 const defaultOpen: OpenSections = { composition: false, create: false, run: false, chart: false };
 
+type CompositionDraft = {
+  key: string;
+  areaId?: number;
+  ticker_id?: number;
+  percentuale?: number;
+  symbol?: string;
+  name?: string;
+  asset_class?: string;
+};
+
 export default function PipelineScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { user } = useUser();
   const [idPortafoglio, setIdPortafoglio] = useState('1');
   const [ammontare, setAmmontare] = useState('10000');
   // Reverted default strategy label to original value per request
@@ -45,7 +57,9 @@ export default function PipelineScreen() {
   const [dataInizio, setDataInizio] = useState(defaultStart);
   const [dataFine, setDataFine] = useState(defaultEnd);
   const [starting, setStarting] = useState(false);
-  const [portfolios, setPortfolios] = useState<any[]>([]);
+  const [portfolios, setPortfolios] = useState<PortfolioSummary[]>([]);
+  const [portfolioCompositions, setPortfolioCompositions] = useState<Record<number, PortfolioCompositionEntry[]>>({});
+  const [portfoliosLoading, setPortfoliosLoading] = useState(false);
   const [selectedPortfolios, setSelectedPortfolios] = useState<Record<number, boolean>>({});
   const [portfolioResults, setPortfolioResults] = useState<Record<number, { calendar_id: number; valore_totale: number }[]>>({});
   const [resultsLoading, setResultsLoading] = useState(false);
@@ -59,11 +73,14 @@ export default function PipelineScreen() {
   const [logPath, setLogPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: ToastType; message: string } | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [userProfileError, setUserProfileError] = useState<string | null>(null);
   const pollingRef = useRef<{ cancelled: boolean } | null>(null);
-  const [newDescrizione, setNewDescrizione] = useState('');
+  const [newPortfolioName, setNewPortfolioName] = useState('');
+  const [newPortfolioDescription, setNewPortfolioDescription] = useState('');
   const uidRef = useRef(1);
-  const genKey = () => `row-${uidRef.current++}`;
-  const [compItems, setCompItems] = useState([{ key: genKey() } as any]);
+  const genKey = useCallback(() => `row-${uidRef.current++}`, []);
+  const [compItems, setCompItems] = useState<CompositionDraft[]>([{ key: genKey() }]);
   const [geographies, setGeographies] = useState<GeographyGroup[]>([]);
   const [saving, setSaving] = useState(false);
   const [openSections, setOpenSections] = useState<OpenSections>(defaultOpen);
@@ -73,6 +90,8 @@ export default function PipelineScreen() {
     run: new Animated.Value(0),
     chart: new Animated.Value(0),
   });
+  const isMountedRef = useRef(true);
+  const canManagePortfolios = currentUserId != null && !userProfileError;
 
   useEffect(() => {
     // Avoid calling the legacy enabling API on New Architecture (Fabric) where it's a no-op and logs a warning.
@@ -104,6 +123,79 @@ export default function PipelineScreen() {
       mounted = false;
     };
   }, []);
+  useEffect(() => {
+    if (!user) {
+      setCurrentUserId(null);
+      setUserProfileError('Accedi per gestire i portafogli');
+      return;
+    }
+
+  setCurrentUserId(null);
+  setUserProfileError(null);
+
+  let cancelled = false;
+    const email = user.primaryEmailAddress?.emailAddress ?? user.emailAddresses?.[0]?.emailAddress ?? null;
+    if (!email) {
+      setUserProfileError('Email utente non disponibile');
+      return;
+    }
+    const usernameCandidate = user.username ?? (email.includes('@') ? email.split('@')[0] : email);
+
+    const resolveProfile = async () => {
+      try {
+        const profile = await apiService.getCurrentUserProfile();
+        if (cancelled || !isMountedRef.current) return;
+        const backendId = Number(profile.user_id);
+        if (Number.isFinite(backendId) && backendId > 0) {
+          setCurrentUserId(backendId);
+          setUserProfileError(null);
+          return;
+        }
+        setUserProfileError("Profilo backend privo di user_id valido");
+      } catch (err: any) {
+        if (cancelled || !isMountedRef.current) return;
+        const status = typeof err?.status === 'number' ? err.status : undefined;
+        if (status === 404) {
+          try {
+            const ensuredId = await apiService.ensureUserProfile({ email, username: usernameCandidate });
+            if (cancelled || !isMountedRef.current) return;
+            if (ensuredId && Number.isFinite(Number(ensuredId))) {
+              setCurrentUserId(Number(ensuredId));
+              setUserProfileError(null);
+              return;
+            }
+            // Retry fetch if sync didn't return an ID
+            const profileAfterSync = await apiService.getCurrentUserProfile();
+            if (cancelled || !isMountedRef.current) return;
+            const backendId = Number(profileAfterSync.user_id);
+            if (Number.isFinite(backendId) && backendId > 0) {
+              setCurrentUserId(backendId);
+              setUserProfileError(null);
+              return;
+            }
+            setUserProfileError("Profilo backend non disponibile dopo la sincronizzazione");
+          } catch (syncErr) {
+            if (cancelled || !isMountedRef.current) return;
+            const detail = syncErr instanceof Error ? syncErr.message : String(syncErr);
+            setUserProfileError(`Sync profilo fallita: ${detail}`);
+          }
+          return;
+        }
+        if (status === 401 || status === 403) {
+          setUserProfileError('Sessione scaduta, accedi nuovamente.');
+          setCurrentUserId(null);
+          return;
+        }
+        setUserProfileError(err instanceof Error ? err.message : String(err));
+      }
+    };
+
+    resolveProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
   const tickerOptionsByArea = useMemo(() => {
     const map: Record<number, TickerSummary[]> = {};
     geographies.forEach((group) => {
@@ -111,10 +203,93 @@ export default function PipelineScreen() {
     });
     return map;
   }, [geographies]);
+  const tickerLookup = useMemo(() => {
+    const map: Record<number, TickerSummary> = {};
+    geographies.forEach((group) => {
+      (group.tickers ?? []).forEach((ticker) => {
+        map[ticker.ticker_id] = ticker;
+      });
+    });
+    return map;
+  }, [geographies]);
   const startPipeline = useCallback(async()=>{setError(null);setStarting(true);try{const payload={id_portafoglio:Number(idPortafoglio),ammontare:Number(ammontare),strategia:strategia||'Simple PAC',data_inizio:dataInizio,data_fine:dataFine,capitale_iniziale:Number(capitaleIniziale)||0};const res=await apiService.runPipeline(payload as any);setJobId(res.job_id);setStatus(res.status??null);setPid(res.pid??null);setLogPath(res.log_path??null);if(pollingRef.current) pollingRef.current.cancelled=true;pollingRef.current={cancelled:false};const poll=async()=>{if(!res.job_id) return;try{const info=await apiService.getJobStatus(res.job_id);if(pollingRef.current?.cancelled)return;setStatus(info.status??null);if(info.status==='running') setTimeout(poll,3000);}catch(e){if(!pollingRef.current?.cancelled) setError(e instanceof Error?e.message:String(e));}};poll();}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setStarting(false);}},[idPortafoglio,ammontare,strategia,dataInizio,dataFine,capitaleIniziale]);
-  useEffect(()=>()=>{if(pollingRef.current) pollingRef.current.cancelled=true;},[]);
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      if (pollingRef.current) pollingRef.current.cancelled = true;
+    };
+  }, []);
   useEffect(()=>{if(!toast) return;const t=setTimeout(()=>setToast(null),4000);return()=>clearTimeout(t);},[toast]);
-  useEffect(()=>{let mounted=true;apiService.getPortfolioComposition().then(data=>{if(mounted) setPortfolios(data);}).catch(e=>{if(mounted) setTableError(e instanceof Error?e.message:String(e));});return()=>{mounted=false;};},[]);
+  const loadPortfolios = useCallback(async (options?: { bypassCache?: boolean }) => {
+    if (!currentUserId) return;
+    const useCache = options?.bypassCache ? false : true;
+    setPortfoliosLoading(true);
+    if (!options?.bypassCache) setTableError(null);
+    try {
+      const summaries = await apiService.getPortfolios(currentUserId, useCache);
+      if (!isMountedRef.current) return;
+      setPortfolios(summaries);
+      setTableError(null);
+
+      const compResults = await Promise.all(
+        summaries.map(async (summary) => {
+          try {
+            const response = await apiService.getPortfolioComposition(summary.portfolio_id, currentUserId, useCache);
+            return [summary.portfolio_id, response.items] as [number, PortfolioCompositionEntry[]];
+          } catch (error) {
+            console.error('[pipeline] composition fetch error', error);
+            return [summary.portfolio_id, []] as [number, PortfolioCompositionEntry[]];
+          }
+        })
+      );
+      if (!isMountedRef.current) return;
+      const mapped: Record<number, PortfolioCompositionEntry[]> = Object.fromEntries(compResults);
+      setPortfolioCompositions(mapped);
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      setTableError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (isMountedRef.current) setPortfoliosLoading(false);
+    }
+  }, [currentUserId]);
+  useEffect(() => {
+    if (!currentUserId) return;
+    loadPortfolios({ bypassCache: false });
+  }, [currentUserId, loadPortfolios]);
+  useEffect(() => {
+    if (!portfolios.length) {
+      setSelectedPortfolios({});
+      setPortfolioResults({});
+      return;
+    }
+    const validIds = new Set(portfolios.map((p) => p.portfolio_id));
+    setSelectedPortfolios((prev) => {
+      let changed = false;
+      const next: Record<number, boolean> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const id = Number(key);
+        if (validIds.has(id)) {
+          next[id] = value;
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+    setPortfolioResults((prev) => {
+      let changed = false;
+      const next: Record<number, { calendar_id: number; valore_totale: number }[]> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const id = Number(key);
+        if (validIds.has(id)) {
+          next[id] = value;
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [portfolios]);
   const togglePortfolio=(id:number)=>setSelectedPortfolios(p=>({...p,[id]:!p[id]}));
   useEffect(() => {
     const ids = Object.keys(selectedPortfolios).filter(k => selectedPortfolios[Number(k)]).map(Number);
@@ -144,34 +319,88 @@ export default function PipelineScreen() {
     })();
     return () => { cancelled = true; };
   }, [selectedPortfolios]);
-  const addCompRow=()=>setCompItems(p=>[...p,{key:genKey()}]);
-  const removeCompRow=(key:string)=>setCompItems(p=>p.filter(r=>r.key!==key));
-  const updateCompRow=(key:string,patch:any)=>setCompItems(p=>p.map(r=>r.key===key?{...r,...patch}:r));
+  const addCompRow = () => setCompItems((p) => [...p, { key: genKey() }]);
+  const removeCompRow = (key: string) => setCompItems((p) => p.filter((r) => r.key !== key));
+  const updateCompRow = (key: string, patch: Partial<CompositionDraft>) =>
+    setCompItems((p) => p.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const totalPercent=useMemo(()=>compItems.reduce((s,r)=>s+(Number(r.percentuale)||0),0),[compItems]);
-  const createPortfolioAndSave=async()=>{setTableError(null);if(!newDescrizione.trim()){setTableError('Enter a portfolio description');return;}if(!compItems.length){setTableError('Add at least one composition row');return;}if(Math.abs(totalPercent-100)>0.01){setTableError('Percentages must sum to 100');return;}const composizione=compItems.map(r=>({ID_ticker:r.ticker_id,percentuale:r.percentuale})).filter(r=>(typeof r.ID_ticker==='number')&&r.percentuale!=null).map(r=>({ID_ticker:r.ID_ticker,percentuale:String(Number(r.percentuale))}));if(!composizione.length){setTableError('Select valid tickers and percentages');return;}setSaving(true);try{await apiService.savePortfolioWithComposition({descrizione_portafoglio:newDescrizione.trim(),composizione});setNewDescrizione('');setCompItems([{key:genKey()}]);const data=await apiService.getPortfolioComposition();setPortfolios(data);setToast({type:'success',message:'Portfolio created and composition saved.'});}catch(e){const msg=e instanceof Error?e.message:String(e);setTableError(msg);setToast({type:'error',message:`Save error: ${msg}`});}finally{setSaving(false);} };
-  const portfolioDatasets=useMemo(()=>{const ids=Object.keys(selectedPortfolios).filter(k=>selectedPortfolios[Number(k)]).map(Number);if(!ids.length)return null;const startInt=chartStartDate.length===8?parseInt(chartStartDate,10):null;const endInt=chartEndDate.length===8?parseInt(chartEndDate,10):null;const datasets=ids.map(pid=>{const rows=(portfolioResults[pid]||[]).slice().sort((a,b)=>a.calendar_id-b.calendar_id);const filtered=rows.filter(r=>{if(startInt&&r.calendar_id<startInt)return false; if(endInt&&r.calendar_id>endInt)return false; return true;});const data=filtered.map(r=>r.valore_totale);const labels=filtered.map(r=>{const s=String(r.calendar_id);return s.length===8?`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`:s;});return {label:`P${pid}`,data,labels,colorHint:data.length&&data[data.length-1]>=data[0]?'up':'down' as const};}).filter(ds=>ds.data.length>0);return datasets.length?datasets:null;},[portfolioResults,selectedPortfolios,chartStartDate,chartEndDate]);
-  const renderPortfolioTable = (items: any[]) => {
-    if (!items || !items.length) return <></>;
-    let maxTickers = 0;
-    const parsed = items.map(it => {
-      const pairs: { ticker?: string; percentuale?: number }[] = [];
-      Object.keys(it).forEach(k => {
-        const m = k.match(/^ticker_(\d+)$/);
-        if (m) {
-          const idx = m[1];
-          const ticker = it[k];
-            const pctKey = `percentuale_${idx}`;
-            pairs[Number(idx) - 1] = { ticker, percentuale: it[pctKey] };
-        }
-      });
-      if (pairs.length > maxTickers) maxTickers = pairs.length;
-      return { ID_Portafoglio: it.ID_Portafoglio, Descrizione_Portafoglio: it.Descrizione_Portafoglio, pairs };
-    });
-    const headers = ['Sel', 'Portfolio_ID', 'Portfolio_Description'];
-    for (let i = 1; i <= maxTickers; i++) {
-      headers.push(`ticker ${i}`);
-      headers.push(`percentuale ${i}`);
+  const createPortfolioAndSave = useCallback(async () => {
+    setTableError(null);
+    if (!currentUserId) {
+      setTableError("Profilo utente non disponibile");
+      return;
     }
+    const trimmedName = newPortfolioName.trim();
+    if (!trimmedName) {
+      setTableError('Enter a portfolio name');
+      return;
+    }
+    if (!compItems.length) {
+      setTableError('Add at least one composition row');
+      return;
+    }
+    if (Math.abs(totalPercent - 100) > 0.01) {
+      setTableError('Percentages must sum to 100');
+      return;
+    }
+
+    const compositions = compItems
+      .map((row) => ({
+        ticker_id: row.ticker_id,
+        percent: Number(row.percentuale),
+      }))
+      .filter((row) => Number.isFinite(row.ticker_id) && Number.isFinite(row.percent) && row.percent != null)
+      .map((row) => ({
+        ticker_id: row.ticker_id as number,
+        weight: Number(((row.percent as number) / 100).toFixed(6)),
+      }))
+      .filter((row) => Number.isFinite(row.weight) && row.weight >= 0);
+
+    if (!compositions.length) {
+      setTableError('Select valid tickers and percentages');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await apiService.savePortfolioWithComposition({
+        name: trimmedName,
+        user_id: currentUserId,
+        description: newPortfolioDescription.trim() || undefined,
+        compositions,
+      });
+      if (!isMountedRef.current) return;
+      setNewPortfolioName('');
+      setNewPortfolioDescription('');
+      setCompItems([{ key: genKey() }]);
+      await loadPortfolios({ bypassCache: true });
+      if (!isMountedRef.current) return;
+      setToast({ type: 'success', message: 'Portfolio created and composition saved.' });
+    } catch (e) {
+      if (!isMountedRef.current) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      setTableError(msg);
+      setToast({ type: 'error', message: `Save error: ${msg}` });
+    } finally {
+      if (isMountedRef.current) setSaving(false);
+    }
+  }, [compItems, currentUserId, genKey, loadPortfolios, newPortfolioDescription, newPortfolioName, totalPercent]);
+  const portfolioDatasets=useMemo(()=>{const ids=Object.keys(selectedPortfolios).filter(k=>selectedPortfolios[Number(k)]).map(Number);if(!ids.length)return null;const startInt=chartStartDate.length===8?parseInt(chartStartDate,10):null;const endInt=chartEndDate.length===8?parseInt(chartEndDate,10):null;const datasets=ids.map(pid=>{const rows=(portfolioResults[pid]||[]).slice().sort((a,b)=>a.calendar_id-b.calendar_id);const filtered=rows.filter(r=>{if(startInt&&r.calendar_id<startInt)return false; if(endInt&&r.calendar_id>endInt)return false; return true;});const data=filtered.map(r=>r.valore_totale);const labels=filtered.map(r=>{const s=String(r.calendar_id);return s.length===8?`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`:s;});return {label:`P${pid}`,data,labels,colorHint:data.length&&data[data.length-1]>=data[0]?'up':'down' as const};}).filter(ds=>ds.data.length>0);return datasets.length?datasets:null;},[portfolioResults,selectedPortfolios,chartStartDate,chartEndDate]);
+  const renderPortfolioTable = (items: PortfolioSummary[]) => {
+    if (!items || !items.length) return <></>;
+    let maxPositions = 0;
+    const rows = items.map((summary) => {
+      const composition = portfolioCompositions[summary.portfolio_id] ?? [];
+      if (composition.length > maxPositions) maxPositions = composition.length;
+      return { summary, composition };
+    });
+
+    const headers = ['Sel', 'Portfolio_ID', 'Name', 'Description'];
+    for (let i = 1; i <= maxPositions; i++) {
+      headers.push(`Ticker ${i}`);
+      headers.push(`Weight ${i}`);
+    }
+
     return (
       <View style={[styles.tableContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <View style={[styles.tableHeaderRow, { backgroundColor: colors.background, borderColor: colors.border }]}>
@@ -181,17 +410,28 @@ export default function PipelineScreen() {
             </View>
           ))}
         </View>
-        {parsed.map(row => (
+        {rows.map(({ summary, composition }) => (
           <Swipeable
-            key={row.ID_Portafoglio}
+            key={summary.portfolio_id}
             renderLeftActions={() => (
               <Pressable
                 onPress={async () => {
                   try {
-                    await apiService.deletePortfolio(row.ID_Portafoglio);
-                    const data = await apiService.getPortfolioComposition();
-                    setPortfolios(data);
-                    setToast({ type: 'success', message: `Portfolio ${row.ID_Portafoglio} deleted.` });
+                    await apiService.deletePortfolio(summary.portfolio_id);
+                    await loadPortfolios({ bypassCache: true });
+                    setSelectedPortfolios((prev) => {
+                      if (!(summary.portfolio_id in prev)) return prev;
+                      const next = { ...prev };
+                      delete next[summary.portfolio_id];
+                      return next;
+                    });
+                    setPortfolioResults((prev) => {
+                      if (!(summary.portfolio_id in prev)) return prev;
+                      const next = { ...prev };
+                      delete next[summary.portfolio_id];
+                      return next;
+                    });
+                    setToast({ type: 'success', message: `Portfolio ${summary.portfolio_id} deleted.` });
                   } catch (e) {
                     const msg = e instanceof Error ? e.message : String(e);
                     setToast({ type: 'error', message: `Delete error: ${msg}` });
@@ -204,30 +444,45 @@ export default function PipelineScreen() {
             )}
           >
             <View style={[styles.tableRow, { borderColor: colors.border }]}>
-              <View style={[styles.cell, styles.firstCell, { alignItems: 'center', borderColor: colors.border }]}>  
+              <View style={[styles.cell, styles.firstCell, { alignItems: 'center', borderColor: colors.border }]}>
                 <Pressable
-                  onPress={() => togglePortfolio(row.ID_Portafoglio)}
-                  style={[styles.checkbox, { borderColor: colors.border, backgroundColor: colors.card }, selectedPortfolios[row.ID_Portafoglio] && { backgroundColor: colors.accent, borderColor: colors.accent }]}
+                  onPress={() => togglePortfolio(summary.portfolio_id)}
+                  style={[
+                    styles.checkbox,
+                    { borderColor: colors.border, backgroundColor: colors.card },
+                    selectedPortfolios[summary.portfolio_id] && { backgroundColor: colors.accent, borderColor: colors.accent },
+                  ]}
                 >
-                  <Text style={styles.checkboxMark}>{selectedPortfolios[row.ID_Portafoglio] ? '✓' : ''}</Text>
+                  <Text style={styles.checkboxMark}>{selectedPortfolios[summary.portfolio_id] ? '✓' : ''}</Text>
                 </Pressable>
               </View>
-              <View style={[styles.cell, styles.firstCell, { borderColor: colors.border }]}> 
-                <Text style={[styles.cellText, { color: colors.text }]}>{row.ID_Portafoglio}</Text>
+              <View style={[styles.cell, styles.firstCell, { borderColor: colors.border }]}>
+                <Text style={[styles.cellText, { color: colors.text }]}>{summary.portfolio_id}</Text>
               </View>
-              <View style={[styles.cell, { minWidth: 220, borderColor: colors.border }]}> 
-                <Text style={[styles.cellText, { color: colors.text }]}>{row.Descrizione_Portafoglio}</Text>
+              <View style={[styles.cell, { minWidth: 180, borderColor: colors.border }]}>
+                <Text style={[styles.cellText, { color: colors.text }]}>{summary.name}</Text>
               </View>
-              {Array.from({ length: maxTickers }).map((_, i) => {
-                const pair = row.pairs[i] || {};
-                const isLast = i === maxTickers - 1;
+              <View style={[styles.cell, { minWidth: 220, borderColor: colors.border }]}>
+                <Text style={[styles.cellText, { color: colors.secondaryText }]}>{summary.description ?? '—'}</Text>
+              </View>
+              {Array.from({ length: maxPositions }).map((_, idx) => {
+                const entry = composition[idx];
+                const tickerInfo = entry ? tickerLookup[entry.ticker_id] : undefined;
+                const tickerLabel = entry ? tickerInfo?.symbol ?? tickerInfo?.name ?? `#${entry.ticker_id}` : '';
+                const weightValue = entry?.weight ?? null;
+                const weightPercent = weightValue != null
+                  ? (weightValue <= 1 ? weightValue * 100 : weightValue)
+                  : null;
+                const isLast = idx === maxPositions - 1;
                 return (
-                  <React.Fragment key={i}>
+                  <React.Fragment key={`${summary.portfolio_id}-${idx}`}>
                     <View style={[styles.cell, { borderColor: colors.border }, isLast && styles.lastCell]}>
-                      <Text style={[styles.cellText, { color: colors.secondaryText }]}>{pair.ticker ?? ''}</Text>
+                      <Text style={[styles.cellText, { color: colors.secondaryText }]}>{tickerLabel}</Text>
                     </View>
                     <View style={[styles.cell, { borderColor: colors.border }, isLast && styles.lastCell]}>
-                      <Text style={[styles.cellText, { color: colors.secondaryText }]}>{pair.percentuale != null ? String(pair.percentuale) : ''}</Text>
+                      <Text style={[styles.cellText, { color: colors.secondaryText }]}>
+                        {weightPercent != null ? `${weightPercent.toFixed(2)}%` : ''}
+                      </Text>
                     </View>
                   </React.Fragment>
                 );
@@ -256,8 +511,13 @@ export default function PipelineScreen() {
             <Animated.View style={{ opacity: sectionOpacity.current.composition }}>
               <View style={{ marginBottom: 12 }}>
                 <Text style={[styles.label, { marginBottom: 8, color: colors.secondaryText }]}>Portfolio Composition</Text>
-                {tableError && <Text style={styles.error}>{tableError}</Text>}
-                {portfolios.length === 0 && !tableError ? (
+                {userProfileError && <Text style={styles.error}>{userProfileError}</Text>}
+                {!userProfileError && tableError && <Text style={styles.error}>{tableError}</Text>}
+                {portfoliosLoading ? (
+                  <Text style={styles.small}>Loading portfolios…</Text>
+                ) : !canManagePortfolios ? (
+                  <Text style={styles.small}>Sign in to view your portfolios.</Text>
+                ) : portfolios.length === 0 ? (
                   <Text style={styles.small}>No portfolios available</Text>
                 ) : (
                   <ScrollView horizontal style={{ backgroundColor: colors.card, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}>
@@ -276,14 +536,25 @@ export default function PipelineScreen() {
             <Animated.View style={{ opacity: sectionOpacity.current.create }}>
               <View style={{ marginBottom: 16 }}>
                 <Text style={[styles.title, { color: colors.text, fontSize: 18 }]}>Create New Portfolio</Text>
-                {tableError && <Text style={styles.error}>{tableError}</Text>}
+                {userProfileError && <Text style={styles.error}>{userProfileError}</Text>}
+                {!userProfileError && tableError && <Text style={styles.error}>{tableError}</Text>}
                 <View style={styles.field}>
-                  <Text style={[styles.label, { color: colors.secondaryText }]}>Portfolio Description</Text>
+                  <Text style={[styles.label, { color: colors.secondaryText }]}>Portfolio Name</Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
-                    value={newDescrizione}
-                    onChangeText={setNewDescrizione}
-                    placeholder="e.g. Mixed Portfolio"
+                    value={newPortfolioName}
+                    onChangeText={setNewPortfolioName}
+                    placeholder="e.g. Growth 2025"
+                    placeholderTextColor={colors.secondaryText}
+                  />
+                </View>
+                <View style={styles.field}>
+                  <Text style={[styles.label, { color: colors.secondaryText }]}>Description (optional)</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
+                    value={newPortfolioDescription}
+                    onChangeText={setNewPortfolioDescription}
+                    placeholder="Short description"
                     placeholderTextColor={colors.secondaryText}
                   />
                 </View>
@@ -334,7 +605,14 @@ export default function PipelineScreen() {
                     <TextInput
                       style={[styles.input, { flex: 0.6, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
                       value={row.percentuale != null ? String(row.percentuale) : ''}
-                      onChangeText={v => updateCompRow(row.key, { percentuale: Number(v) })}
+                      onChangeText={(v) => {
+                        if (!v.trim()) {
+                          updateCompRow(row.key, { percentuale: undefined });
+                          return;
+                        }
+                        const numeric = Number(v.replace(',', '.'));
+                        updateCompRow(row.key, { percentuale: Number.isFinite(numeric) ? numeric : undefined });
+                      }}
                       placeholder="%"
                       keyboardType="numeric"
                       placeholderTextColor={colors.secondaryText}
@@ -350,7 +628,11 @@ export default function PipelineScreen() {
                   </Pressable>
                   <Text style={styles.small}>Total: {totalPercent.toFixed(1)}%</Text>
                 </View>
-                <Pressable style={[styles.btn, saving && { opacity: 0.7 }]} onPress={createPortfolioAndSave} disabled={saving}>
+                <Pressable
+                  style={[styles.btn, (saving || !canManagePortfolios) && { opacity: 0.7 }]}
+                  onPress={createPortfolioAndSave}
+                  disabled={saving || !canManagePortfolios}
+                >
                   <Text style={styles.btnText}>{saving ? 'Saving…' : 'Create & Save Composition'}</Text>
                 </Pressable>
               </View>

@@ -9,6 +9,11 @@ import {
   PriceHistoryResponse,
   TickerPriceSeries,
   PricePoint,
+  PortfolioSummary,
+  PortfolioSummaryResponse,
+  PortfolioCompositionResponse,
+  PortfolioCompositionEntry,
+  UserProfile,
 } from '@/types';
 import { getClerkToken } from '@/utils/clerkToken';
 
@@ -83,6 +88,18 @@ type PortfolioResultRow = {
 type CreatePortfolioResponse = { ID_Portafoglio: number; Descrizione_Portafoglio: string };
 type CompositionItemPost = { ID_ticker?: number; ticker?: string; percentuale: number | string };
 
+class HTTPError extends Error {
+  status?: number;
+  body?: string;
+
+  constructor(message: string, status?: number, body?: string) {
+    super(message);
+    this.name = 'HTTPError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 class APIService {
   // ------- Auth header helper -------
   private async withAuth(headers: Record<string, string> = {}): Promise<Record<string, string>> {
@@ -103,7 +120,7 @@ class APIService {
   }
 
   // ------- User profile sync -------
-  async ensureUserProfile(payload: { email?: string | null; username?: string | null }): Promise<void> {
+  async ensureUserProfile(payload: { email?: string | null; username?: string | null }): Promise<number | null> {
     const email = payload.email?.trim() ?? null;
     let username = payload.username?.trim() ?? null;
     if (!username && email) {
@@ -118,10 +135,66 @@ class APIService {
         username,
       }),
     });
+    const raw = await res.text().catch(() => '');
     if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(`Failed to sync user profile (${res.status}): ${txt}`);
+      throw new Error(`Failed to sync user profile (${res.status}): ${raw}`);
     }
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      const candidate =
+        parsed?.user_id ??
+        parsed?.id ??
+        parsed?.user?.user_id ??
+        parsed?.user?.id ??
+        null;
+      const numeric = candidate != null ? Number(candidate) : null;
+      if (numeric != null && Number.isFinite(numeric)) {
+        return numeric;
+      }
+    } catch {
+      // ignore JSON parse errors; backend may not return body
+    }
+    return null;
+  }
+
+  async getCurrentUserProfile(): Promise<UserProfile> {
+    const url = `${API_BASE_URL}/api/users/me`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: await this.withAuth({ Accept: 'application/json', 'Content-Type': 'application/json' }),
+    });
+
+    const textBody = await res.text().catch(() => '');
+    if (!res.ok) {
+      const errorMessage = textBody || res.statusText || 'Profile fetch failed';
+      throw new HTTPError(errorMessage, res.status, textBody);
+    }
+
+    let parsed: any = null;
+    try {
+      parsed = textBody ? JSON.parse(textBody) : {};
+    } catch (error) {
+      throw new HTTPError('Invalid profile response JSON', res.status, textBody);
+    }
+    if (typeof parsed !== 'object' || parsed === null) {
+      throw new HTTPError('Profile response is not an object', res.status, textBody);
+    }
+
+    const userId = Number(parsed.user_id);
+    if (!Number.isFinite(userId)) {
+      throw new HTTPError('Profile response missing user_id', res.status, textBody);
+    }
+
+    return {
+      user_id: userId,
+      username: parsed.username ?? null,
+      email: parsed.email ?? null,
+      created_at: parsed.created_at ?? null,
+      last_login: parsed.last_login ?? null,
+      subscription_id: parsed.subscription_id != null ? Number(parsed.subscription_id) : null,
+      clerk_user_id: parsed.clerk_user_id ?? null,
+    } as UserProfile;
   }
 
   // ------- Chat completions -------
@@ -187,6 +260,29 @@ class APIService {
       );
     } catch (e) {
       console.warn('Cache write failed:', e);
+    }
+  }
+
+  private async invalidatePortfolioCachesForUser(userId?: number): Promise<void> {
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const toRemove = keys.filter((k) => {
+        if (k === 'portfolios_all' || k.startsWith('portfolios_') || k.startsWith('portfolio_results_')) {
+          return true;
+        }
+        if (k.startsWith('portfolios_user_')) {
+          if (userId == null) return true;
+          return k === `portfolios_user_${userId}`;
+        }
+        if (k.startsWith('portfolio_comp_')) {
+          if (userId == null) return true;
+          return k.endsWith(`_${userId}`) || k.includes(`_${userId}_`);
+        }
+        return false;
+      });
+      if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
+    } catch (error) {
+      console.warn('Cache invalidation failed:', error);
     }
   }
 
@@ -336,30 +432,65 @@ class APIService {
     return items;
   }
 
-  /**
-   * Fetch portfolio composition(s).
-   * If id_portafoglio is provided returns composition for that portfolio (as array, possibly empty).
-   * Otherwise returns all portfolios.
-   */
-  async getPortfolioComposition(id_portafoglio?: number, useCache: boolean = true): Promise<PortfolioItem[]> {
-    const cacheKey = id_portafoglio == null ? 'portfolios_all' : `portfolios_${id_portafoglio}`;
+  async getPortfolioComposition(portfolioId: number, userId?: number, useCache: boolean = true): Promise<PortfolioCompositionResponse> {
+    if (!Number.isFinite(portfolioId)) {
+      throw new Error('getPortfolioComposition: portfolioId richiesto');
+    }
+    const cacheKey = `portfolio_comp_${portfolioId}_${userId ?? 'any'}`;
     if (useCache) {
-      const cached = await this.getCache<PortfolioItem[]>(cacheKey, 60 * 60 * 1000); // 1h
+      const cached = await this.getCache<PortfolioCompositionResponse>(cacheKey, 30 * 60 * 1000); // 30m
       if (cached) return cached;
     }
 
-    const url = new URL('/api/composizione_portafoglio', API_BASE_URL);
-    if (id_portafoglio != null) url.searchParams.append('id_portafoglio', String(id_portafoglio));
-
-  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
+    const url = new URL(`/api/portfolios/${portfolioId}/composition`, API_BASE_URL);
+    if (userId != null) url.searchParams.append('user_id', String(userId));
+    const res = await fetch(url.toString(), {
+      headers: await this.withAuth({ Accept: 'application/json' }),
+    });
     if (!res.ok) {
       const txt = await res.text();
+      const errMsg = `[API ERROR] getPortfolioComposition: ${res.status} - ${txt}`;
+      console.error(errMsg);
+      console.log(errMsg);
       throw new Error(`Failed to fetch portfolio composition (${res.status}): ${txt}`);
     }
-    const data: PortfolioItem[] = await res.json();
-    if (!Array.isArray(data)) throw new Error('Invalid portfolio response format');
-    await this.setCache(cacheKey, data);
-    return data;
+    const raw = (await res.json().catch(() => null)) as any;
+    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.items)) {
+      throw new Error('Invalid portfolio composition response format');
+    }
+
+    const portfolio_id = Number(raw.portfolio_id);
+    const user_id = Number(raw.user_id);
+    const items: PortfolioCompositionEntry[] = raw.items
+      .map((entry: any) => {
+        const composition_id = Number(entry.composition_id);
+        const pId = Number(entry.portfolio_id ?? portfolio_id ?? portfolioId);
+        const ticker_id = Number(entry.ticker_id);
+        const uId = Number(entry.user_id ?? user_id ?? userId);
+        const weight = Number(entry.weight);
+        if (!Number.isFinite(composition_id) || !Number.isFinite(pId) || !Number.isFinite(ticker_id) || !Number.isFinite(uId)) {
+          return null;
+        }
+        return {
+          composition_id,
+          portfolio_id: pId,
+          ticker_id,
+          user_id: uId,
+          weight: Number.isFinite(weight) ? weight : 0,
+          description: entry.description != null ? String(entry.description) : null,
+          created_at: typeof entry.created_at === 'string' ? entry.created_at : '',
+        } as PortfolioCompositionEntry;
+      })
+  .filter((entry: PortfolioCompositionEntry | null): entry is PortfolioCompositionEntry => entry != null);
+
+    const payload: PortfolioCompositionResponse = {
+      portfolio_id: Number.isFinite(portfolio_id) ? portfolio_id : portfolioId,
+      user_id: Number.isFinite(user_id) ? user_id : userId ?? -1,
+      items,
+    };
+
+    await this.setCache(cacheKey, payload);
+    return payload;
   }
 
 
@@ -427,6 +558,53 @@ class APIService {
     return data;
   }
 
+  async getPortfolios(user_id: number, useCache: boolean = true): Promise<PortfolioSummary[]> {
+    if (!Number.isFinite(user_id)) {
+      throw new Error('getPortfolios: user_id richiesto');
+    }
+    const cacheKey = `portfolios_user_${user_id}`;
+    if (useCache) {
+      const cached = await this.getCache<PortfolioSummary[]>(cacheKey, 60 * 60 * 1000); // 1h
+      if (cached) return cached;
+    }
+
+    const url = new URL('/api/portfolios', API_BASE_URL);
+    url.searchParams.append('user_id', String(user_id));
+    const res = await fetch(url.toString(), {
+      headers: await this.withAuth({ Accept: 'application/json' }),
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      const errMsg = `[API ERROR] getPortfolios: ${res.status} - ${txt}`;
+      console.error(errMsg);
+      console.log(errMsg);
+      throw new Error(`Failed to fetch portfolios (${res.status}): ${txt}`);
+    }
+    const raw = (await res.json().catch(() => null)) as PortfolioSummaryResponse | null;
+    if (!raw || !Array.isArray(raw.items)) {
+      throw new Error('Invalid portfolios response format');
+    }
+    const items: PortfolioSummary[] = raw.items
+      .map((item) => {
+        const portfolio_id = Number(item.portfolio_id);
+        const uid = Number(item.user_id);
+        const name = typeof item.name === 'string' ? item.name : '';
+        if (!Number.isFinite(portfolio_id) || !Number.isFinite(uid) || !name) return null;
+        return {
+          portfolio_id,
+          user_id: uid,
+          name,
+          description: item.description != null ? String(item.description) : null,
+          created_at: typeof item.created_at === 'string' ? item.created_at : '',
+          last_modified: typeof item.last_modified === 'string' ? item.last_modified : null,
+        } as PortfolioSummary;
+      })
+      .filter((p): p is PortfolioSummary => p != null);
+
+    await this.setCache(cacheKey, items);
+    return items;
+  }
+
   // ------- Portfolio management (create/update) -------
   /**
    * Backend supports creating/updating a portfolio and its composition in a single call:
@@ -436,26 +614,50 @@ class APIService {
    * Crea un nuovo portafoglio e la sua composizione usando i nuovi endpoint.
    * Prima crea il portafoglio, poi la composizione con il bulk endpoint.
    */
-  async savePortfolioWithComposition(payload: { name: string; compositions: Array<{ ticker_id: number; weight: number }>; user_id?: number }): Promise<any> {
+  async savePortfolioWithComposition(payload: {
+    name: string;
+    user_id: number;
+    description?: string;
+    compositions: Array<{ ticker_id: number; weight: number }>;
+  }): Promise<any> {
+    if (!payload.name || !payload.user_id) {
+      throw new Error('savePortfolioWithComposition: name e user_id sono obbligatori');
+    }
+
     // 1. Crea il portafoglio
     const urlPortfolio = `${API_BASE_URL}/api/portfolios`;
+    const portfolioBody: Record<string, any> = {
+      name: payload.name,
+      user_id: payload.user_id,
+    };
+    if (payload.description) portfolioBody.description = payload.description;
     const resPortfolio = await fetch(urlPortfolio, {
       method: 'POST',
       headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-      body: JSON.stringify({ name: payload.name, user_id: payload.user_id }),
+      body: JSON.stringify(portfolioBody),
     });
     if (!resPortfolio.ok) {
       const txt = await resPortfolio.text();
+      const errMsg = `[API ERROR] savePortfolioWithComposition (portfolio): ${resPortfolio.status} - ${txt}`;
+      console.error(errMsg);
+      console.log(errMsg);
       throw new Error(`Failed to create portfolio ${urlPortfolio} (${resPortfolio.status}): ${txt}`);
     }
     const portfolio = await resPortfolio.json();
-    const portfolio_id = portfolio.id || portfolio.portfolio_id;
-    if (!portfolio_id) throw new Error('Portfolio creation did not return an id');
+    const rawId = portfolio.portfolio_id ?? portfolio.id;
+    const portfolio_id = Number(rawId);
+    if (!Number.isFinite(portfolio_id)) {
+      throw new Error('Portfolio creation did not return an id');
+    }
 
     // 2. Crea la composizione con il bulk endpoint
     const urlComp = new URL(`${API_BASE_URL}/api/portfolios/composition/bulk`);
-    if (payload.user_id != null) urlComp.searchParams.append('user_id', String(payload.user_id));
-    const compositions = payload.compositions.map(c => ({ portfolio_id, ticker_id: c.ticker_id, weight: c.weight }));
+    urlComp.searchParams.append('user_id', String(payload.user_id));
+    const compositions = payload.compositions.map((c) => ({
+      portfolio_id,
+      ticker_id: Number(c.ticker_id),
+      weight: Number(c.weight),
+    }));
     const resComp = await fetch(urlComp.toString(), {
       method: 'POST',
       headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
@@ -463,37 +665,47 @@ class APIService {
     });
     if (!resComp.ok) {
       const txt = await resComp.text();
+      const errMsg = `[API ERROR] savePortfolioWithComposition (composition): ${resComp.status} - ${txt}`;
+      console.error(errMsg);
+      console.log(errMsg);
       throw new Error(`Failed to set composition (bulk) ${urlComp} (${resComp.status}): ${txt}`);
     }
     const compData = await resComp.json();
-    // Invalidate portfolios caches
-    try {
-      const keys = await AsyncStorage.getAllKeys();
-      const toRemove = keys.filter((k) => k === 'portfolios_all' || k.startsWith('portfolios_'));
-      if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
-    } catch {}
+    await this.invalidatePortfolioCachesForUser(payload.user_id);
     return { portfolio, composition: compData };
   }
 
   /**
    * Crea un nuovo portafoglio usando il nuovo endpoint.
    */
-  async createPortfolio(name: string, user_id?: number): Promise<any> {
+  /**
+   * Crea un nuovo portafoglio usando il nuovo endpoint.
+   * @param name Nome del portafoglio (obbligatorio)
+   * @param user_id ID utente (obbligatorio)
+   * @param description Descrizione opzionale
+   */
+  async createPortfolio(name: string, user_id: number, description?: string): Promise<any> {
+    if (!name || !user_id) {
+      throw new Error('createPortfolio: name e user_id sono obbligatori');
+    }
     const url = `${API_BASE_URL}/api/portfolios`;
+    const body: any = { name, user_id };
+    if (description) body.description = description;
     const res = await fetch(url, {
       method: 'POST',
       headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-      body: JSON.stringify({ name, user_id }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const txt = await res.text();
+      const errMsg = `[API ERROR] createPortfolio: ${res.status} - ${txt}`;
+      console.error(errMsg);
+      console.log(errMsg);
       throw new Error(`Failed to create portfolio ${url} (${res.status}): ${txt}`);
     }
     const data = await res.json();
     // invalidate cache of portfolios
-    try {
-      await AsyncStorage.multiRemove(['portfolios_all']);
-    } catch {}
+    await this.invalidatePortfolioCachesForUser(user_id);
     return data;
   }
 
@@ -515,15 +727,13 @@ class APIService {
     });
     if (!res.ok) {
       const txt = await res.text();
+      const errMsg = `[API ERROR] setPortfolioComposition: ${res.status} - ${txt}`;
+      console.error(errMsg);
+      console.log(errMsg);
       throw new Error(`Failed to set composition (bulk) ${url} (${res.status}): ${txt}`);
     }
     const data = await res.json().catch(() => ({ ok: true }));
-    // invalidate caches related to portfolios
-    try {
-      const keys = await AsyncStorage.getAllKeys();
-      const toRemove = keys.filter((k) => k === 'portfolios_all' || k.startsWith('portfolios_'));
-      if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
-    } catch {}
+    await this.invalidatePortfolioCachesForUser(user_id);
     return data;
   }
 
@@ -560,7 +770,9 @@ class APIService {
         lastErr = e instanceof Error ? e.message : String(e);
       }
     }
-      console.error(`[API ERROR] deletePortfolio: Failed to delete portfolio id=${id_portafoglio}: ${lastErr ?? 'unknown error'}`);
+  const errMsg = `[API ERROR] deletePortfolio: Failed to delete portfolio id=${id_portafoglio}: ${lastErr ?? 'unknown error'}`;
+  console.error(errMsg);
+  console.log(errMsg);
     throw new Error(`Failed to delete portfolio id=${id_portafoglio}: ${lastErr ?? 'unknown error'}`);
   }
 }

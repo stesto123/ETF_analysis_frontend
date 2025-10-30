@@ -49,6 +49,45 @@ export type TickerSummary = {
   asset_class?: string;
 };
 
+export type PortfolioSummary = {
+  portfolio_id: number;
+  user_id: number;
+  name: string;
+  description: string | null;
+  created_at: string;
+  last_modified: string | null;
+};
+
+export type PortfolioSummaryResponse = {
+  items: PortfolioSummary[];
+};
+
+export type PortfolioCompositionEntry = {
+  composition_id: number;
+  portfolio_id: number;
+  ticker_id: number;
+  user_id: number;
+  weight: number;
+  description: string | null;
+  created_at: string;
+};
+
+export type PortfolioCompositionResponse = {
+  portfolio_id: number;
+  user_id: number;
+  items: PortfolioCompositionEntry[];
+};
+
+export type UserProfile = {
+  user_id: number;
+  username: string | null;
+  email: string | null;
+  created_at: string | null;
+  last_login: string | null;
+  subscription_id: number | null;
+  clerk_user_id: string | null;
+};
+
 export type GeographyGroup = {
   geography_id: number;
   geography_name: string;
