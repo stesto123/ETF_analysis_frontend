@@ -72,10 +72,62 @@ export type PortfolioCompositionEntry = {
   created_at: string;
 };
 
+export type PortfolioDeleteResponse = {
+  portfolio_id: number;
+  deleted: boolean;
+  removed_compositions?: number | null;
+};
+
 export type PortfolioCompositionResponse = {
   portfolio_id: number;
   user_id: number;
   items: PortfolioCompositionEntry[];
+};
+
+export type SimulationStrategy = {
+  strategy_id: number;
+  strategy_name: string;
+  strategy_description: string | null;
+};
+
+export type SimulationStrategyResponse = {
+  items: SimulationStrategy[];
+};
+
+export type SimulationRunPayload = {
+  user_id: number;
+  portfolio_id: number;
+  strategy_id: number;
+  monthly_investment: number;
+  initial_capital?: number;
+  start_calendar_id?: number;
+  end_calendar_id?: number;
+  rebalance_threshold?: number;
+};
+
+export type SimulationRunResponse = {
+  asset_rows?: any[];
+  aggregate_rows?: any[];
+  transaction_rows?: any[];
+  status: string;
+  message?: string;
+};
+
+export type SimulationAggregatePoint = {
+  calendar_id: number;
+  total_value_in_dollars: number;
+  invested_value: number | null;
+  gain: number | null;
+};
+
+export type SimulationAggregateSeries = {
+  portfolio_id: number;
+  strategy_id: number | null;
+  points: SimulationAggregatePoint[];
+};
+
+export type SimulationAggregateResultsResponse = {
+  items: SimulationAggregateSeries[];
 };
 
 export type UserProfile = {

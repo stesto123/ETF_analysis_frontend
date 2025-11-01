@@ -22,7 +22,16 @@ import { apiService } from '@/services/api';
 import ETFLineChart from '@/components/Chart/LineChart';
 import { useTheme } from '@/components/common/ThemeProvider';
 import Toast, { ToastType } from '@/components/common/Toast';
-import { ChartDataPoint, GeographyGroup, PortfolioCompositionEntry, PortfolioSummary, TickerSummary } from '@/types';
+import {
+  ChartDataPoint,
+  GeographyGroup,
+  PortfolioCompositionEntry,
+  PortfolioSummary,
+  SimulationStrategy,
+  SimulationRunPayload,
+  SimulationRunResponse,
+  TickerSummary,
+} from '@/types';
 
 // Section open state persistence
 type OpenSections = { composition: boolean; create: boolean; run: boolean; chart: boolean };
@@ -45,9 +54,8 @@ export default function PipelineScreen() {
   const { user } = useUser();
   const [idPortafoglio, setIdPortafoglio] = useState('1');
   const [ammontare, setAmmontare] = useState('10000');
-  // Reverted default strategy label to original value per request
-  const [strategia, setStrategia] = useState('PAC Semplice');
   const [capitaleIniziale, setCapitaleIniziale] = useState('0');
+  const [rebalanceThreshold, setRebalanceThreshold] = useState('0.05');
   const today = new Date();
   const yyyy = today.getFullYear();
   const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -61,21 +69,27 @@ export default function PipelineScreen() {
   const [portfolioCompositions, setPortfolioCompositions] = useState<Record<number, PortfolioCompositionEntry[]>>({});
   const [portfoliosLoading, setPortfoliosLoading] = useState(false);
   const [selectedPortfolios, setSelectedPortfolios] = useState<Record<number, boolean>>({});
-  const [portfolioResults, setPortfolioResults] = useState<Record<number, { calendar_id: number; valore_totale: number }[]>>({});
+  const [portfolioResults, setPortfolioResults] = useState<
+    Record<
+      number,
+      { calendar_id: number; valore_totale: number; invested_value: number | null; gain: number | null }[]
+    >
+  >({});
   const [resultsLoading, setResultsLoading] = useState(false);
   const [resultsError, setResultsError] = useState<string | null>(null);
   const [chartStartDate, setChartStartDate] = useState('');
   const [chartEndDate, setChartEndDate] = useState('');
   const [tableError, setTableError] = useState<string | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [pid, setPid] = useState<number | null>(null);
-  const [logPath, setLogPath] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [simulationStatus, setSimulationStatus] = useState<string | null>(null);
+  const [simulationResult, setSimulationResult] = useState<SimulationRunResponse | null>(null);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: ToastType; message: string } | null>(null);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [userProfileError, setUserProfileError] = useState<string | null>(null);
-  const pollingRef = useRef<{ cancelled: boolean } | null>(null);
+  const [strategies, setStrategies] = useState<SimulationStrategy[]>([]);
+  const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
+  const [strategiesLoading, setStrategiesLoading] = useState(false);
+  const [strategiesError, setStrategiesError] = useState<string | null>(null);
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [newPortfolioDescription, setNewPortfolioDescription] = useState('');
   const uidRef = useRef(1);
@@ -121,6 +135,37 @@ export default function PipelineScreen() {
       });
     return () => {
       mounted = false;
+    };
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    setStrategiesLoading(true);
+    apiService
+      .getSimulationStrategies(true)
+      .then((items) => {
+        if (cancelled || !isMountedRef.current) return;
+        setStrategies(items);
+        setStrategiesError(null);
+        setSelectedStrategyId((prev) => {
+          if (prev && items.some((s) => s.strategy_id === prev)) {
+            return prev;
+          }
+          return items.length ? items[0].strategy_id : null;
+        });
+      })
+      .catch((err) => {
+        if (cancelled || !isMountedRef.current) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        setStrategiesError(msg);
+        setStrategies([]);
+        setSelectedStrategyId(null);
+      })
+      .finally(() => {
+        if (cancelled || !isMountedRef.current) return;
+        setStrategiesLoading(false);
+      });
+    return () => {
+      cancelled = true;
     };
   }, []);
   useEffect(() => {
@@ -212,11 +257,120 @@ export default function PipelineScreen() {
     });
     return map;
   }, [geographies]);
-  const startPipeline = useCallback(async()=>{setError(null);setStarting(true);try{const payload={id_portafoglio:Number(idPortafoglio),ammontare:Number(ammontare),strategia:strategia||'Simple PAC',data_inizio:dataInizio,data_fine:dataFine,capitale_iniziale:Number(capitaleIniziale)||0};const res=await apiService.runPipeline(payload as any);setJobId(res.job_id);setStatus(res.status??null);setPid(res.pid??null);setLogPath(res.log_path??null);if(pollingRef.current) pollingRef.current.cancelled=true;pollingRef.current={cancelled:false};const poll=async()=>{if(!res.job_id) return;try{const info=await apiService.getJobStatus(res.job_id);if(pollingRef.current?.cancelled)return;setStatus(info.status??null);if(info.status==='running') setTimeout(poll,3000);}catch(e){if(!pollingRef.current?.cancelled) setError(e instanceof Error?e.message:String(e));}};poll();}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setStarting(false);}},[idPortafoglio,ammontare,strategia,dataInizio,dataFine,capitaleIniziale]);
+  const selectedStrategy = useMemo(() => {
+    if (selectedStrategyId == null) return null;
+    return strategies.find((s) => s.strategy_id === selectedStrategyId) ?? null;
+  }, [selectedStrategyId, strategies]);
+  const pickerSelectedStrategyId = useMemo(() => {
+    if (selectedStrategyId != null) return selectedStrategyId;
+    return strategies.length ? strategies[0].strategy_id : undefined;
+  }, [selectedStrategyId, strategies]);
+  const startPipeline = useCallback(async () => {
+    const fail = (message: string) => {
+      setSimulationError(message);
+      setToast({ type: 'error', message });
+    };
+
+    setSimulationError(null);
+    setSimulationStatus(null);
+    setSimulationResult(null);
+
+    if (!currentUserId) {
+      fail('Accedi per avviare una simulazione.');
+      return;
+    }
+
+    const portfolioId = Number(idPortafoglio);
+    if (!Number.isFinite(portfolioId) || portfolioId <= 0) {
+      fail('Inserisci un Portfolio ID valido.');
+      return;
+    }
+
+    if (selectedStrategyId == null) {
+      fail('Seleziona una strategia di simulazione.');
+      return;
+    }
+
+    const normalizeNumber = (raw: string): number | null => {
+      if (!raw?.trim()) return null;
+      const parsed = Number(raw.replace(',', '.'));
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const monthlyInvestment = normalizeNumber(ammontare);
+    if (monthlyInvestment == null || monthlyInvestment <= 0) {
+      fail('L\'investimento mensile deve essere maggiore di zero.');
+      return;
+    }
+
+    const initialCapital = normalizeNumber(capitaleIniziale ?? '');
+    if (initialCapital != null && initialCapital < 0) {
+      fail('Il capitale iniziale non può essere negativo.');
+      return;
+    }
+
+    const thresholdValue = normalizeNumber(rebalanceThreshold ?? '') ?? undefined;
+    if (thresholdValue != null && (thresholdValue < 0 || thresholdValue > 1)) {
+      fail('La soglia di ribilanciamento deve essere compresa tra 0 e 1.');
+      return;
+    }
+
+    const toCalendarId = (value: string): number | undefined => {
+      const trimmed = value?.trim();
+      if (!trimmed) return undefined;
+      if (!/^\d{8}$/.test(trimmed)) {
+        fail('Le date devono essere nel formato YYYYMMDD.');
+        throw new Error('invalid_calendar_id');
+      }
+      return Number(trimmed);
+    };
+
+    let startCalendarId: number | undefined;
+    let endCalendarId: number | undefined;
+    try {
+      startCalendarId = toCalendarId(dataInizio);
+      endCalendarId = toCalendarId(dataFine);
+    } catch (err) {
+      if ((err as Error)?.message === 'invalid_calendar_id') {
+        return;
+      }
+      throw err;
+    }
+
+    const payload = {
+      user_id: currentUserId,
+      portfolio_id: portfolioId,
+      strategy_id: selectedStrategyId,
+      monthly_investment: monthlyInvestment,
+      initial_capital: initialCapital ?? undefined,
+      start_calendar_id: startCalendarId,
+      end_calendar_id: endCalendarId,
+      rebalance_threshold: thresholdValue,
+    } satisfies SimulationRunPayload;
+
+    setStarting(true);
+    try {
+      const response = await apiService.runSimulation(payload);
+      if (!isMountedRef.current) return;
+      const statusValue = response.status ?? 'started';
+      setSimulationStatus(statusValue);
+      setSimulationResult(response);
+      if (response.message) {
+        setToast({ type: 'success', message: response.message });
+      } else {
+        setToast({ type: 'success', message: 'Simulazione avviata.' });
+      }
+    } catch (error) {
+      if (!isMountedRef.current) return;
+      const message = error instanceof Error ? error.message : String(error);
+      fail(message);
+    } finally {
+      if (isMountedRef.current) setStarting(false);
+    }
+  }, [ammontare, capitaleIniziale, currentUserId, dataFine, dataInizio, rebalanceThreshold, selectedStrategyId, idPortafoglio]);
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
-      if (pollingRef.current) pollingRef.current.cancelled = true;
     };
   }, []);
   useEffect(()=>{if(!toast) return;const t=setTimeout(()=>setToast(null),4000);return()=>clearTimeout(t);},[toast]);
@@ -278,7 +432,7 @@ export default function PipelineScreen() {
     });
     setPortfolioResults((prev) => {
       let changed = false;
-      const next: Record<number, { calendar_id: number; valore_totale: number }[]> = {};
+  const next: Record<number, { calendar_id: number; valore_totale: number; invested_value: number | null; gain: number | null }[]> = {};
       Object.entries(prev).forEach(([key, value]) => {
         const id = Number(key);
         if (validIds.has(id)) {
@@ -292,32 +446,55 @@ export default function PipelineScreen() {
   }, [portfolios]);
   const togglePortfolio=(id:number)=>setSelectedPortfolios(p=>({...p,[id]:!p[id]}));
   useEffect(() => {
-    const ids = Object.keys(selectedPortfolios).filter(k => selectedPortfolios[Number(k)]).map(Number);
+    const ids = Object.keys(selectedPortfolios)
+      .filter((key) => selectedPortfolios[Number(key)])
+      .map((key) => Number(key))
+      .filter((value) => Number.isFinite(value));
     if (!ids.length) return;
+
+    const uniqueIds = Array.from(new Set(ids));
     let cancelled = false;
     setResultsLoading(true);
     setResultsError(null);
+
     (async () => {
       try {
-        const entries = await Promise.all(
-          ids.map(async pid => {
-            const rows = await apiService.getPortfolioResults(pid, true);
-            return [pid, rows] as [number, any[]];
-          })
-        );
-        if (cancelled) return;
-        const mapped: Record<number, { calendar_id: number; valore_totale: number }[]> = {};
-        entries.forEach(([pid, rows]) => {
-          mapped[pid] = rows.map(r => ({ calendar_id: r.calendar_id, valore_totale: r.valore_totale }));
+        const series = await apiService.getPortfolioResults({
+          portfolioIds: uniqueIds,
+          useCache: true,
         });
-        setPortfolioResults(pr => ({ ...pr, ...mapped }));
+        if (cancelled) return;
+
+        const mapped: Record<number, { calendar_id: number; valore_totale: number; invested_value: number | null; gain: number | null }[]> = {};
+        uniqueIds.forEach((pid) => {
+          mapped[pid] = [];
+        });
+        series.forEach((item) => {
+          mapped[item.portfolio_id] = (item.points ?? []).map((point) => ({
+            calendar_id: point.calendar_id,
+            valore_totale: point.total_value_in_dollars,
+            invested_value: point.invested_value ?? null,
+            gain: point.gain ?? null,
+          }));
+        });
+
+        setPortfolioResults((prev) => {
+          const next = { ...prev };
+          uniqueIds.forEach((pid) => {
+            next[pid] = mapped[pid] ?? [];
+          });
+          return next;
+        });
       } catch (e) {
         if (!cancelled) setResultsError(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setResultsLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedPortfolios]);
   const addCompRow = () => setCompItems((p) => [...p, { key: genKey() }]);
   const removeCompRow = (key: string) => setCompItems((p) => p.filter((r) => r.key !== key));
@@ -416,8 +593,12 @@ export default function PipelineScreen() {
             renderLeftActions={() => (
               <Pressable
                 onPress={async () => {
+                  if (!currentUserId) {
+                    setToast({ type: 'error', message: 'Accedi per eliminare un portafoglio.' });
+                    return;
+                  }
                   try {
-                    await apiService.deletePortfolio(summary.portfolio_id);
+                    const result = await apiService.deletePortfolio(summary.portfolio_id, currentUserId);
                     await loadPortfolios({ bypassCache: true });
                     setSelectedPortfolios((prev) => {
                       if (!(summary.portfolio_id in prev)) return prev;
@@ -431,9 +612,19 @@ export default function PipelineScreen() {
                       delete next[summary.portfolio_id];
                       return next;
                     });
-                    setToast({ type: 'success', message: `Portfolio ${summary.portfolio_id} deleted.` });
+                    const removedMsg = result?.removed_compositions != null
+                      ? ` (${result.removed_compositions} items removed)`
+                      : '';
+                    setToast({ type: 'success', message: `Portfolio ${summary.portfolio_id} deleted${removedMsg}.` });
                   } catch (e) {
-                    const msg = e instanceof Error ? e.message : String(e);
+                    console.error('[pipeline] deletePortfolio failed', e);
+                    const status = typeof (e as any)?.status === 'number' ? (e as any).status : undefined;
+                    let msg = e instanceof Error ? e.message : String(e);
+                    if (status === 403) {
+                      msg = 'Non puoi eliminare un portafoglio di un altro utente.';
+                    } else if (status === 404) {
+                      msg = 'Portafoglio non trovato o già eliminato.';
+                    }
                     setToast({ type: 'error', message: `Delete error: ${msg}` });
                   }
                 }}
@@ -680,10 +871,44 @@ export default function PipelineScreen() {
                 </View>
                 <View style={styles.field}>
                   <Text style={[styles.label, { color: colors.secondaryText }]}>Strategy</Text>
+                  {strategiesLoading ? (
+                    <Text style={styles.small}>Caricamento strategie…</Text>
+                  ) : strategies.length ? (
+                    <View style={[styles.pickerWrapper, { backgroundColor: colors.card, borderColor: colors.border }]}>  
+                      <Picker
+                        selectedValue={pickerSelectedStrategyId}
+                        onValueChange={(value) => {
+                          const numeric = typeof value === 'number' ? value : Number(value);
+                          setSelectedStrategyId(Number.isFinite(numeric) ? numeric : null);
+                        }}
+                      >
+                        {strategies.map((strategy) => (
+                          <Picker.Item
+                            key={strategy.strategy_id}
+                            label={strategy.strategy_name}
+                            value={strategy.strategy_id}
+                          />
+                        ))}
+                      </Picker>
+                    </View>
+                  ) : (
+                    <Text style={styles.small}>Nessuna strategia disponibile</Text>
+                  )}
+                  {strategiesError && <Text style={styles.error}>{strategiesError}</Text>}
+                  {selectedStrategy?.strategy_description && (
+                    <Text style={[styles.small, { color: colors.secondaryText, marginTop: 4 }]}>
+                      {selectedStrategy.strategy_description}
+                    </Text>
+                  )}
+                </View>
+                <View style={styles.field}>
+                  <Text style={[styles.label, { color: colors.secondaryText }]}>Rebalance Threshold (0-1)</Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
-                    value={strategia}
-                    onChangeText={setStrategia}
+                    value={rebalanceThreshold}
+                    onChangeText={setRebalanceThreshold}
+                    placeholder="0.05"
+                    keyboardType="decimal-pad"
                     placeholderTextColor={colors.secondaryText}
                   />
                 </View>
@@ -709,16 +934,23 @@ export default function PipelineScreen() {
                     />
                   </View>
                 </View>
-                {error && <Text style={styles.error}>{error}</Text>}
+                {simulationError && <Text style={styles.error}>{simulationError}</Text>}
                 <Pressable style={[styles.btn, starting && { opacity: 0.6 }]} onPress={startPipeline} disabled={starting}>
                   <Text style={styles.btnText}>{starting ? 'Starting…' : 'Run Pipeline'}</Text>
                 </Pressable>
                 <View style={[styles.statusCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={[styles.statusLabel, { color: colors.secondaryText }]}>Job Status</Text>
-                  <Text style={[styles.statusValue, { color: colors.text }]}>{status ?? 'No job started'}</Text>
-                  {jobId && <Text style={[styles.small, { color: colors.secondaryText }]}>Job ID: {jobId}</Text>}
-                  {pid != null && <Text style={[styles.small, { color: colors.secondaryText }]}>PID: {pid}</Text>}
-                  {logPath && <Text style={[styles.small, { color: colors.secondaryText }]}>Log: {logPath}</Text>}
+                  <Text style={[styles.statusLabel, { color: colors.secondaryText }]}>Simulation Status</Text>
+                  <Text style={[styles.statusValue, { color: colors.text }]}>
+                    {simulationStatus ?? 'Nessuna simulazione avviata'}
+                  </Text>
+                  {simulationResult?.message && (
+                    <Text style={[styles.small, { color: colors.secondaryText }]}>{simulationResult.message}</Text>
+                  )}
+                  {simulationResult && (
+                    <Text style={[styles.small, { color: colors.secondaryText }]}>
+                      {`Asset rows: ${simulationResult.asset_rows?.length ?? 0} • Aggregate rows: ${simulationResult.aggregate_rows?.length ?? 0} • Transactions: ${simulationResult.transaction_rows?.length ?? 0}`}
+                    </Text>
+                  )}
                 </View>
               </View>
             </Animated.View>

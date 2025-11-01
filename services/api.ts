@@ -14,6 +14,14 @@ import {
   PortfolioCompositionResponse,
   PortfolioCompositionEntry,
   UserProfile,
+  PortfolioDeleteResponse,
+  SimulationStrategy,
+  SimulationStrategyResponse,
+  SimulationRunPayload,
+  SimulationRunResponse,
+  SimulationAggregatePoint,
+  SimulationAggregateSeries,
+  SimulationAggregateResultsResponse,
 } from '@/types';
 import { getClerkToken } from '@/utils/clerkToken';
 
@@ -77,14 +85,6 @@ type ChatCompletionRequest = {
   temperature?: number;
 };
 type PortfolioItem = { [key: string]: any };
-type PortfolioResultRow = {
-  calendar_id: number;
-  id_portafoglio: number;
-  valore_investimento: number;
-  plusvalenze: number;
-  valore_totale: number;
-  id_strategia: number;
-};
 type CreatePortfolioResponse = { ID_Portafoglio: number; Descrizione_Portafoglio: string };
 type CompositionItemPost = { ID_ticker?: number; ticker?: string; percentuale: number | string };
 
@@ -515,47 +515,216 @@ class APIService {
     }
   }
 
-  // ------- Pipeline job -------
-  async runPipeline(params: { id_portafoglio: number; ammontare: number; strategia: string; data_inizio: string; data_fine: string; capitale_iniziale?: number }): Promise<{ job_id: string; status: string; pid?: number; log_path?: string }> {
-    const payload = { ...params } as any;
-    if (payload.capitale_iniziale == null) payload.capitale_iniziale = 0;
-    const res = await fetch(`${API_BASE_URL}/api/run_pipeline`, {
+  // ------- Simulations -------
+  async runSimulation(payload: SimulationRunPayload): Promise<SimulationRunResponse> {
+    if (!Number.isFinite(payload.user_id)) {
+      throw new Error('runSimulation: user_id richiesto');
+    }
+    if (!Number.isFinite(payload.portfolio_id)) {
+      throw new Error('runSimulation: portfolio_id richiesto');
+    }
+    if (!Number.isFinite(payload.strategy_id)) {
+      throw new Error('runSimulation: strategy_id richiesto');
+    }
+    if (!Number.isFinite(payload.monthly_investment) || payload.monthly_investment <= 0) {
+      throw new Error('runSimulation: monthly_investment deve essere maggiore di 0');
+    }
+    if (payload.initial_capital != null && payload.initial_capital < 0) {
+      throw new Error('runSimulation: initial_capital non può essere negativo');
+    }
+    if (
+      payload.rebalance_threshold != null &&
+      (payload.rebalance_threshold < 0 || payload.rebalance_threshold > 1)
+    ) {
+      throw new Error('runSimulation: rebalance_threshold deve essere tra 0 e 1');
+    }
+
+    const body: Record<string, any> = {
+      user_id: Number(payload.user_id),
+      portfolio_id: Number(payload.portfolio_id),
+      strategy_id: Number(payload.strategy_id),
+      monthly_investment: Number(payload.monthly_investment),
+    };
+    if (payload.initial_capital != null) body.initial_capital = Number(payload.initial_capital);
+    if (payload.start_calendar_id != null) body.start_calendar_id = Number(payload.start_calendar_id);
+    if (payload.end_calendar_id != null) body.end_calendar_id = Number(payload.end_calendar_id);
+    if (payload.rebalance_threshold != null) body.rebalance_threshold = Number(payload.rebalance_threshold);
+
+    const url = `${API_BASE_URL}/api/simulations`;
+    const res = await fetch(url, {
       method: 'POST',
       headers: await this.withAuth({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
+
+    const textBody = await res.text().catch(() => '');
     if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`Failed to start pipeline (${res.status}): ${txt}`);
+      let message = textBody;
+      if (textBody) {
+        try {
+          const parsed = JSON.parse(textBody);
+          message = parsed?.message ?? parsed?.detail ?? textBody;
+        } catch {}
+      }
+      const errMsg = `[API ERROR] runSimulation: ${res.status} - ${message}`;
+      console.error(errMsg);
+      console.log(errMsg);
+      throw new HTTPError(message || 'Failed to start simulation', res.status, textBody);
     }
-    return res.json();
+
+    if (!textBody) {
+      return { status: res.status === 202 ? 'accepted' : 'ok' };
+    }
+
+    let parsed: SimulationRunResponse | null = null;
+    try {
+      parsed = JSON.parse(textBody) as SimulationRunResponse;
+    } catch (error) {
+      throw new HTTPError('Invalid simulation response JSON', res.status, textBody);
+    }
+
+    if (!parsed.status) {
+      parsed.status = res.status === 202 ? 'accepted' : 'ok';
+    }
+
+    return parsed;
   }
 
-  async getJobStatus(job_id: string): Promise<{ job_id: string; status: string; exit_code?: number | null; log_path?: string; finished_at?: number; started_at?: number }> {
-    const url = new URL('/api/job_status', API_BASE_URL);
-    url.searchParams.append('job_id', job_id);
-  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`Failed to get job status (${res.status}): ${txt}`);
+  /** Fetch aggregate simulation results for one or more portfolios */
+  async getPortfolioResults(options: {
+    portfolioIds: number[];
+    startCalendarId?: number;
+    endCalendarId?: number;
+    useCache?: boolean;
+  }): Promise<SimulationAggregateSeries[]> {
+    if (!options || !Array.isArray(options.portfolioIds)) {
+      throw new Error('getPortfolioResults: portfolioIds è obbligatorio');
     }
-    return res.json();
-  }
 
-  /** Fetch risultati_portafoglio (optionally filtered) */
-  async getPortfolioResults(id_portafoglio?: number, useCache: boolean = true): Promise<PortfolioResultRow[]> {
-    const cacheKey = id_portafoglio == null ? 'portfolio_results_all' : `portfolio_results_${id_portafoglio}`;
+    const uniqueIds = Array.from(
+      new Set(
+        options.portfolioIds
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value) && value > 0)
+      )
+    );
+    if (uniqueIds.length === 0) {
+      throw new Error('getPortfolioResults: nessun portfolioId valido specificato');
+    }
+
+    const normalizedStart = options.startCalendarId != null ? Number(options.startCalendarId) : undefined;
+    if (normalizedStart != null && !Number.isFinite(normalizedStart)) {
+      throw new Error('getPortfolioResults: startCalendarId non valido');
+    }
+    const normalizedEnd = options.endCalendarId != null ? Number(options.endCalendarId) : undefined;
+    if (normalizedEnd != null && !Number.isFinite(normalizedEnd)) {
+      throw new Error('getPortfolioResults: endCalendarId non valido');
+    }
+
+    const profile = await this.getCurrentUserProfile();
+    const userId = Number(profile.user_id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      throw new Error('getPortfolioResults: user_id non disponibile');
+    }
+
+    const sortedIds = uniqueIds.slice().sort((a, b) => a - b);
+    const cacheKeyParts = [
+      'portfolio_results',
+      userId,
+      sortedIds.join('_'),
+      normalizedStart != null ? normalizedStart : 'any',
+      normalizedEnd != null ? normalizedEnd : 'any',
+    ];
+    const cacheKey = cacheKeyParts.join('_');
+    const useCache = options.useCache ?? true;
     if (useCache) {
-      const cached = await this.getCache<PortfolioResultRow[]>(cacheKey, 30 * 60 * 1000); // 30m
+      const cached = await this.getCache<SimulationAggregateSeries[]>(cacheKey, 30 * 60 * 1000);
       if (cached) return cached;
     }
-    const url = new URL('/api/risultati_portafoglio', API_BASE_URL);
-    if (id_portafoglio != null) url.searchParams.append('id_portafoglio', String(id_portafoglio));
-  const res = await fetch(url.toString(), { headers: await this.withAuth({ Accept: 'application/json' }) });
-    if (!res.ok) throw new Error(`Failed to fetch portfolio results: ${res.status}`);
-    const data: PortfolioResultRow[] = await res.json();
-    await this.setCache(cacheKey, data);
-    return data;
+
+    const url = new URL('/api/simulations/aggregate-results', API_BASE_URL);
+    url.searchParams.append('user_id', String(userId));
+    sortedIds.forEach((pid) => url.searchParams.append('portfolio_id', String(pid)));
+    if (normalizedStart != null) url.searchParams.append('start_calendar_id', String(normalizedStart));
+    if (normalizedEnd != null) url.searchParams.append('end_calendar_id', String(normalizedEnd));
+
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: await this.withAuth({ Accept: 'application/json', 'Content-Type': 'application/json' }),
+    });
+
+    const textBody = await res.text().catch(() => '');
+    if (!res.ok) {
+      let message = textBody;
+      if (textBody) {
+        try {
+          const parsed = JSON.parse(textBody);
+          message = parsed?.message ?? parsed?.detail ?? textBody;
+        } catch {
+          // ignore JSON parse errors
+        }
+      }
+      if (res.status === 400) {
+        throw new HTTPError(message || 'Parametri non validi per i risultati aggregati', res.status, textBody);
+      }
+      if (res.status === 404) {
+        throw new HTTPError(message || 'Utente non trovato', res.status, textBody);
+      }
+      throw new HTTPError(message || 'Failed to fetch simulation aggregate results', res.status, textBody);
+    }
+
+    let parsed: SimulationAggregateResultsResponse | null = null;
+    try {
+      parsed = textBody ? (JSON.parse(textBody) as SimulationAggregateResultsResponse) : { items: [] };
+    } catch {
+      throw new HTTPError('Invalid simulation aggregate response JSON', res.status, textBody);
+    }
+
+    const items = Array.isArray(parsed?.items) ? parsed.items : [];
+    const toNumberOrNull = (value: any): number | null => {
+      if (value == null) return null;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+
+    const results: SimulationAggregateSeries[] = items
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const portfolioId = Number((item as any).portfolio_id);
+        if (!Number.isFinite(portfolioId)) return null;
+        const strategyRaw = (item as any).strategy_id;
+        const strategyCandidate = strategyRaw != null ? Number(strategyRaw) : null;
+        const strategyId = strategyCandidate != null && Number.isFinite(strategyCandidate) ? strategyCandidate : null;
+        const pointItems = Array.isArray((item as any).points) ? (item as any).points : [];
+        const points = pointItems
+          .map((rawPoint: any): SimulationAggregatePoint | null => {
+            if (!rawPoint || typeof rawPoint !== 'object') return null;
+            const calendarId = Number(rawPoint.calendar_id);
+            if (!Number.isFinite(calendarId)) return null;
+            const totalValue = toNumberOrNull(rawPoint.total_value_in_dollars);
+            if (totalValue == null) return null;
+            return {
+              calendar_id: calendarId,
+              total_value_in_dollars: totalValue,
+              invested_value: toNumberOrNull(rawPoint.invested_value),
+              gain: toNumberOrNull(rawPoint.gain),
+            };
+          })
+          .filter((point): point is SimulationAggregatePoint => point != null);
+
+        return {
+          portfolio_id: portfolioId,
+          strategy_id: strategyId,
+          points,
+        } as SimulationAggregateSeries;
+      })
+      .filter((item): item is SimulationAggregateSeries => item != null);
+
+    if (useCache) {
+      await this.setCache(cacheKey, results);
+    }
+
+    return results;
   }
 
   async getPortfolios(user_id: number, useCache: boolean = true): Promise<PortfolioSummary[]> {
@@ -600,6 +769,49 @@ class APIService {
         } as PortfolioSummary;
       })
       .filter((p): p is PortfolioSummary => p != null);
+
+    await this.setCache(cacheKey, items);
+    return items;
+  }
+
+  async getSimulationStrategies(useCache: boolean = true): Promise<SimulationStrategy[]> {
+    const cacheKey = 'simulation_strategies_all';
+    if (useCache) {
+      const cached = await this.getCache<SimulationStrategy[]>(cacheKey, 6 * 60 * 60 * 1000);
+      if (cached) return cached;
+    }
+
+    const url = new URL('/api/simulations/strategies', API_BASE_URL);
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: await this.withAuth({ Accept: 'application/json' }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new HTTPError(`Failed to fetch simulation strategies (${res.status})`, res.status, txt);
+    }
+
+    const body: SimulationStrategyResponse | null = await res.json().catch(() => null);
+    if (!body || !Array.isArray(body.items)) {
+      throw new Error('Invalid simulation strategies response format');
+    }
+
+    const items: SimulationStrategy[] = body.items
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const strategy_id = Number((item as any).strategy_id);
+        if (!Number.isFinite(strategy_id)) return null;
+        const strategy_name = String((item as any).strategy_name ?? '').trim();
+        if (!strategy_name) return null;
+        const strategy_description =
+          (item as any).strategy_description != null ? String((item as any).strategy_description) : null;
+        return {
+          strategy_id,
+          strategy_name,
+          strategy_description,
+        } as SimulationStrategy;
+      })
+      .filter((item): item is SimulationStrategy => item != null);
 
     await this.setCache(cacheKey, items);
     return items;
@@ -738,44 +950,60 @@ class APIService {
   }
 
   /** Delete a portfolio and its composition */
-  async deletePortfolio(id_portafoglio: number): Promise<{ ok: true } | any> {
-    // Prefer DELETE with query string; fallback to /api/portafogli/:id if needed
-    const tryUrls = [
-      `${API_BASE_URL}/api/portafogli?id_portafoglio=${encodeURIComponent(String(id_portafoglio))}`,
-      `${API_BASE_URL}/api/portafogli/${encodeURIComponent(String(id_portafoglio))}`,
-    ];
+  async deletePortfolio(portfolio_id: number, user_id: number): Promise<PortfolioDeleteResponse> {
+    if (!Number.isFinite(portfolio_id)) {
+      throw new Error('deletePortfolio: portfolio_id richiesto');
+    }
+    if (!Number.isFinite(user_id)) {
+      throw new Error('deletePortfolio: user_id richiesto');
+    }
 
-    let lastErr: string | null = null;
-    for (const url of tryUrls) {
+    const url = new URL(`${API_BASE_URL}/api/portfolios/${portfolio_id}`);
+    url.searchParams.append('user_id', String(user_id));
+
+    const res = await fetch(url.toString(), {
+      method: 'DELETE',
+      headers: await this.withAuth({ Accept: 'application/json', 'Content-Type': 'application/json' }),
+    });
+
+    const textBody = await res.text().catch(() => '');
+    if (!res.ok) {
+      const message = textBody || res.statusText || 'Failed to delete portfolio';
+      const errMsg = `[API ERROR] deletePortfolio: ${res.status} - ${message}`;
+      console.error(errMsg);
+      console.log(errMsg);
+      throw new HTTPError(message, res.status, textBody);
+    }
+
+    let parsed: any = null;
+    if (textBody) {
       try {
-  const res = await fetch(url, { method: 'DELETE', headers: await this.withAuth({ Accept: 'application/json' }) });
-        if (!res.ok) {
-          const txt = await res.text().catch(() => '');
-          throw new Error(`HTTP ${res.status} ${txt}`);
-        }
-        const data = await res.json().catch(() => ({ ok: true }));
-        // Invalidate portfolio and results caches
-        try {
-          const keys = await AsyncStorage.getAllKeys();
-          const toRemove = keys.filter((k) =>
-            k === 'portfolios_all' ||
-            k.startsWith('portfolios_') ||
-            k === 'portfolio_results_all' ||
-            k.startsWith('portfolio_results_')
-          );
-          if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
-        } catch {}
-        return data;
-      } catch (e) {
-        lastErr = e instanceof Error ? e.message : String(e);
+        parsed = JSON.parse(textBody);
+      } catch {
+        parsed = null;
       }
     }
-  const errMsg = `[API ERROR] deletePortfolio: Failed to delete portfolio id=${id_portafoglio}: ${lastErr ?? 'unknown error'}`;
-  console.error(errMsg);
-  console.log(errMsg);
-    throw new Error(`Failed to delete portfolio id=${id_portafoglio}: ${lastErr ?? 'unknown error'}`);
+
+    const payload: PortfolioDeleteResponse = {
+      portfolio_id,
+      deleted: true,
+      removed_compositions: null,
+    };
+
+    if (parsed && typeof parsed === 'object') {
+      const pid = Number(parsed.portfolio_id ?? parsed.id ?? portfolio_id);
+      payload.portfolio_id = Number.isFinite(pid) ? pid : portfolio_id;
+      if (typeof parsed.deleted === 'boolean') payload.deleted = parsed.deleted;
+      const removed = parsed.removed_compositions ?? parsed.removedComposition ?? parsed.removed;
+      if (removed != null && Number.isFinite(Number(removed))) {
+        payload.removed_compositions = Number(removed);
+      }
+    }
+
+    await this.invalidatePortfolioCachesForUser(user_id);
+    return payload;
   }
 }
 
 export const apiService = new APIService();
-export type { GeographyGroup, TickerSummary, PortfolioResultRow, CreatePortfolioResponse, ChatCompletionMessage };
+export type { GeographyGroup, TickerSummary, SimulationAggregateSeries, SimulationAggregatePoint, CreatePortfolioResponse, ChatCompletionMessage };
