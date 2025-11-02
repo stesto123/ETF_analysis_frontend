@@ -11,6 +11,7 @@ import {
   LayoutAnimation,
   UIManager,
   Animated,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -97,6 +98,7 @@ export default function PipelineScreen() {
   const [compItems, setCompItems] = useState<CompositionDraft[]>([{ key: genKey() }]);
   const [geographies, setGeographies] = useState<GeographyGroup[]>([]);
   const [saving, setSaving] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [openSections, setOpenSections] = useState<OpenSections>(defaultOpen);
   const sectionOpacity = useRef<Record<keyof OpenSections, Animated.Value>>({
     composition: new Animated.Value(0),
@@ -410,6 +412,20 @@ export default function PipelineScreen() {
     if (!currentUserId) return;
     loadPortfolios({ bypassCache: false });
   }, [currentUserId, loadPortfolios]);
+  
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await loadPortfolios({ bypassCache: true });
+      setToast({ type: 'success', message: 'Portfolio composition updated.' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to refresh';
+      setToast({ type: 'error', message });
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [currentUserId]);
+
   useEffect(() => {
     if (!portfolios.length) {
       setSelectedPortfolios({});
@@ -691,7 +707,10 @@ export default function PipelineScreen() {
         <View style={{ position: 'absolute', top: insets.top + 8, left: 16, right: 16, zIndex: 20 }}>
           {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
         </View>
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: Math.max(24, insets.bottom + 12), paddingTop: insets.top + 56 }}>
+        <ScrollView 
+          contentContainerStyle={{ padding: 16, paddingBottom: Math.max(24, insets.bottom + 12), paddingTop: insets.top + 56 }}
+          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
+        >
           <Text style={[styles.title, { color: colors.text, marginBottom: 8 }]}>Pipeline Actions</Text>
 
           {/* Composition Toggle */}
