@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, TextInput } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Trash2, Info } from 'lucide-react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Trash2, Info, Sparkles, Sun, Moon, BarChart3 } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { apiService } from '@/services/api';
 import SignOutButton from '@/components/common/SignOutButton';
 import { useChartSettings, CHART_MAX_POINTS_LIMITS } from '@/components/common/ChartSettingsProvider';
 import { useTheme } from '@/components/common/ThemeProvider';
 
 export default function SettingsScreen() {
+  const insets = useSafeAreaInsets();
   const { setTheme, isDark, colors } = useTheme();
   const { maxPoints, setMaxPoints } = useChartSettings();
   const [draft, setDraft] = useState(String(maxPoints));
@@ -62,104 +64,130 @@ export default function SettingsScreen() {
     );
   };
 
+  const ThemeIcon = isDark ? Moon : Sun;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView style={styles.scrollView}>
-        <Text style={[styles.title, { color: colors.text }]}>Settings</Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(40, insets.bottom + 24) }]}
+      >
 
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Appearance</Text>
-          <TouchableOpacity
-            style={[styles.settingItem, { backgroundColor: colors.card, borderBottomColor: colors.border }]}
-            onPress={() => setTheme(isDark ? 'light' : 'dark')}
-          >
-            <View style={styles.settingLeft}>
-              <View style={styles.settingText}>
-                <Text style={[styles.settingTitle, { color: colors.text }]}>Theme</Text>
-                <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>
-                  {isDark ? 'Dark' : 'Light'} (tap to toggle)
-                </Text>
+        <LinearGradient
+          colors={isDark ? ['#0F172A', '#1F2937'] : ['#2563EB', '#1E40AF']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroCard}
+        >
+          <View style={styles.heroIconWrap}>
+            <Sparkles size={28} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.heroTitle}>Personalizza la tua esperienza</Text>
+            <Text style={styles.heroSubtitle}>
+              Controlla tema, preferenze dei grafici e gestione dei dati per lavorare in modo più fluido.
+            </Text>
+            <View style={styles.heroStatsRow}>
+              <View style={styles.heroStatPill}>
+                <ThemeIcon size={16} color="#FFFFFF" />
+                <Text style={styles.heroStatText}>{isDark ? 'Tema scuro attivo' : 'Tema chiaro attivo'}</Text>
               </View>
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Charts</Text>
-          <View style={[styles.settingItem, { backgroundColor: colors.card, borderBottomColor: colors.border }]}> 
-            <View style={styles.settingLeft}>
-              <View style={styles.settingText}>
-                <Text style={[styles.settingTitle, { color: colors.text }]}>Max Points per Line Chart</Text>
-                <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>
-                  Global cap (default {CHART_MAX_POINTS_LIMITS.DEFAULT}, range {CHART_MAX_POINTS_LIMITS.MIN}-{CHART_MAX_POINTS_LIMITS.MAX})
-                </Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                  <TextInput
-                    style={[styles.numberInput, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
-                    keyboardType="number-pad"
-                    value={draft}
-                    onChangeText={setDraft}
-                    placeholder="60"
-                    placeholderTextColor={colors.secondaryText}
-                    maxLength={4}
-                  />
-                  <TouchableOpacity style={[styles.applyBtn, { backgroundColor: colors.accent }]} onPress={commit}>
-                    <Text style={styles.applyBtnText}>Apply</Text>
-                  </TouchableOpacity>
-                </View>
-                {feedback && <Text style={[styles.errorText, { color: '#DC2626' }]}>{feedback}</Text>}
+              <View style={styles.heroStatPill}>
+                <BarChart3 size={16} color="#FFFFFF" />
+                <Text style={styles.heroStatText}>Max punti: {maxPoints}</Text>
               </View>
             </View>
           </View>
-        </View>
+        </LinearGradient>
 
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Data Management</Text>
-          
-          <TouchableOpacity style={[styles.settingItem, { backgroundColor: colors.card, borderBottomColor: colors.border }]} onPress={handleClearCache}>
-            <View style={styles.settingLeft}>
-              <Trash2 size={24} color="#EF4444" />
-              <View style={styles.settingText}>
-                <Text style={[styles.settingTitle, { color: colors.text }]}>Clear Cache</Text>
-                <Text style={[styles.settingDescription, { color: colors.secondaryText }] }>
-                  Remove all locally stored data
-                </Text>
-              </View>
+        <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Aspetto</Text>
+          <TouchableOpacity
+            style={[styles.settingRow, { borderColor: colors.border, backgroundColor: colors.background }]}
+            onPress={() => setTheme(isDark ? 'light' : 'dark')}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.settingIcon, { backgroundColor: colors.accent }]}> 
+              <ThemeIcon size={20} color="#FFFFFF" />
+            </View>
+            <View style={styles.settingText}>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>Tema</Text>
+              <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Tocca per alternare tra chiaro e scuro</Text>
             </View>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Application</Text>
-          
-          <TouchableOpacity style={[styles.settingItem, { backgroundColor: colors.card, borderBottomColor: colors.border }]} onPress={showAbout}>
-            <View style={styles.settingLeft}>
-              <Info size={24} color="#3B82F6" />
-              <View style={styles.settingText}>
-                <Text style={[styles.settingTitle, { color: colors.text }]}>About</Text>
-                <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>
-                  App information and version
-                </Text>
+        <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Grafici</Text>
+          <View style={[styles.settingRow, styles.settingRowColumn, { borderColor: colors.border, backgroundColor: colors.background }]}>
+            <View style={styles.settingHeader}>
+              <BarChart3 size={22} color={colors.accent} />
+              <View style={styles.settingTextSpace}>
+                <Text style={[styles.settingTitle, { color: colors.text }]}>Max punti per linea</Text>
+                <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Default {CHART_MAX_POINTS_LIMITS.DEFAULT} · intervallo {CHART_MAX_POINTS_LIMITS.MIN}-{CHART_MAX_POINTS_LIMITS.MAX}</Text>
               </View>
+            </View>
+            <View style={styles.inputRowInline}>
+              <TextInput
+                style={[styles.numberInput, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                keyboardType="number-pad"
+                value={draft}
+                onChangeText={setDraft}
+                placeholder="60"
+                placeholderTextColor={colors.secondaryText}
+                maxLength={4}
+              />
+              <TouchableOpacity style={[styles.applyBtn, { backgroundColor: colors.accent }]} onPress={commit} activeOpacity={0.85}>
+                <Text style={styles.applyBtnText}>Applica</Text>
+              </TouchableOpacity>
+            </View>
+            {feedback && <Text style={[styles.errorText, { color: '#DC2626' }]}>{feedback}</Text>}
+          </View>
+        </View>
+
+        <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Gestione dati</Text>
+          <TouchableOpacity
+            style={[styles.settingRow, { borderColor: colors.border, backgroundColor: colors.background }]}
+            onPress={handleClearCache}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.settingIcon, styles.dangerIcon]}>
+              <Trash2 size={20} color="#FFFFFF" />
+            </View>
+            <View style={styles.settingText}>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>Svuota cache</Text>
+              <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Rimuove i dati archiviati localmente</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Applicazione</Text>
+          <TouchableOpacity
+            style={[styles.settingRow, { borderColor: colors.border, backgroundColor: colors.background }]}
+            onPress={showAbout}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.settingIcon, { backgroundColor: colors.accent }]}>
+              <Info size={20} color="#FFFFFF" />
+            </View>
+            <View style={styles.settingText}>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>Informazioni</Text>
+              <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Dettagli versione e credits</Text>
             </View>
           </TouchableOpacity>
 
-          <View style={{ marginTop: 12 }}>
+          <View style={styles.signOutWrapper}>
             <SignOutButton />
           </View>
         </View>
 
-        <View style={[styles.apiInfo, { backgroundColor: colors.card, borderLeftColor: colors.accent }] }>
-          <Text style={[styles.apiTitle, { color: colors.text }]}>API Information</Text>
-          <Text style={[styles.apiText, { color: colors.secondaryText }] }>
-            Base URL: wa-etf-analysis-d0enavd0h5e9f5gr.italynorth-01.azurewebsites.net
-          </Text>
-          <Text style={[styles.apiText, { color: colors.secondaryText }] }>
-            Endpoint: /api/dati
-          </Text>
-          <Text style={[styles.apiText, { color: colors.secondaryText }] }>
-            Data is cached locally for 1 hour to improve performance
-          </Text>
+        <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.accent }]}>
+          <Text style={[styles.apiTitle, { color: colors.text }]}>Endpoint API</Text>
+          <Text style={[styles.apiText, { color: colors.secondaryText }]}>Base URL: wa-etf-analysis-d0enavd0h5e9f5gr.italynorth-01.azurewebsites.net</Text>
+          <Text style={[styles.apiText, { color: colors.secondaryText }]}>Endpoint: /api/dati</Text>
+          <Text style={[styles.apiText, { color: colors.secondaryText }]}>Cache locale: 1 ora per risposte più rapide</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -169,90 +197,144 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
   },
-  scrollView: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#1F2937',
-    margin: 20,
-    marginBottom: 8,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-    marginHorizontal: 20,
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  settingItem: {
-    backgroundColor: '#fff',
+  scrollContent: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    paddingTop: 24,
+    rowGap: 20,
   },
-  settingLeft: {
+  heroCard: {
+    borderRadius: 24,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    columnGap: 16,
+    shadowColor: '#000000',
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 6,
+  },
+  heroIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.24)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  heroSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.88)',
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 10,
+    rowGap: 10,
+    marginTop: 16,
+  },
+  heroStatPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    columnGap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  heroStatText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sectionCard: {
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 12,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    columnGap: 16,
+  },
+  settingRowColumn: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    rowGap: 14,
+  },
+  settingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 14,
+  },
+  settingTextSpace: {
+    flex: 1,
+  },
+  settingIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dangerIcon: {
+    backgroundColor: '#EF4444',
   },
   settingText: {
-    marginLeft: 16,
     flex: 1,
+    rowGap: 4,
   },
   settingTitle: {
     fontSize: 16,
-    fontWeight: '500',
-    color: '#1F2937',
-    marginBottom: 2,
+    fontWeight: '600',
   },
   settingDescription: {
-    fontSize: 14,
-    color: '#6B7280',
+    fontSize: 13,
+    marginTop: 2,
   },
-  apiInfo: {
-    backgroundColor: '#fff',
-    margin: 20,
-    padding: 20,
-    borderRadius: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#3B82F6',
-  },
-  apiTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 12,
-  },
-  apiText: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 4,
-    lineHeight: 20,
+  inputRowInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 12,
   },
   numberInput: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     fontSize: 14,
-    minWidth: 80,
-    marginRight: 12,
+    minWidth: 90,
   },
   applyBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#2563EB',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
   applyBtnText: {
     fontSize: 14,
@@ -262,6 +344,29 @@ const styles = StyleSheet.create({
   errorText: {
     marginTop: 6,
     fontSize: 12,
-    color: '#DC2626',
+  },
+  signOutWrapper: {
+    marginTop: 16,
+  },
+  apiCard: {
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 4,
+    shadowColor: '#000000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  apiTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  apiText: {
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 4,
   },
 });

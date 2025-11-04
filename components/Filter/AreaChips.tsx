@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, FlatList } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/components/common/ThemeProvider';
 
 export type GeographyOption = {
@@ -22,13 +23,14 @@ const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) =>
   const data = [{ geography_name: 'Tutte', geography_id: -1 }, ...areas];
 
   const { colors, isDark } = useTheme();
+  const selectedGradient = isDark ? ['#1D4ED8', '#1E3A8A'] as const : ['#2563EB', '#1E3A8A'] as const;
   return (
     <View style={styles.container}>
-  <Text style={[styles.label, { color: colors.text }]}>Aree geografiche</Text>
+      <Text style={[styles.label, { color: colors.text }]}>Aree geografiche</Text>
 
       <FlatList
         data={data}
-  keyExtractor={(item) => String(item.geography_id)}
+        keyExtractor={(item) => String(item.geography_id)}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
@@ -36,8 +38,8 @@ const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) =>
           const isSelected =
             (selectedId === null && item.geography_id === -1) ||
             selectedId === item.geography_id;
-          const secondary = item.iso_code || item.country || item.continent || '';
-          const label = secondary ? `${item.geography_name} (${secondary})` : item.geography_name;
+          const secondary = item.geography_id === -1 ? null : item.iso_code || item.country || item.continent || null;
+          const primary = item.geography_name;
 
           return (
             <Pressable
@@ -45,15 +47,28 @@ const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) =>
                 onSelect(item.geography_id === -1 ? null : item.geography_id)
               }
               style={({ pressed }) => [
-                [styles.chip, { borderColor: colors.border, backgroundColor: colors.card }],
-                isSelected && { backgroundColor: colors.accent, borderColor: colors.accent, elevation: 2 },
-                pressed && styles.chipPressed,
+                styles.chipWrapper,
+                isSelected && styles.chipWrapperElevated,
+                pressed && styles.chipWrapperPressed,
               ]}
-              android_ripple={{ color: isDark ? '#334155' : '#e5e7eb', borderless: false }}
+              android_ripple={{ color: isDark ? 'rgba(59,130,246,0.16)' : 'rgba(37,99,235,0.18)', borderless: false }}
             >
-              <Text style={[styles.chipText, { color: colors.text }, isSelected && { color: '#FFFFFF' }]}>
-                {label}
-              </Text>
+              {isSelected ? (
+                <LinearGradient
+                  colors={selectedGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.chipSelected}
+                >
+                  <Text style={styles.chipTitleActive}>{primary}</Text>
+                  {secondary ? <Text style={styles.chipSubtitleActive}>{secondary}</Text> : null}
+                </LinearGradient>
+              ) : (
+                <View style={[styles.chipDefault, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                  <Text style={[styles.chipTitle, { color: colors.text }]}>{primary}</Text>
+                  {secondary ? <Text style={[styles.chipSubtitle, { color: colors.secondaryText }]}>{secondary}</Text> : null}
+                </View>
+              )}
             </Pressable>
           );
         }}
@@ -68,26 +83,68 @@ const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) =>
 };
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
-  label: { fontSize: 14, fontWeight: '600', color: '#111827', marginBottom: 8 },
-  listContent: { paddingRight: 8 },
-  chip: {
-    borderWidth: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    marginRight: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+  container: {
+    paddingVertical: 4,
   },
-  chipPressed: {
-    opacity: 0.85,
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 12,
+    paddingHorizontal: 20,
   },
-  chipText: { color: '#111827', fontSize: 13, fontWeight: '500' },
-  empty: { paddingVertical: 8, paddingHorizontal: 12 },
+  listContent: {
+    paddingHorizontal: 20,
+    paddingRight: 16,
+  },
+  chipWrapper: {
+    marginRight: 12,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  chipWrapperPressed: {
+    transform: [{ scale: 0.97 }],
+  },
+  chipWrapperElevated: {
+    shadowColor: '#000000',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  chipDefault: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  chipSelected: {
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  chipTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  chipSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  chipTitleActive: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  chipSubtitleActive: {
+    fontSize: 12,
+    marginTop: 2,
+    color: 'rgba(255,255,255,0.78)',
+  },
+  empty: { paddingVertical: 8, paddingHorizontal: 20 },
   emptyText: { color: '#6B7280' },
 });
 

@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Dimensions, PanResponder, Animated } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Sparkles, Target, MapPin } from 'lucide-react-native';
 
 import ETFQueryForm from '@/components/Form/ETFQueryForm';
 import ETFLineChart from '@/components/Chart/LineChart';
@@ -126,9 +128,18 @@ const aggregateOnBuckets = (
   return { data: series, upOrDown };
 };
 
+const formatDisplayDate = (iso: string | undefined | null) => {
+  if (!iso) return '';
+  const parts = iso.split('-').map((p) => Number(p));
+  if (parts.length < 3 || parts.some((p) => Number.isNaN(p) || p <= 0)) return iso;
+  const [year, month, day] = parts;
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+};
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -217,6 +228,34 @@ export default function HomeScreen() {
     selectedArray.forEach((t, i) => m.set(t.ticker_id, i));
     return m;
   }, [selectedArray]);
+
+  const selectedCount = useMemo(() => Object.keys(selectedTickers).length, [selectedTickers]);
+  const totalTickers = tickers.length;
+  const totalAreas = geographies.length;
+  const currentAreaName = useMemo(() => {
+    if (selectedArea == null) return 'Tutte le aree';
+    const match = geographies.find((g) => g.geography_id === selectedArea);
+    return match?.geography_name ?? 'Area selezionata';
+  }, [geographies, selectedArea]);
+  const lastRangeLabel = useMemo(() => {
+    if (!lastRange) return 'Intervallo non impostato';
+    const start = formatDisplayDate(lastRange.start_date);
+    const end = formatDisplayDate(lastRange.end_date);
+    if (!start || !end) return `${lastRange.start_date} → ${lastRange.end_date}`;
+    return `${start} → ${end}`;
+  }, [lastRange]);
+  const heroGradient = isDark ? ['#0F172A', '#1F2937', '#111827'] as const : ['#2563EB', '#1D4ED8', '#1E3A8A'] as const;
+  const heroPillBackground = isDark ? 'rgba(148, 163, 184, 0.18)' : 'rgba(255,255,255,0.18)';
+  const heroPillBorder = isDark ? 'rgba(148,163,184,0.3)' : 'rgba(255,255,255,0.45)';
+  const contentBottomPadding = Math.max(32, insets.bottom + 24);
+  const contentTopPadding = Math.max(24, insets.top + 8);
+  const selectionStatLabel = totalTickers > 0 ? `${selectedCount}/${totalTickers} selezionati` : `${selectedCount} selezionati`;
+  const areaStatLabel = totalAreas > 0 ? `${totalAreas} aree · ${lastRangeLabel}` : lastRangeLabel;
+  const heroSubtitle = useMemo(() => {
+    if (totalTickers === 0) return 'Nessun ETF disponibile per quest’area. Prova con un’altra selezione.';
+    if (selectedCount > 0) return `Stai monitorando ${selectedCount} ETF da ${currentAreaName}.`;
+    return `Seleziona ETF per analizzare l’andamento di ${currentAreaName}.`;
+  }, [selectedCount, currentAreaName, totalTickers]);
 
   // responsive sizing (kept for possible future use)
   // const screenHeight = Dimensions.get('window').height;
@@ -325,7 +364,13 @@ export default function HomeScreen() {
           useCache
         );
         const seriesMap = new Map<number, PricePoint[]>(
-          seriesList.map((series) => [series.ticker_id, series.points])
+          seriesList.map((series) => [
+            series.ticker_id, 
+            series.points.map(point => ({
+              ...point,
+              cumulative_return: point.simple_return // Use simple_return as cumulative_return or set to null if different logic needed
+            }))
+          ])
         );
         const results = toLoadOrdered.map((t) => ({ t, rows: seriesMap.get(t.ticker_id) ?? [] }));
 
@@ -468,24 +513,46 @@ export default function HomeScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background, paddingBottom: Math.max(12, insets.bottom + 12) }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            colors={['#3B82F6']}
-            tintColor="#3B82F6"
+            colors={[colors.accent]}
+            tintColor={colors.accent}
           />
         }
-        contentContainerStyle={{ paddingBottom: Math.max(24, insets.bottom + 12) }}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: contentBottomPadding, paddingTop: contentTopPadding },
+        ]}
       >
-        <AreaChips
-          areas={geographyOptions}
-          selectedId={selectedArea}
-          onSelect={setSelectedArea}
-          loading={tickersLoading}
-        />
+        <LinearGradient colors={heroGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
+          <View style={styles.heroIcon}>
+            <Sparkles size={28} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.heroTitle}>ETF Analytics</Text>
+            <Text style={styles.heroSubtitle}>{heroSubtitle}</Text>
+            <View style={styles.heroStatsRow}>
+              <View style={[styles.heroStat, { backgroundColor: heroPillBackground, borderColor: heroPillBorder }]}>
+                <Target size={16} color="#FFFFFF" />
+                <Text style={styles.heroStatText}>
+                  {selectionStatLabel}
+                </Text>
+              </View>
+              <View style={[styles.heroStat, { backgroundColor: heroPillBackground, borderColor: heroPillBorder }]}>
+                <MapPin size={16} color="#FFFFFF" />
+                <Text style={styles.heroStatText}>
+                  {areaStatLabel}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </LinearGradient>
+
+        <AreaChips areas={geographyOptions} selectedId={selectedArea} onSelect={setSelectedArea} loading={tickersLoading} />
   <View style={[styles.tickersCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.tickersHeader}>
             <Text style={[styles.tickersTitle, { color: colors.text }] }>
@@ -510,7 +577,7 @@ export default function HomeScreen() {
                   </Text>
                 </Pressable>
                 <Text style={[styles.selectedCounter, { color: colors.secondaryText }]}>
-                  Selezionati: {Object.keys(selectedTickers).length}
+                  Selezionati: {selectedCount}
                 </Text>
               </View>
               <Animated.View style={[styles.tickerScrollableContainer, { height: animatedHeight }]}> 
@@ -588,90 +655,237 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F3F4F6' },
-  scrollView: { flex: 1 }, // deprecated after refactor, kept if reused elsewhere
-  firstTickerWrapper: { backgroundColor: '#FFFFFF', marginHorizontal: 12, borderRadius: 10 }, // legacy
-  tickerListContainer: { marginTop: 4 },
-
-  tickersCard: {
-  backgroundColor: '#FFFFFF',
-  borderRadius: 10,
-  padding: 12,
-  marginHorizontal: 12,
-  marginBottom: 8,
+  container: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    rowGap: 20,
+  },
+  heroCard: {
+    borderRadius: 22,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    columnGap: 16,
+    shadowColor: '#000000',
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 5,
+  },
+  heroIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
+  heroSubtitle: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.9)',
+    marginBottom: 14,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 8,
+    rowGap: 8,
+  },
+  heroStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 8,
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
-  tickersHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  tickersTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: '#111827' },
-  tickersHint: { color: '#6B7280', fontSize: 13 },
-  separator: { height: 1, backgroundColor: '#E5E7EB', marginVertical: 8 },
-  tickerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, justifyContent: 'space-between' },
-  tickerSymbol: { flex: 1, fontSize: 15, fontWeight: '600', color: '#111827' },
-  tickerName: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  tickerSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
-  tickerId: { fontSize: 12, color: '#6B7280', marginLeft: 8 },
-  tickerDot: { width: 8, height: 8, borderRadius: 4, marginRight: 4, opacity: 0.9 },
+  heroStatText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tickersCard: {
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  tickersHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    columnGap: 12,
+  },
+  tickersTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  tickersHint: {
+    fontSize: 13,
+  },
   badge: {
-    minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6,
-    backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center',
+    minWidth: 26,
+    height: 26,
+    borderRadius: 13,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  badgeText: { fontSize: 12, color: '#111827', fontWeight: '700' },
-  bulkRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 12 },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  bulkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    columnGap: 12,
+  },
   bulkBtn: {
-    paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999,
-    borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    borderWidth: 1,
   },
-  bulkBtnText: { fontSize: 12, color: '#111827', fontWeight: '600' },
-  selectedCounter: { marginLeft: 'auto', fontSize: 12, color: '#374151', fontWeight: '600' },
-
+  bulkBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  selectedCounter: {
+    marginLeft: 'auto',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tickerScrollableContainer: {
+    overflow: 'hidden',
+    width: '100%',
+  },
+  dragHandleWrapper: {
+    alignItems: 'center',
+    paddingTop: 4,
+    paddingBottom: 6,
+  },
+  dragHandlePress: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+  },
+  dragHandleBar: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    marginBottom: 6,
+    opacity: 0.75,
+  },
+  handleLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  innerScrollWrapper: {
+    flex: 1,
+    position: 'relative',
+  },
+  tickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 14,
+    paddingVertical: 10,
+  },
   checkbox: {
-    width: 20, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#D1D5DB',
-    alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  checkboxOn: { backgroundColor: '#3B82F6', borderColor: '#3B82F6' },
-  checkboxMark: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
-
-  chartContainer: { flex: 1, minHeight: 300, paddingBottom: 16 },
-  chartCard: {
-  backgroundColor: '#FFFFFF',
-  borderRadius: 10,
-  padding: 6,
-  marginHorizontal: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+  checkboxMark: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
   },
-  // New ticker list pagination / expansion styles
-  dragHandleWrapper: { alignItems: 'center', paddingTop: 4, paddingBottom: 4 },
-  dragHandlePress: { alignItems: 'center', justifyContent: 'center', paddingVertical: 4 },
-  dragHandleBar: { width: 44, height: 5, borderRadius: 3, marginBottom: 4, opacity: 0.7 },
-  handleLabel: { fontSize: 11, fontWeight: '500' },
-  flatList: { flexGrow: 0 },
-  flatListContent: { paddingBottom: 8 },
+  tickerDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 2,
+  },
+  tickerName: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  tickerSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    opacity: 0.5,
+    marginVertical: 8,
+  },
   fadeBottom: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
     height: 56,
-    backgroundColor: 'transparent',
-    // gradient simulation via layered opacity (could replace with expo-linear-gradient)
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(0,0,0,0.06)',
   },
-  paginationRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 8 },
-  pageBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: '#E5E7EB' },
-  pageBtnDisabled: { opacity: 0.4 },
-  pageBtnText: { fontSize: 14, fontWeight: '700', color: '#111827' },
-  pageIndicator: { fontSize: 12, fontWeight: '600' },
-  tickerScrollableContainer: { overflow: 'hidden', width: '100%' },
-  innerScrollWrapper: { flex: 1, position: 'relative' },
-  // pipeline styles removed (moved to dedicated screen)
+  paginationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    columnGap: 12,
+    marginTop: 12,
+  },
+  pageBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#E5E7EB',
+  },
+  pageBtnDisabled: {
+    opacity: 0.4,
+  },
+  pageBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  pageIndicator: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  chartContainer: {
+    flex: 1,
+    marginTop: 8,
+  },
+  chartCard: {
+    borderRadius: 18,
+    padding: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+    rowGap: 16,
+  },
 });

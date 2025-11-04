@@ -9,14 +9,14 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Send } from 'lucide-react-native';
+import { Send, Sparkles, Lightbulb } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/components/common/ThemeProvider';
 import { apiService } from '@/services/api';
 import type { ChatCompletionMessage } from '@/services/api';
-import { Link, usePathname } from 'expo-router';
-import type { Href } from 'expo-router';
 
 type ChatMessage = {
   id: string;
@@ -24,9 +24,14 @@ type ChatMessage = {
   content: string;
 };
 
+const CHAT_SUGGESTIONS = [
+  'Mostrami gli ETF più performanti dell’ultimo trimestre',
+  'Quali ETF hanno la volatilità più bassa?',
+  'Suggerisci una diversificazione per ETF tecnologici europei',
+];
+
 export default function ChatScreen() {
   const { colors, isDark } = useTheme();
-  const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -43,8 +48,8 @@ export default function ChatScreen() {
     scrollRef.current?.scrollToEnd({ animated: true });
   }, [messages, isSending]);
 
-  const handleSend = async () => {
-    const trimmed = input.trim();
+  const sendPrompt = async (raw: string) => {
+    const trimmed = raw.trim();
     if (!trimmed || isSending) {
       return;
     }
@@ -57,8 +62,8 @@ export default function ChatScreen() {
 
     const optimisticMessages = [...messages, userMessage];
     setMessages(optimisticMessages);
-    setInput('');
 
+    setInput('');
     setIsSending(true);
 
     const conversationMessages: ChatCompletionMessage[] = optimisticMessages
@@ -91,6 +96,10 @@ export default function ChatScreen() {
     }
   };
 
+  const handleSend = () => {
+    void sendPrompt(input);
+  };
+
   const sendDisabled = !input.trim() || isSending;
 
   return (
@@ -103,9 +112,45 @@ export default function ChatScreen() {
         <View style={styles.flex}>
           <ScrollView
             ref={scrollRef}
-            contentContainerStyle={styles.messagesContainer}
+            contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
+            <LinearGradient
+              colors={isDark ? ['#0F172A', '#1F2937'] : ['#2563EB', '#1E40AF']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.heroCard}
+            >
+              <View style={styles.heroIcon}>
+                <Sparkles size={22} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.heroTitle}>Assistente ETF</Text>
+                <Text style={styles.heroSubtitle}>
+                  Fai domande su performance, volatilità o strategie di allocazione: ti rispondo in pochi secondi.
+                </Text>
+              </View>
+            </LinearGradient>
+
+            <View style={[styles.suggestionRow, { borderColor: colors.border, backgroundColor: colors.card }]}>
+              {CHAT_SUGGESTIONS.map((suggestion) => (
+                <Pressable
+                  key={suggestion}
+                  onPress={() => void sendPrompt(suggestion)}
+                  disabled={isSending}
+                  style={({ pressed }) => [
+                    styles.suggestionChip,
+                    { borderColor: colors.border, backgroundColor: colors.background },
+                    pressed && styles.suggestionChipPressed,
+                  ]}
+                >
+                  <Lightbulb size={16} color={colors.accent} />
+                  <Text style={[styles.suggestionText, { color: colors.text }]}>{suggestion}</Text>
+                </Pressable>
+              ))}
+            </View>
+
             {messages.map((message) => {
               const assistantBackground = isDark ? '#1F2933' : colors.card;
               const bubbleStyle = StyleSheet.flatten([
@@ -197,10 +242,66 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  messagesContainer: {
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 24,
+    rowGap: 16,
+  },
+  heroCard: {
+    borderRadius: 20,
+    padding: 18,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    columnGap: 12,
+    shadowColor: '#000000',
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+  heroIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  heroSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.86)',
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  suggestionRow: {
+    borderRadius: 18,
     paddingHorizontal: 16,
-    paddingVertical: 20,
-    gap: 12,
+    paddingVertical: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    rowGap: 10,
+  },
+  suggestionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  suggestionChipPressed: {
+    transform: [{ scale: 0.98 }],
+  },
+  suggestionText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
   },
   messageBubble: {
     paddingHorizontal: 14,
@@ -227,25 +328,30 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    columnGap: 12,
+    shadowColor: '#000000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 4,
   },
   input: {
     flex: 1,
-    borderWidth: 1,
-    borderRadius: 14,
-    minHeight: 40,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    minHeight: 44,
     maxHeight: 140,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 15,
   },
   sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
