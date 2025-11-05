@@ -296,7 +296,7 @@ class APIService {
 
   /**
    * Fetch price history and cumulative returns for ETF(s).
-   * Ogni point ora include anche simple_return (ignora log_return).
+  * Ogni point ora include anche cumulative_return (ignora log_return).
    * La struttura attesa è:
    * {
    *   items: [
@@ -307,7 +307,7 @@ class APIService {
    *           calendar_id: number,
    *           close_price: number,
    *           volume: number | null,
-   *           simple_return: number | null
+  *           cumulative_return: number | null
    *         }, ...
    *       ]
    *     }, ...
@@ -317,7 +317,7 @@ class APIService {
   async fetchETFData(
     params: { tickerIds: number[]; startCalendarId?: string | number; endCalendarId?: string | number; startDate?: string; endDate?: string },
     useCache: boolean = true
-  ): Promise<Array<{ ticker_id: number; points: Array<{ calendar_id: number; close_price: number; volume: number | null; simple_return: number | null }> }>> {
+  ): Promise<Array<{ ticker_id: number; points: PricePoint[] }>> {
     const validIds = Array.isArray(params.tickerIds)
       ? params.tickerIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
       : [];
@@ -354,7 +354,7 @@ class APIService {
       return [];
     }
 
-    // Mappa la nuova struttura, includendo simple_return e ignorando log_return
+  // Mappa la nuova struttura, includendo cumulative_return e ignorando log_return
     const items = body.items.map((series: any) => {
       const tickerId = Number(series.ticker_id);
       if (!Number.isFinite(tickerId)) return null;
@@ -367,7 +367,10 @@ class APIService {
             const volumeRaw = point.volume;
             const volumeNumber = volumeRaw == null ? null : Number(volumeRaw);
             const volume = volumeNumber != null && Number.isFinite(volumeNumber) ? volumeNumber : null;
-            const cumulative_return = point.cumulative_return != null && !isNaN(Number(point.cumulative_return)) ? Number(point.cumulative_return) : 0;
+            const cumulative_return =
+              point.cumulative_return != null && !isNaN(Number(point.cumulative_return))
+                ? Number(point.cumulative_return)
+                : null;
             return { calendar_id: calendar, close_price: close, volume, cumulative_return };
           }).filter((p: any) => p != null)
         : [];
@@ -710,7 +713,9 @@ class APIService {
               gain: toNumberOrNull(rawPoint.gain),
             };
           })
-          .filter((point): point is SimulationAggregatePoint => point != null);
+          .filter(
+            (point: SimulationAggregatePoint | null): point is SimulationAggregatePoint => point != null
+          );
 
         return {
           portfolio_id: portfolioId,

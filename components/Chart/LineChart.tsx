@@ -1,5 +1,5 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Text, LayoutChangeEvent, Pressable } from 'react-native';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { View, StyleSheet, Text, LayoutChangeEvent, Pressable, PanResponder } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { ChartDataPoint } from '@/types';
 import { getLineColor as importedGetLineColor } from '@/utils/linePalette';
@@ -61,6 +61,16 @@ const CONTAINER_PADDING = 10;
 const CHART_ASPECT = 0.55;
 const MIN_HEIGHT = 160;
 const MAX_HEIGHT = 360;
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const distanceBetweenTouches = (touches: readonly { pageX: number; pageY: number }[]) => {
+  if (!touches || touches.length < 2) return 0;
+  const [a, b] = touches;
+  const dx = a.pageX - b.pageX;
+  const dy = a.pageY - b.pageY;
+  return Math.sqrt(dx * dx + dy * dy);
+};
 
 export default function ETFLineChart(props: Props) {
   const { colors } = useTheme();
@@ -243,18 +253,74 @@ export default function ETFLineChart(props: Props) {
   }, [isMulti, labels, fullDatasets, maxPoints]);
 
   // apply visibility filter to datasets
-  const datasets = useMemo(() => {
+  const filteredDatasets = useMemo(() => {
     if (!isMulti) return dsDatasets as any;
     return (dsDatasets as any[]).filter((d) => visibleMap[(d as any).key] !== false);
   }, [dsDatasets, visibleMap, isMulti]);
 
+  const totalPoints = useMemo(() => {
+    if (!Array.isArray(filteredDatasets) || filteredDatasets.length === 0) return 0;
+    const first = (filteredDatasets as any[])[0]?.data;
+    return Array.isArray(first) ? first.length : 0;
+  }, [filteredDatasets]);
+
+  const [viewWindow, setViewWindow] = useState<{ start: number; end: number } | null>(null);
+  const prevTotalPointsRef = useRef<number>(0);
+
+  const runtimeRef = useRef({
+    innerWidth: 0,
+    totalPoints: 0,
+    minSpan: 1,
+    activeWindow: null as { start: number; end: number } | null,
+    interactive: false,
+  });
+
+  const gestureTrackingRef = useRef({
+    mode: null as 'pan' | 'pinch' | null,
+    initialWindow: null as { start: number; end: number } | null,
+    initialDistance: 0,
+  });
+
+  useEffect(() => {
+    if (totalPoints <= 0) {
+      setViewWindow(null);
+      prevTotalPointsRef.current = totalPoints;
+      return;
+    }
+
+    if (prevTotalPointsRef.current !== totalPoints) {
+      setViewWindow({ start: 0, end: totalPoints });
+      prevTotalPointsRef.current = totalPoints;
+      return;
+    }
+
+    setViewWindow((prev) => {
+      if (!prev) return { start: 0, end: totalPoints };
+      let start = Math.max(0, Math.min(totalPoints - 1, Math.round(prev.start)));
+      let end = Math.max(start + 1, Math.min(totalPoints, Math.round(prev.end)));
+      if (end - start <= 0) end = Math.min(totalPoints, start + 1);
+      if (prev.start === start && prev.end === end) return prev;
+      return { start, end };
+    });
+
+    prevTotalPointsRef.current = totalPoints;
+  }, [totalPoints]);
+
+  const activeWindow = useMemo(() => {
+    if (totalPoints <= 0) return null;
+    const base = viewWindow ?? { start: 0, end: totalPoints };
+    let start = Math.max(0, Math.min(totalPoints - 1, Math.round(base.start)));
+    let end = Math.max(start + 1, Math.min(totalPoints, Math.round(base.end)));
+    if (end - start <= 0) end = Math.min(totalPoints, start + 1);
+    return { start, end };
+  }, [viewWindow, totalPoints]);
+
+  useEffect(() => {
+    setActivePoint(null);
+  }, [activeWindow?.start, activeWindow?.end]);
+
   // When all series are hidden, avoid rendering LineChart with an empty datasets array
   // as some versions of react-native-chart-kit expect datasets[0] to exist.
-  const hasVisibleDatasets = useMemo(() => {
-    if (!isMulti) return true;
-    return Array.isArray(datasets) && datasets.length > 0;
-  }, [datasets, isMulti]);
-
   const chartHeight = useMemo(() => {
     const h =
       'height' in props && props.height
@@ -300,36 +366,181 @@ export default function ETFLineChart(props: Props) {
     if (forcedFormat === 'currency') return false;
     if (!isMulti) return false;
     if (/%/i.test(title)) return true;
-    const ds0 = (datasets as any[])?.[0]?.data as number[] | undefined;
+    const ds0 = (filteredDatasets as any[])?.[0]?.data as number[] | undefined;
     if (!ds0 || ds0.length < 2) return false;
     const sample = ds0.slice(0, Math.min(40, ds0.length));
     const withinRange = sample.filter(v => Math.abs(v) <= 200).length / sample.length;
     return withinRange > 0.9;
-  }, [isMulti, datasets, title, forcedFormat]);
+  }, [isMulti, filteredDatasets, title, forcedFormat]);
 
-  // Precompute which indices to show to avoid overlap: first, last, and ~4 evenly spaced in between
-  const sparseLabelSet = useMemo(() => {
-    const base = (dsLabels as string[] | undefined) ?? (labels as string[] | undefined);
-    if (!base) return new Set<string>();
-    const n = base.length;
-    if (n <= 10) return new Set(base.filter((v) => v));
-    const desired = 6; // total ticks including ends
-    const innerNeeded = desired - 2;
-    const step = (n - 1) / (innerNeeded + 1);
-    const keepIdx = new Set<number>();
-    keepIdx.add(0);
-    keepIdx.add(n - 1);
-    for (let k = 1; k <= innerNeeded; k++) {
-      keepIdx.add(Math.round(k * step));
-    }
-    const result = new Set<string>();
-    Array.from(keepIdx.values()).sort((a,b)=>a-b).forEach(i => {
-      if (base[i]) result.add(base[i]);
-    });
-    return result;
+  const fullLabels = useMemo<string[]>(() => {
+    const arr = (dsLabels as string[] | undefined) ?? (labels as string[] | undefined) ?? [];
+    return Array.isArray(arr) ? arr : [];
   }, [dsLabels, labels]);
 
-  const formatXLabel = (xValue: string) => (sparseLabelSet.has(xValue) ? xValue : '');
+  const windowedLabels = useMemo(() => {
+    if (!activeWindow) return fullLabels;
+    return fullLabels.slice(activeWindow.start, activeWindow.end);
+  }, [fullLabels, activeWindow]);
+
+  const windowedDatasets = useMemo(() => {
+    if (!activeWindow) return filteredDatasets;
+    const { start, end } = activeWindow;
+    return (filteredDatasets as any[]).map((d) => {
+      const dataArray = Array.isArray((d as any).data) ? (d as any).data.slice(start, end) : (d as any).data;
+      return { ...d, data: dataArray };
+    });
+  }, [filteredDatasets, activeWindow]);
+
+  const hasVisibleDatasets = useMemo(() => {
+    if (!Array.isArray(windowedDatasets) || windowedDatasets.length === 0) return false;
+    return (windowedDatasets as any[]).some((d) => Array.isArray((d as any).data) && (d as any).data.length > 0);
+  }, [windowedDatasets]);
+
+  const activeSpan = activeWindow ? activeWindow.end - activeWindow.start : 0;
+  const interactiveEnabled = innerWidth != null && innerWidth > 0 && activeWindow != null && totalPoints > 6;
+  const computedMinSpan = totalPoints <= 5 ? 1 : Math.max(3, Math.round(totalPoints * 0.15));
+  const isZoomed = interactiveEnabled && activeSpan < totalPoints;
+
+  runtimeRef.current.innerWidth = innerWidth ?? 0;
+  runtimeRef.current.totalPoints = totalPoints;
+  runtimeRef.current.minSpan = Math.max(1, Math.min(totalPoints, computedMinSpan));
+  runtimeRef.current.activeWindow = activeWindow;
+  runtimeRef.current.interactive = interactiveEnabled;
+
+  const handleResetZoom = useCallback(() => {
+    if (totalPoints <= 0) return;
+    setViewWindow((prev) => {
+      if (prev && prev.start === 0 && prev.end === totalPoints) return prev;
+      return { start: 0, end: totalPoints };
+    });
+  }, [totalPoints]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponder: (evt, gestureState) => {
+          const runtime = runtimeRef.current;
+          if (!runtime.interactive || runtime.totalPoints <= 0 || runtime.innerWidth <= 0) return false;
+          if (evt.nativeEvent.touches.length >= 2) return true;
+          return Math.abs(gestureState.dx) > 12;
+        },
+        onPanResponderGrant: (evt) => {
+          const runtime = runtimeRef.current;
+          if (!runtime.interactive || !runtime.activeWindow) return;
+          setActivePoint(null);
+          const touches = evt.nativeEvent.touches;
+          gestureTrackingRef.current.initialWindow = runtime.activeWindow;
+          gestureTrackingRef.current.mode = touches.length >= 2 ? 'pinch' : 'pan';
+          gestureTrackingRef.current.initialDistance = touches.length >= 2 ? distanceBetweenTouches(touches) : 0;
+        },
+        onPanResponderMove: (evt, gestureState) => {
+          const runtime = runtimeRef.current;
+          if (!runtime.interactive || !runtime.activeWindow) return;
+          const touches = evt.nativeEvent.touches;
+          const tracker = gestureTrackingRef.current;
+
+          if (touches.length >= 2) {
+            if (tracker.mode !== 'pinch') {
+              tracker.mode = 'pinch';
+              tracker.initialWindow = runtime.activeWindow;
+              tracker.initialDistance = distanceBetweenTouches(touches);
+            }
+            if (!tracker.initialWindow) return;
+            const dist = distanceBetweenTouches(touches);
+            if (!dist || !tracker.initialDistance) return;
+            const scale = dist / tracker.initialDistance;
+            if (!Number.isFinite(scale) || scale <= 0) return;
+            const initial = tracker.initialWindow;
+            const initialSpan = initial.end - initial.start;
+            if (initialSpan <= 0) return;
+            let nextSpan = Math.round(initialSpan * scale);
+            const minSpan = runtime.minSpan;
+            const total = runtime.totalPoints;
+            nextSpan = Math.max(minSpan, Math.min(total, nextSpan));
+            if (nextSpan >= total) {
+              setViewWindow((prev) => {
+                if (prev && prev.start === 0 && prev.end === total) return prev;
+                return { start: 0, end: total };
+              });
+              return;
+            }
+            const center = (initial.start + initial.end) / 2;
+            let nextStart = Math.round(center - nextSpan / 2);
+            nextStart = clamp(nextStart, 0, total - nextSpan);
+            const nextEnd = Math.min(total, nextStart + nextSpan);
+            setViewWindow((prev) => {
+              if (prev && prev.start === nextStart && prev.end === nextEnd) return prev;
+              return { start: nextStart, end: nextEnd };
+            });
+            return;
+          }
+
+          if (tracker.mode !== 'pan') {
+            tracker.mode = 'pan';
+            tracker.initialWindow = runtime.activeWindow;
+          }
+          if (!tracker.initialWindow) return;
+          const span = tracker.initialWindow.end - tracker.initialWindow.start;
+          if (span <= 0 || span >= runtime.totalPoints) return;
+          const inner = runtime.innerWidth || 1;
+          const pointsPerPixel = span / inner;
+          const shift = Math.round(gestureState.dx * pointsPerPixel);
+          let nextStart = tracker.initialWindow.start - shift;
+          nextStart = clamp(nextStart, 0, runtime.totalPoints - span);
+          const nextEnd = nextStart + span;
+          setViewWindow((prev) => {
+            if (prev && prev.start === nextStart && prev.end === nextEnd) return prev;
+            return { start: nextStart, end: nextEnd };
+          });
+        },
+        onPanResponderRelease: () => {
+          gestureTrackingRef.current.mode = null;
+        },
+        onPanResponderTerminate: () => {
+          gestureTrackingRef.current.mode = null;
+        },
+        onPanResponderTerminationRequest: () => true,
+      }),
+    []
+  );
+
+  const visibleLabelIndices = useMemo(() => {
+    const n = windowedLabels.length;
+    const keep = new Set<number>();
+    if (n === 0) return keep;
+    if (n <= 8) {
+      for (let i = 0; i < n; i++) keep.add(i);
+      return keep;
+    }
+    const width = innerWidth ?? 0;
+    const approxRaw = width ? Math.max(3, Math.floor(width / 110)) : Math.min(6, n);
+    const desired = Math.min(n, Math.min(10, Math.max(3, approxRaw)));
+    keep.add(0);
+    keep.add(n - 1);
+    const innerNeeded = Math.max(0, desired - 2);
+    const step = (n - 1) / (innerNeeded + 1);
+    for (let k = 1; k <= innerNeeded; k++) {
+      const idx = Math.round(k * step);
+      keep.add(Math.min(n - 1, Math.max(0, idx)));
+    }
+    return keep;
+  }, [windowedLabels, innerWidth]);
+
+  const chartLabels = useMemo(() => {
+    if (windowedLabels.length === 0) return windowedLabels;
+    return windowedLabels.map((label, idx) => (visibleLabelIndices.has(idx) ? label : ''));
+  }, [windowedLabels, visibleLabelIndices]);
+
+  const formatXLabel = useCallback(
+    (value: string, index?: number) => {
+      if (typeof index !== 'number') return value;
+      return visibleLabelIndices.has(index) ? value : '';
+    },
+    [visibleLabelIndices]
+  );
 
   // Y-axis tick formatter based on explicit format prop or heuristic
   const formatYLabel = useMemo(() => {
@@ -375,84 +586,95 @@ export default function ETFLineChart(props: Props) {
   <View style={[styles.container, { backgroundColor: colors.card }]} onLayout={onContainerLayout}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+        {interactiveEnabled && isZoomed ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={handleResetZoom}
+            style={[styles.resetButton, { borderColor: colors.border, backgroundColor: colors.background }]}
+          >
+            <Text style={[styles.resetButtonText, { color: colors.accent }]}>Reset zoom</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {innerWidth && chartHeight ? (
         hasVisibleDatasets ? (
           <View>
-            <LineChart
-              data={{ labels: dsLabels as any, datasets }}
-              width={innerWidth}
-              height={chartHeight}
-              chartConfig={chartConfig}
-              formatXLabel={formatXLabel}
-              formatYLabel={formatYLabel}
-              bezier={false}
-              style={styles.chart}
-              withDots={false}
-              withShadow={false}
-              withVerticalLabels={true}
-              withHorizontalLabels={true}
-              withInnerLines={!isCompact}
-              withOuterLines={!isCompact}
-              fromZero={false}
-              yLabelsOffset={4}
-              xLabelsOffset={4}
-              onDataPointClick={(p) => {
+            <View style={styles.chartWrapper} {...panResponder.panHandlers}>
+              <LineChart
+                data={{ labels: chartLabels as any, datasets: windowedDatasets as any }}
+                width={innerWidth}
+                height={chartHeight}
+                chartConfig={chartConfig}
+                formatXLabel={formatXLabel}
+                formatYLabel={formatYLabel}
+                bezier={false}
+                style={styles.chart}
+                withDots={false}
+                withShadow={false}
+                withVerticalLabels={true}
+                withHorizontalLabels={true}
+                withInnerLines={!isCompact}
+                withOuterLines={!isCompact}
+                fromZero={false}
+                yLabelsOffset={4}
+                xLabelsOffset={4}
+                onDataPointClick={(p) => {
                 // p = { index, value, x, y, dataset }
-                // Determine label from dsLabels if available
-                const baseLabels = dsLabels as string[] | undefined;
-                const label = baseLabels && baseLabels[p.index] ? String(baseLabels[p.index]) : `#${p.index + 1}`;
+                const tooltipIndex = activeWindow ? activeWindow.start + p.index : p.index;
+                const tooltipLabel = fullLabels[tooltipIndex] ?? windowedLabels[p.index];
+                const label = tooltipLabel && String(tooltipLabel).trim().length > 0 ? String(tooltipLabel) : `#${p.index + 1}`;
                 const pointColor = (p.dataset as any)?.color?.() ?? colors.text;
                 setActivePoint({ x: p.x, y: p.y, value: p.value, label, color: pointColor });
                 scheduleHide();
-              }}
-            />
-            {activePoint && (
-              <View pointerEvents="none" style={[StyleSheet.absoluteFill]}> 
-                {/* Vertical guide line */}
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: activePoint.x - 1,
-                    top: 0,
-                    bottom: 0,
-                    width: 2,
-                    backgroundColor: activePoint.color || colors.accent,
-                    opacity: 0.6,
-                  }}
-                />
-                {/* Tooltip bubble */}
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: Math.min(Math.max(activePoint.x - 60, 4), innerWidth - 120),
-                    top: Math.max(activePoint.y - 48, 4),
-                    backgroundColor: colors.card,
-                    paddingHorizontal: 8,
-                    paddingVertical: 6,
-                    borderRadius: 8,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: colors.border || 'rgba(0,0,0,0.15)',
-                    shadowColor: '#000',
-                    shadowOpacity: 0.15,
-                    shadowRadius: 4,
-                    shadowOffset: { width: 0, height: 2 },
-                    elevation: 6,
-                    maxWidth: 140,
-                  }}
-                >
-                  <Text style={{ color: colors.secondaryText, fontSize: 11 }} numberOfLines={1}>{activePoint.label}</Text>
-                  <Text style={{ color: activePoint.color || colors.text, fontWeight: '600', fontSize: 14 }}>
-                    {Number.isFinite(activePoint.value)
-                      ? ((props as any).yAxisFormat === 'percent' || isPercentageLike)
-                        ? `${activePoint.value.toFixed(2)}%`
-                        : `${(props as any).currencySymbol || '$'}${activePoint.value.toFixed(2)}`
-                      : '-'}
-                  </Text>
+                }}
+              />
+              {activePoint && (
+                <View pointerEvents="none" style={[StyleSheet.absoluteFill]}>
+                  {/* Vertical guide line */}
+                  <View
+                    style={{
+                      position: 'absolute',
+                      left: activePoint.x - 1,
+                      top: 0,
+                      bottom: 0,
+                      width: 2,
+                      backgroundColor: activePoint.color || colors.accent,
+                      opacity: 0.6,
+                    }}
+                  />
+                  {/* Tooltip bubble */}
+                  <View
+                    style={{
+                      position: 'absolute',
+                      left: Math.min(Math.max(activePoint.x - 60, 4), innerWidth - 120),
+                      top: Math.max(activePoint.y - 48, 4),
+                      backgroundColor: colors.card,
+                      paddingHorizontal: 8,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor: colors.border || 'rgba(0,0,0,0.15)',
+                      shadowColor: '#000',
+                      shadowOpacity: 0.15,
+                      shadowRadius: 4,
+                      shadowOffset: { width: 0, height: 2 },
+                      elevation: 6,
+                      maxWidth: 140,
+                    }}
+                  >
+                    <Text style={{ color: colors.secondaryText, fontSize: 11 }} numberOfLines={1}>{activePoint.label}</Text>
+                    <Text style={{ color: activePoint.color || colors.text, fontWeight: '600', fontSize: 14 }}>
+                      {Number.isFinite(activePoint.value)
+                        ? ((props as any).yAxisFormat === 'percent' || isPercentageLike)
+                          ? `${activePoint.value.toFixed(2)}%`
+                          : `${(props as any).currencySymbol || '$'}${activePoint.value.toFixed(2)}`
+                        : '-'}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            )}
+              )}
+            </View>
           </View>
         ) : (
           <View style={[styles.emptyContainer, { height: chartHeight, margin: 0, backgroundColor: colors.card }]}>
@@ -512,8 +734,16 @@ const styles = StyleSheet.create({
     elevation: 5,
     overflow: 'hidden',
   },
-  header: { marginBottom: 12 },
-  title: { fontSize: 18, fontWeight: '700', marginBottom: 8, color: '#111827' },
+  header: { marginBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  title: { fontSize: 18, fontWeight: '700', color: '#111827' },
+  resetButton: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  resetButtonText: { fontSize: 12, fontWeight: '600' },
+  chartWrapper: { position: 'relative' },
   legendRow: { flexDirection: 'row', flexWrap: 'wrap' },
   legendItem: { flexDirection: 'row', alignItems: 'flex-start', marginRight: 16, marginTop: 6, maxWidth: '48%' },
   legendColumn: { flexDirection: 'column', flexWrap: 'nowrap' },

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Dimensions, PanResponder, Animated } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,6 +15,7 @@ import AreaChips, { GeographyOption as AreaChipGeographyOption } from '@/compone
 
 import { apiService } from '@/services/api';
 import { PricePoint, QueryParams, ChartDataPoint, GeographyGroup, TickerSummary } from '@/types';
+import { useChartSettings } from '@/components/common/ChartSettingsProvider';
 
 type GeographyOption = AreaChipGeographyOption;
 type DateRange = { start_date: string; end_date: string };
@@ -43,47 +44,6 @@ const chooseBucketDays = (spanDays: number, maxPoints = 60) => {
   else bucketDays = 90;
   const est = Math.ceil(spanDays / bucketDays);
   return est > maxPoints ? Math.ceil(spanDays / maxPoints) : bucketDays;
-};
-
-const aggregateCumulativeOnBuckets = (
-  calendar_days: number[],
-  values: number[],
-  globalStart: Date,
-  bucketDays: number,
-  bucketCount: number
-): number[] => {
-  const buckets: ({ day: number; value: number } | undefined)[] = new Array(bucketCount).fill(undefined);
-  const n = Math.min(calendar_days.length, values.length);
-  const pts: { day: number; value: number }[] = [];
-  for (let i = 0; i < n; i++) {
-    const day = Number(calendar_days[i]);
-    const value = Number(values[i]);
-    if (!Number.isFinite(day) || !Number.isFinite(value)) continue;
-    pts.push({ day, value });
-  }
-  pts.sort((a, b) => a.day - b.day);
-  for (const p of pts) {
-    const d = parseYYYYMMDD(p.day);
-    let idx = Math.floor(diffDays(globalStart, d) / bucketDays);
-    if (idx < 0) idx = 0;
-    if (idx >= bucketCount) idx = bucketCount - 1;
-    const cur = buckets[idx];
-    if (!cur || p.day > cur.day) {
-      buckets[idx] = { day: p.day, value: p.value };
-    }
-  }
-  const series: number[] = [];
-  let prev = 0;
-  for (let i = 0; i < bucketCount; i++) {
-    const cell = buckets[i];
-    if (cell && !Number.isNaN(cell.value)) { prev = cell.value; break; }
-  }
-  for (let i = 0; i < bucketCount; i++) {
-    const cell = buckets[i];
-    if (cell && !Number.isNaN(cell.value)) prev = cell.value;
-    series.push(prev);
-  }
-  return series;
 };
 
 const aggregateOnBuckets = (
@@ -140,6 +100,8 @@ const formatDisplayDate = (iso: string | undefined | null) => {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { maxPoints } = useChartSettings();
+  const prevMaxPointsRef = useRef(maxPoints);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -364,13 +326,7 @@ export default function HomeScreen() {
           useCache
         );
         const seriesMap = new Map<number, PricePoint[]>(
-          seriesList.map((series) => [
-            series.ticker_id, 
-            series.points.map(point => ({
-              ...point,
-              cumulative_return: point.simple_return // Use simple_return as cumulative_return or set to null if different logic needed
-            }))
-          ])
+          seriesList.map((series) => [series.ticker_id, series.points ?? []])
         );
         const results = toLoadOrdered.map((t) => ({ t, rows: seriesMap.get(t.ticker_id) ?? [] }));
 
@@ -391,11 +347,11 @@ export default function HomeScreen() {
           return;
         }
 
-        const globalStart = parseYYYYMMDD(minCal);
-        const globalEnd = parseYYYYMMDD(maxCal);
-        const spanDays = daysBetween(globalStart, globalEnd);
-        const bucketDays = chooseBucketDays(spanDays, 60);
-        const bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
+    const globalStart = parseYYYYMMDD(minCal);
+    const globalEnd = parseYYYYMMDD(maxCal);
+    const spanDays = daysBetween(globalStart, globalEnd);
+    const bucketDays = chooseBucketDays(spanDays, maxPoints);
+    const bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
 
         const buildLabel = (d: Date) => {
           const y = d.getFullYear();
@@ -416,7 +372,7 @@ export default function HomeScreen() {
         });
 
         setMultiDatasets(datasets);
-        // Popola cumDatasets direttamente dai dati ricevuti (simple_return)
+    // Popola cumDatasets direttamente dai dati ricevuti (cumulative_return)
         const cumDatasetsNew: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
           // Aggrega cumulative_return sugli stessi bucket dei prezzi
           const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount, 'cumulative_return');
@@ -434,7 +390,7 @@ export default function HomeScreen() {
         setLoading(false);
       }
     },
-  [selectedTickers]
+  [selectedTickers, maxPoints]
   );
 
   const handleSubmit = useCallback(
@@ -458,6 +414,14 @@ export default function HomeScreen() {
   const handleRetry = () => {
     if (lastRange) fetchSelected(lastRange, false);
   };
+
+  useEffect(() => {
+    if (prevMaxPointsRef.current === maxPoints) return;
+    prevMaxPointsRef.current = maxPoints;
+    if (!lastRange) return;
+    if (!Object.keys(selectedTickers).length) return;
+    fetchSelected(lastRange, true);
+  }, [maxPoints, lastRange, fetchSelected, selectedTickers]);
 
   
 
