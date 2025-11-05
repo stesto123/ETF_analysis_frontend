@@ -12,12 +12,15 @@ import {
   UIManager,
   Animated,
   RefreshControl,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@clerk/clerk-expo';
+import { ChevronDown } from 'lucide-react-native';
 
 import { apiService } from '@/services/api';
 import ETFLineChart from '@/components/Chart/LineChart';
@@ -47,6 +50,17 @@ type CompositionDraft = {
   symbol?: string;
   name?: string;
   asset_class?: string;
+};
+
+type SelectModalState = {
+  rowKey: string;
+  type: 'area' | 'ticker';
+};
+
+type ModalOption = {
+  value: number;
+  label: string;
+  subtitle?: string;
 };
 
 export default function PipelineScreen() {
@@ -100,6 +114,7 @@ export default function PipelineScreen() {
   const [saving, setSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [openSections, setOpenSections] = useState<OpenSections>(defaultOpen);
+  const [selectModal, setSelectModal] = useState<SelectModalState | null>(null);
   const sectionOpacity = useRef<Record<keyof OpenSections, Animated.Value>>({
     composition: new Animated.Value(0),
     create: new Animated.Value(0),
@@ -124,6 +139,12 @@ export default function PipelineScreen() {
   useEffect(()=>{(async()=>{try{const raw=await AsyncStorage.getItem(OPEN_SECTIONS_KEY);if(raw){const merged={...defaultOpen,...JSON.parse(raw)};setOpenSections(merged);(Object.keys(merged) as (keyof OpenSections)[]).forEach(k=>animate(k,merged[k]));}}catch{}})();},[]);
   useEffect(()=>{AsyncStorage.setItem(OPEN_SECTIONS_KEY, JSON.stringify(openSections)).catch(()=>{});},[openSections]);
   const toggleSection = (k: keyof OpenSections)=>{LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);setOpenSections(p=>{const n={...p,[k]:!p[k]};animate(k,!p[k]);return n;});};
+
+  useEffect(() => {
+    if (!selectModal) return;
+    if (compItems.some((row) => row.key === selectModal.rowKey)) return;
+    setSelectModal(null);
+  }, [selectModal, compItems]);
 
   useEffect(() => {
     let mounted = true;
@@ -267,6 +288,31 @@ export default function PipelineScreen() {
     if (selectedStrategyId != null) return selectedStrategyId;
     return strategies.length ? strategies[0].strategy_id : undefined;
   }, [selectedStrategyId, strategies]);
+  const modalRow = useMemo(() => {
+    if (!selectModal) return null;
+    return compItems.find((row) => row.key === selectModal.rowKey) ?? null;
+  }, [selectModal, compItems]);
+  const modalOptions = useMemo<ModalOption[]>(() => {
+    if (!selectModal || !modalRow) return [];
+    if (selectModal.type === 'area') {
+      return geographies.map((geo) => ({
+        value: geo.geography_id,
+        label: geo.geography_name,
+        subtitle: geo.country ?? geo.continent ?? undefined,
+      }));
+    }
+    if (!modalRow.areaId) return [];
+    const list = tickerOptionsByArea[modalRow.areaId] ?? [];
+    return list.map((ticker) => ({
+      value: ticker.ticker_id,
+      label: ticker.name || ticker.symbol,
+      subtitle: [ticker.symbol, ticker.asset_class].filter(Boolean).join(' • ') || undefined,
+    }));
+  }, [selectModal, modalRow, geographies, tickerOptionsByArea]);
+  const modalSelectedValue = useMemo(() => {
+    if (!selectModal || !modalRow) return null;
+    return selectModal.type === 'area' ? modalRow.areaId ?? null : modalRow.ticker_id ?? null;
+  }, [selectModal, modalRow]);
   const startPipeline = useCallback(async () => {
     const fail = (message: string) => {
       setSimulationError(message);
@@ -517,6 +563,57 @@ export default function PipelineScreen() {
   const updateCompRow = (key: string, patch: Partial<CompositionDraft>) =>
     setCompItems((p) => p.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const totalPercent=useMemo(()=>compItems.reduce((s,r)=>s+(Number(r.percentuale)||0),0),[compItems]);
+  const openSelectModal = useCallback((state: SelectModalState) => {
+    if (Platform.OS !== 'ios') return;
+    setSelectModal(state);
+  }, []);
+  const handleSelectOption = useCallback((value: number) => {
+    if (!selectModal) return;
+    if (selectModal.type === 'area') {
+      updateCompRow(selectModal.rowKey, {
+        areaId: value,
+        ticker_id: undefined,
+        symbol: undefined,
+        name: undefined,
+        asset_class: undefined,
+      });
+      setSelectModal(null);
+      return;
+    }
+    if (!modalRow?.areaId) {
+      setSelectModal(null);
+      return;
+    }
+    const list = tickerOptionsByArea[modalRow.areaId] ?? [];
+    const found = list.find((ticker) => ticker.ticker_id === value);
+    updateCompRow(selectModal.rowKey, {
+      ticker_id: value,
+      symbol: found?.symbol,
+      name: found?.name,
+      asset_class: found?.asset_class,
+    });
+    setSelectModal(null);
+  }, [selectModal, modalRow, tickerOptionsByArea, updateCompRow]);
+  const handleClearSelection = useCallback(() => {
+    if (!selectModal) return;
+    if (selectModal.type === 'area') {
+      updateCompRow(selectModal.rowKey, {
+        areaId: undefined,
+        ticker_id: undefined,
+        symbol: undefined,
+        name: undefined,
+        asset_class: undefined,
+      });
+    } else {
+      updateCompRow(selectModal.rowKey, {
+        ticker_id: undefined,
+        symbol: undefined,
+        name: undefined,
+        asset_class: undefined,
+      });
+    }
+    setSelectModal(null);
+  }, [selectModal, updateCompRow]);
   const createPortfolioAndSave = useCallback(async () => {
     setTableError(null);
     if (!currentUserId) {
@@ -770,68 +867,170 @@ export default function PipelineScreen() {
                 </View>
                 {/* Preferred Area selector removed as requested */}
                 <Text style={[styles.label, { marginTop: 8, color: colors.secondaryText }]}>Composition (must sum to 100)</Text>
-                {compItems.map(row => (
-                  <View key={row.key} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                    <View style={[styles.pickerWrapper, { flex: 0.9, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border }]}>  
-                      <Picker
-                        selectedValue={row.areaId ?? null}
-                        onValueChange={(v) => {
-                          const areaId = typeof v === 'number' ? v : undefined;
-                          updateCompRow(row.key, { areaId, ticker_id: undefined, symbol: undefined, name: undefined });
+                {compItems.map(row => {
+                  const areaInfo = row.areaId != null ? geographies.find((g) => g.geography_id === row.areaId) ?? null : null;
+                  const tickerInfo = row.ticker_id != null ? tickerLookup[row.ticker_id] : undefined;
+                  const tickerPrimary = tickerInfo?.name || tickerInfo?.symbol || row.name || row.symbol || null;
+                  const tickerSecondary = tickerInfo
+                    ? [tickerInfo.symbol, tickerInfo.asset_class].filter(Boolean).join(' • ')
+                    : row.symbol
+                    ? [row.symbol, row.asset_class].filter(Boolean).join(' • ')
+                    : null;
+                  return (
+                    <View key={row.key} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                      {Platform.OS === 'ios' ? (
+                        <Pressable
+                          onPress={() => openSelectModal({ rowKey: row.key, type: 'area' })}
+                          style={[
+                            styles.iosSelectBtn,
+                            { flex: 0.9, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border },
+                          ]}
+                        >
+                          <View style={styles.iosSelectValue}>
+                            <Text
+                              style={[
+                                styles.iosSelectLabel,
+                                { color: areaInfo ? colors.text : colors.secondaryText },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {areaInfo ? areaInfo.geography_name : 'Seleziona area'}
+                            </Text>
+                            {areaInfo && (areaInfo.country || areaInfo.continent) ? (
+                              <Text
+                                style={[styles.iosSelectSubtitle, { color: colors.secondaryText }]}
+                                numberOfLines={1}
+                              >
+                                {areaInfo.country || areaInfo.continent}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <ChevronDown size={16} color={colors.secondaryText} />
+                        </Pressable>
+                      ) : (
+                        <View
+                          style={[
+                            styles.pickerWrapper,
+                            { flex: 0.9, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border },
+                          ]}
+                        >
+                          <Picker
+                            selectedValue={row.areaId ?? null}
+                            onValueChange={(v) => {
+                              const areaId = typeof v === 'number' ? v : undefined;
+                              updateCompRow(row.key, {
+                                areaId,
+                                ticker_id: undefined,
+                                symbol: undefined,
+                                name: undefined,
+                                asset_class: undefined,
+                              });
+                            }}
+                          >
+                            <Picker.Item label="Area" value={null as any} />
+                            {geographies.map((g) => (
+                              <Picker.Item key={g.geography_id} label={g.geography_name} value={g.geography_id} />
+                            ))}
+                          </Picker>
+                        </View>
+                      )}
+
+                      {Platform.OS === 'ios' ? (
+                        <Pressable
+                          onPress={() => row.areaId && openSelectModal({ rowKey: row.key, type: 'ticker' })}
+                          disabled={!row.areaId}
+                          style={[
+                            styles.iosSelectBtn,
+                            {
+                              flex: 1.2,
+                              marginRight: 8,
+                              backgroundColor: colors.card,
+                              borderColor: colors.border,
+                            },
+                            !row.areaId && styles.iosSelectBtnDisabled,
+                          ]}
+                        >
+                          <View style={styles.iosSelectValue}>
+                            <Text
+                              style={[
+                                styles.iosSelectLabel,
+                                { color: tickerPrimary ? colors.text : colors.secondaryText },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {tickerPrimary || 'Seleziona ETF'}
+                            </Text>
+                            {tickerSecondary ? (
+                              <Text
+                                style={[styles.iosSelectSubtitle, { color: colors.secondaryText }]}
+                                numberOfLines={1}
+                              >
+                                {tickerSecondary}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <ChevronDown size={16} color={colors.secondaryText} />
+                        </Pressable>
+                      ) : (
+                        <View
+                          style={[
+                            styles.pickerWrapper,
+                            {
+                              flex: 1.2,
+                              marginRight: 8,
+                              opacity: row.areaId ? 1 : 0.6,
+                              backgroundColor: colors.card,
+                              borderColor: colors.border,
+                            },
+                          ]}
+                        >
+                          <Picker
+                            enabled={!!row.areaId}
+                            selectedValue={row.ticker_id ?? null}
+                            onValueChange={(v) => {
+                              const id = typeof v === 'number' ? v : undefined;
+                              const list = row.areaId ? tickerOptionsByArea[row.areaId] || [] : [];
+                              const found = typeof id === 'number' ? list.find((t) => t.ticker_id === id) : undefined;
+                              updateCompRow(row.key, {
+                                ticker_id: id,
+                                symbol: found?.symbol,
+                                name: found?.name,
+                                asset_class: found?.asset_class,
+                              });
+                            }}
+                          >
+                            <Picker.Item label="Ticker" value={null as any} />
+                            {(row.areaId ? tickerOptionsByArea[row.areaId] || [] : []).map((t) => (
+                              <Picker.Item
+                                key={t.ticker_id}
+                                label={`${t.name || t.symbol} (${t.symbol})${t.asset_class ? ` • ${t.asset_class}` : ''}`}
+                                value={t.ticker_id}
+                              />
+                            ))}
+                          </Picker>
+                        </View>
+                      )}
+                      <TextInput
+                        style={[styles.input, { flex: 0.6, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
+                        value={row.percentuale != null ? String(row.percentuale) : ''}
+                        onChangeText={(v) => {
+                          if (!v.trim()) {
+                            updateCompRow(row.key, { percentuale: undefined });
+                            return;
+                          }
+                          const numeric = Number(v.replace(',', '.'));
+                          updateCompRow(row.key, { percentuale: Number.isFinite(numeric) ? numeric : undefined });
                         }}
-                      >
-                        <Picker.Item label="Area" value={null as any} />
-                        {geographies.map(g => (
-                          <Picker.Item key={g.geography_id} label={g.geography_name} value={g.geography_id} />
-                        ))}
-                      </Picker>
+                        placeholder="%"
+                        keyboardType="numeric"
+                        placeholderTextColor={colors.secondaryText}
+                      />
+                      <Pressable onPress={() => removeCompRow(row.key)} style={[styles.checkbox, { width: 28, height: 28 }]}>
+                        <Text style={styles.checkboxMark}>-</Text>
+                      </Pressable>
                     </View>
-                    <View style={[styles.pickerWrapper, { flex: 1.2, marginRight: 8, opacity: row.areaId ? 1 : 0.6, backgroundColor: colors.card, borderColor: colors.border }]}>  
-                      <Picker
-                        enabled={!!row.areaId}
-                        selectedValue={row.ticker_id ?? null}
-                        onValueChange={(v) => {
-                          const id = typeof v === 'number' ? v : undefined;
-                          const list = row.areaId ? tickerOptionsByArea[row.areaId] || [] : [];
-                          const found = typeof id === 'number' ? list.find(t => t.ticker_id === id) : undefined;
-                          updateCompRow(row.key, {
-                            ticker_id: id,
-                            symbol: found?.symbol,
-                            name: found?.name,
-                            asset_class: found?.asset_class,
-                          });
-                        }}
-                      >
-                        <Picker.Item label="Ticker" value={null as any} />
-                        {(row.areaId ? tickerOptionsByArea[row.areaId] || [] : []).map(t => (
-                          <Picker.Item
-                            key={t.ticker_id}
-                            label={`${t.name || t.symbol} (${t.symbol})${t.asset_class ? ` • ${t.asset_class}` : ''}`}
-                            value={t.ticker_id}
-                          />
-                        ))}
-                      </Picker>
-                    </View>
-                    <TextInput
-                      style={[styles.input, { flex: 0.6, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
-                      value={row.percentuale != null ? String(row.percentuale) : ''}
-                      onChangeText={(v) => {
-                        if (!v.trim()) {
-                          updateCompRow(row.key, { percentuale: undefined });
-                          return;
-                        }
-                        const numeric = Number(v.replace(',', '.'));
-                        updateCompRow(row.key, { percentuale: Number.isFinite(numeric) ? numeric : undefined });
-                      }}
-                      placeholder="%"
-                      keyboardType="numeric"
-                      placeholderTextColor={colors.secondaryText}
-                    />
-                    <Pressable onPress={() => removeCompRow(row.key)} style={[styles.checkbox, { width: 28, height: 28 }]}>
-                      <Text style={styles.checkboxMark}>-</Text>
-                    </Pressable>
-                  </View>
-                ))}
+                  );
+                })}
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
                   <Pressable onPress={addCompRow} style={[styles.checkbox, { width: 28, height: 28, marginRight: 8 }]}>
                     <Text style={styles.checkboxMark}>+</Text>
@@ -1023,6 +1222,77 @@ export default function PipelineScreen() {
             </Animated.View>
           )}
         </ScrollView>
+  {/* iOS selector modal */}
+  {Platform.OS === 'ios' && selectModal && modalRow && (
+          <Modal
+            transparent
+            visible
+            animationType="fade"
+            onRequestClose={() => setSelectModal(null)}
+          >
+            <View style={[styles.selectOverlay, { paddingBottom: Math.max(insets.bottom + 16, 32) }]}> 
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectModal(null)} />
+              <View style={[styles.selectCard, { backgroundColor: colors.card, borderColor: colors.border }]}> 
+                <View style={[styles.selectHandle, { backgroundColor: colors.border }]} />
+                <Text style={[styles.selectTitle, { color: colors.text }]}> 
+                  {selectModal.type === 'area' ? 'Seleziona area geografica' : 'Seleziona ETF'}
+                </Text>
+                {modalSelectedValue != null && (
+                  <Pressable
+                    style={[styles.clearBtn, { borderColor: colors.border }]}
+                    onPress={handleClearSelection}
+                  >
+                    <Text style={[styles.clearBtnText, { color: colors.secondaryText }]}>Rimuovi selezione</Text>
+                  </Pressable>
+                )}
+                <FlatList
+                  data={modalOptions}
+                  keyExtractor={(item) => String(item.value)}
+                  renderItem={({ item }) => {
+                    const isActive = modalSelectedValue === item.value;
+                    return (
+                      <Pressable
+                        onPress={() => handleSelectOption(item.value)}
+                        style={[
+                          styles.selectOption,
+                          { borderColor: colors.border, backgroundColor: colors.card },
+                          isActive && styles.selectOptionSelected,
+                        ]}
+                      >
+                        <Text style={[styles.selectOptionLabel, { color: colors.text }]} numberOfLines={1}>
+                          {item.label}
+                        </Text>
+                        {item.subtitle ? (
+                          <Text style={[styles.selectOptionSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>
+                            {item.subtitle}
+                          </Text>
+                        ) : null}
+                      </Pressable>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    <Text style={[styles.emptyModalText, { color: colors.secondaryText }]}>
+                      {selectModal.type === 'area'
+                        ? 'Nessuna area disponibile'
+                        : modalRow?.areaId
+                        ? "Nessun ETF disponibile per quest'area"
+                        : "Seleziona prima un'area"}
+                    </Text>
+                  }
+                  contentContainerStyle={modalOptions.length ? { paddingVertical: 12 } : { paddingVertical: 24 }}
+                  style={{ maxHeight: 360 }}
+                  keyboardShouldPersistTaps="handled"
+                />
+                <Pressable
+                  style={[styles.modalCloseBtn, { borderColor: colors.border }]}
+                  onPress={() => setSelectModal(null)}
+                >
+                  <Text style={[styles.modalCloseText, { color: colors.secondaryText }]}>Chiudi</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Modal>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1041,6 +1311,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  iosSelectBtn: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  iosSelectBtnDisabled: { opacity: 0.5 },
+  iosSelectValue: { flex: 1, marginRight: 8 },
+  iosSelectLabel: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  iosSelectSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
   row: { flexDirection: 'row' },
   btn: {
     backgroundColor: '#2563EB',
@@ -1106,6 +1390,62 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
+  selectOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    paddingHorizontal: 16,
+  },
+  selectCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+    shadowColor: '#000000',
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+  },
+  selectHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 999,
+    marginBottom: 12,
+  },
+  selectTitle: { fontSize: 16, fontWeight: '700', textAlign: 'center', marginBottom: 8 },
+  clearBtn: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  clearBtnText: { fontSize: 13, fontWeight: '600' },
+  selectOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  selectOptionSelected: {
+    borderColor: '#2563EB',
+    backgroundColor: 'rgba(37, 99, 235, 0.12)',
+  },
+  selectOptionLabel: { fontSize: 15, fontWeight: '600' },
+  selectOptionSubtitle: { fontSize: 12, marginTop: 4 },
+  emptyModalText: { textAlign: 'center', fontSize: 13 },
+  modalCloseBtn: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  modalCloseText: { fontSize: 14, fontWeight: '600' },
   toggleBtn: { backgroundColor: '#1F2937', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, marginBottom: 8 },
   toggleBtnActive: { backgroundColor: '#2563EB' },
   toggleBtnText: { color: '#FFF', fontWeight: '600', fontSize: 14 },
