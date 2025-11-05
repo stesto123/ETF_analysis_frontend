@@ -37,13 +37,12 @@ const daysBetween = (a: Date, b: Date) => Math.max(1, Math.round((+b - +a) / 864
 const diffDays = (a: Date, b: Date) => Math.max(0, Math.floor((+b - +a) / 86400000));
 
 const chooseBucketDays = (spanDays: number, maxPoints = 60) => {
-  let bucketDays: number;
-  if (spanDays <= 60) bucketDays = 1;
-  else if (spanDays <= 180) bucketDays = 7;
-  else if (spanDays <= 720) bucketDays = 30;
-  else bucketDays = 90;
-  const est = Math.ceil(spanDays / bucketDays);
-  return est > maxPoints ? Math.ceil(spanDays / maxPoints) : bucketDays;
+  if (!Number.isFinite(spanDays) || spanDays <= 1) {
+    return 1;
+  }
+  const target = Math.max(2, Math.round(maxPoints));
+  const effectiveBuckets = Math.max(1, target - 1);
+  return Math.max(1, Math.ceil(spanDays / effectiveBuckets));
 };
 
 const aggregateOnBuckets = (
@@ -86,6 +85,40 @@ const aggregateOnBuckets = (
   const last = series[series.length - 1] ?? first;
   const upOrDown: 'up' | 'down' = last >= first ? 'up' : 'down';
   return { data: series, upOrDown };
+};
+
+const clampIndex = (idx: number, length: number) => {
+  if (length <= 0) return 0;
+  if (idx < 0) return 0;
+  if (idx >= length) return length - 1;
+  return idx;
+};
+
+const buildDownsampleIndices = (length: number, target: number) => {
+  if (!Number.isFinite(length) || length <= 0) return [];
+  if (!Number.isFinite(target) || target <= 0) {
+    return Array.from({ length }, (_, i) => i);
+  }
+  const roundedTarget = Math.max(1, Math.round(target));
+  if (length <= roundedTarget) {
+    return Array.from({ length }, (_, i) => i);
+  }
+
+  const steps = Math.max(1, roundedTarget - 1);
+  const step = (length - 1) / steps;
+  const indices: number[] = [];
+  for (let i = 0; i < roundedTarget; i += 1) {
+    indices.push(Math.round(i * step));
+  }
+  const unique = Array.from(new Set(indices.map((idx) => clampIndex(idx, length))));
+  unique.sort((a, b) => a - b);
+  return unique;
+};
+
+const sampleArrayByIndices = <T,>(source: T[], indices: number[]): T[] => {
+  if (!Array.isArray(source) || source.length === 0) return [];
+  if (!indices.length) return source.slice();
+  return indices.map((idx) => source[clampIndex(idx, source.length)]);
 };
 
 const formatDisplayDate = (iso: string | undefined | null) => {
@@ -365,21 +398,47 @@ export default function HomeScreen() {
           labels.push(buildLabel(dt));
         }
 
-        const datasets: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
-          const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount);
+        const aggregated = results.map(({ t, rows }) => {
+          const priceAgg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount);
+          const cumulativeAgg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount, 'cumulative_return');
           const displayName = t.name || t.symbol;
-          return { label: displayName, ticker: t.symbol, data: agg.data, colorHint: agg.upOrDown, labels };
+          return {
+            label: displayName,
+            ticker: t.symbol,
+            priceData: priceAgg.data,
+            priceTrend: priceAgg.upOrDown,
+            cumulativeData: cumulativeAgg.data,
+            cumulativeTrend: cumulativeAgg.upOrDown,
+          };
         });
 
+        const keepIndices = buildDownsampleIndices(labels.length, maxPoints);
+        const shouldSample = keepIndices.length > 0 && keepIndices.length < labels.length;
+        const sharedLabels = shouldSample ? sampleArrayByIndices(labels, keepIndices) : labels.slice();
+        const sampleSeries = (series: number[]) =>
+          shouldSample ? sampleArrayByIndices(series, keepIndices) : series.slice();
+
+        const datasets: MultiDatasetWithLabels[] = aggregated.map((series) => ({
+          label: series.label,
+          ticker: series.ticker,
+          data: sampleSeries(series.priceData),
+          colorHint: series.priceTrend,
+          labels: sharedLabels,
+        }));
+
         setMultiDatasets(datasets);
-    // Popola cumDatasets direttamente dai dati ricevuti (cumulative_return)
-        const cumDatasetsNew: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
-          // Aggrega cumulative_return sugli stessi bucket dei prezzi
-          const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount, 'cumulative_return');
-          const displayName = t.name || t.symbol;
-          // Trasforma in percentuale e filtra null
-          const dataPerc: number[] = agg.data.map((v: number) => (Number.isFinite(v) ? v * 100 : 0));
-          return { label: displayName + ' (%)', ticker: t.symbol, data: dataPerc, colorHint: agg.upOrDown, labels };
+
+        // Popola cumDatasets direttamente dai dati ricevuti (cumulative_return)
+        const cumDatasetsNew: MultiDatasetWithLabels[] = aggregated.map((series) => {
+          const sampled = sampleSeries(series.cumulativeData);
+          const dataPerc = sampled.map((v: number) => (Number.isFinite(v) ? v * 100 : 0));
+          return {
+            label: `${series.label} (%)`,
+            ticker: series.ticker,
+            data: dataPerc,
+            colorHint: series.cumulativeTrend,
+            labels: sharedLabels,
+          };
         });
         setCumDatasets(cumDatasetsNew);
         setLastRange(range);
