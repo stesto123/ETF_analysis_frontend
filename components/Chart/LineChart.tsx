@@ -72,8 +72,26 @@ const distanceBetweenTouches = (touches: readonly { pageX: number; pageY: number
   return Math.sqrt(dx * dx + dy * dy);
 };
 
+const withAlpha = (hexColor: string, alpha: number) => {
+  if (!hexColor || typeof hexColor !== 'string') return `rgba(59, 130, 246, ${alpha})`;
+  let hex = hexColor.trim();
+  if (hex.startsWith('#')) hex = hex.slice(1);
+  if (hex.length === 3) {
+    hex = hex
+      .split('')
+      .map((c) => c + c)
+      .join('');
+  }
+  if (hex.length !== 6) return `rgba(59, 130, 246, ${alpha})`;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const a = Math.min(1, Math.max(0, alpha));
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+};
+
 export default function ETFLineChart(props: Props) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const onContainerLayout = (e: LayoutChangeEvent) => setContainerWidth(e.nativeEvent.layout.width);
   // tooltip state
@@ -279,6 +297,11 @@ export default function ETFLineChart(props: Props) {
     mode: null as 'pan' | 'pinch' | null,
     initialWindow: null as { start: number; end: number } | null,
     initialDistance: 0,
+  });
+
+  const miniMapTrackingRef = useRef({
+    mode: null as 'move' | 'resize-left' | 'resize-right' | null,
+    initialWindow: null as { start: number; end: number } | null,
   });
 
   useEffect(() => {
@@ -507,6 +530,193 @@ export default function ETFLineChart(props: Props) {
     []
   );
 
+  const commitViewWindow = useCallback((nextStart: number, nextEnd: number) => {
+    setViewWindow((prev) => {
+      const runtime = runtimeRef.current;
+      const total = runtime.totalPoints;
+      if (total <= 0) return prev;
+      const minSpan = Math.max(1, runtime.minSpan);
+      let clampedStart = Math.round(nextStart);
+      let clampedEnd = Math.round(nextEnd);
+      if (!Number.isFinite(clampedStart)) clampedStart = prev?.start ?? 0;
+      if (!Number.isFinite(clampedEnd)) clampedEnd = prev?.end ?? total;
+      if (clampedStart < 0) clampedStart = 0;
+      if (clampedEnd > total) clampedEnd = total;
+      if (clampedEnd - clampedStart < minSpan) {
+        clampedEnd = Math.min(total, clampedStart + minSpan);
+      }
+      if (clampedStart > total - minSpan) {
+        clampedStart = Math.max(0, total - minSpan);
+        clampedEnd = total;
+      }
+      if (prev && prev.start === clampedStart && prev.end === clampedEnd) return prev;
+      return { start: clampedStart, end: clampedEnd };
+    });
+  }, [setViewWindow]);
+
+  const pointsPerPixel = useMemo(() => {
+    if (!innerWidth || innerWidth <= 0 || totalPoints <= 0) return 0;
+    return totalPoints / innerWidth;
+  }, [innerWidth, totalPoints]);
+
+  const miniMapHeight = useMemo(() => {
+    if (!innerWidth || innerWidth <= 0) return 56;
+    return Math.max(40, Math.min(90, Math.round(innerWidth * 0.18)));
+  }, [innerWidth]);
+
+  const miniMapLabels = useMemo(() => {
+    if (!fullLabels.length) return [] as string[];
+    const step = Math.max(1, Math.ceil(fullLabels.length / 8));
+    return fullLabels.map((label, index) => (index % step === 0 ? label : ''));
+  }, [fullLabels]);
+
+  const miniMapSelection = useMemo(() => {
+    if (!innerWidth || !activeWindow || totalPoints <= 0) {
+      return { left: 0, width: 0 };
+    }
+    const total = totalPoints;
+    const span = Math.max(1, activeWindow.end - activeWindow.start);
+    const startRatio = activeWindow.start / total;
+    const spanRatio = span / total;
+    const widthPx = Math.max(12, spanRatio * innerWidth);
+    const leftPx = clamp(startRatio * innerWidth, 0, Math.max(0, innerWidth - widthPx));
+    return { left: leftPx, width: Math.min(widthPx, innerWidth) };
+  }, [innerWidth, activeWindow, totalPoints]);
+
+  const miniMapShadeWidths = useMemo(() => {
+    const totalWidth = innerWidth ?? 0;
+    const leftWidth = Math.max(0, Math.min(miniMapSelection.left, totalWidth));
+    const rightWidth = Math.max(0, totalWidth - (miniMapSelection.left + miniMapSelection.width));
+    return { left: leftWidth, right: rightWidth };
+  }, [innerWidth, miniMapSelection.left, miniMapSelection.width]);
+
+  const miniMapChartConfig = useMemo(
+    () => ({
+      backgroundColor: colors.chartBackground,
+      backgroundGradientFrom: colors.chartBackground,
+      backgroundGradientTo: colors.chartBackground,
+      backgroundGradientFromOpacity: 1,
+      backgroundGradientToOpacity: 1,
+      decimalPlaces: 2,
+      color: () => colors.secondaryText,
+      labelColor: () => colors.secondaryText,
+      propsForBackgroundLines: {
+        stroke: colors.chartGrid,
+        strokeDasharray: '4,8',
+        strokeWidth: 1,
+      },
+      propsForDots: { r: '0', strokeWidth: '0', stroke: 'transparent' },
+    }),
+    [colors]
+  );
+
+  const miniMapSelectionFill = useMemo(
+    () => withAlpha(colors.accent, isDark ? 0.35 : 0.2),
+    [colors.accent, isDark]
+  );
+
+  const miniMapShadeColor = useMemo(
+    () => withAlpha(colors.text, isDark ? 0.45 : 0.12),
+    [colors.text, isDark]
+  );
+
+  const miniMapPanResponder = useMemo(() => {
+    if (!interactiveEnabled || !pointsPerPixel) return null;
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 4,
+      onPanResponderGrant: () => {
+        const runtime = runtimeRef.current;
+        miniMapTrackingRef.current.mode = 'move';
+        miniMapTrackingRef.current.initialWindow = runtime.activeWindow;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const runtime = runtimeRef.current;
+        const initial = miniMapTrackingRef.current.initialWindow ?? runtime.activeWindow;
+        if (!initial || !runtime.totalPoints) return;
+        const span = initial.end - initial.start;
+        if (span <= 0) return;
+        const deltaPoints = Math.round(gestureState.dx * pointsPerPixel);
+        let nextStart = initial.start + deltaPoints;
+        nextStart = clamp(nextStart, 0, runtime.totalPoints - span);
+        commitViewWindow(nextStart, nextStart + span);
+      },
+      onPanResponderRelease: () => {
+        miniMapTrackingRef.current.mode = null;
+        miniMapTrackingRef.current.initialWindow = null;
+      },
+      onPanResponderTerminate: () => {
+        miniMapTrackingRef.current.mode = null;
+        miniMapTrackingRef.current.initialWindow = null;
+      },
+      onPanResponderTerminationRequest: () => true,
+    });
+  }, [interactiveEnabled, pointsPerPixel, commitViewWindow]);
+
+  const miniMapLeftHandleResponder = useMemo(() => {
+    if (!interactiveEnabled || !pointsPerPixel) return null;
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 2,
+      onPanResponderGrant: () => {
+        const runtime = runtimeRef.current;
+        miniMapTrackingRef.current.mode = 'resize-left';
+        miniMapTrackingRef.current.initialWindow = runtime.activeWindow;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const runtime = runtimeRef.current;
+        const initial = miniMapTrackingRef.current.initialWindow ?? runtime.activeWindow;
+        if (!initial || !runtime.totalPoints) return;
+        const deltaPoints = Math.round(gestureState.dx * pointsPerPixel);
+        let nextStart = initial.start + deltaPoints;
+        const maxStart = initial.end - Math.max(1, runtime.minSpan);
+        nextStart = clamp(nextStart, 0, maxStart);
+        commitViewWindow(nextStart, initial.end);
+      },
+      onPanResponderRelease: () => {
+        miniMapTrackingRef.current.mode = null;
+        miniMapTrackingRef.current.initialWindow = null;
+      },
+      onPanResponderTerminate: () => {
+        miniMapTrackingRef.current.mode = null;
+        miniMapTrackingRef.current.initialWindow = null;
+      },
+      onPanResponderTerminationRequest: () => true,
+    });
+  }, [interactiveEnabled, pointsPerPixel, commitViewWindow]);
+
+  const miniMapRightHandleResponder = useMemo(() => {
+    if (!interactiveEnabled || !pointsPerPixel) return null;
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 2,
+      onPanResponderGrant: () => {
+        const runtime = runtimeRef.current;
+        miniMapTrackingRef.current.mode = 'resize-right';
+        miniMapTrackingRef.current.initialWindow = runtime.activeWindow;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const runtime = runtimeRef.current;
+        const initial = miniMapTrackingRef.current.initialWindow ?? runtime.activeWindow;
+        if (!initial || !runtime.totalPoints) return;
+        const deltaPoints = Math.round(gestureState.dx * pointsPerPixel);
+        let nextEnd = initial.end + deltaPoints;
+        const minEnd = initial.start + Math.max(1, runtime.minSpan);
+        nextEnd = clamp(nextEnd, minEnd, runtime.totalPoints);
+        commitViewWindow(initial.start, nextEnd);
+      },
+      onPanResponderRelease: () => {
+        miniMapTrackingRef.current.mode = null;
+        miniMapTrackingRef.current.initialWindow = null;
+      },
+      onPanResponderTerminate: () => {
+        miniMapTrackingRef.current.mode = null;
+        miniMapTrackingRef.current.initialWindow = null;
+      },
+      onPanResponderTerminationRequest: () => true,
+    });
+  }, [interactiveEnabled, pointsPerPixel, commitViewWindow]);
+
   const visibleLabelIndices = useMemo(() => {
     const n = windowedLabels.length;
     const keep = new Set<number>();
@@ -675,6 +885,86 @@ export default function ETFLineChart(props: Props) {
                 </View>
               )}
             </View>
+            {interactiveEnabled && innerWidth && totalPoints > 1 ? (
+              <View style={[styles.miniMapContainer, { height: miniMapHeight }]}>
+                <View style={styles.miniMapChartWrapper}>
+                  <LineChart
+                    data={{ labels: miniMapLabels as any, datasets: filteredDatasets as any }}
+                    width={innerWidth}
+                    height={miniMapHeight}
+                    chartConfig={miniMapChartConfig}
+                    withDots={false}
+                    withShadow={false}
+                    withVerticalLabels={false}
+                    withHorizontalLabels={false}
+                    withInnerLines={false}
+                    withOuterLines={false}
+                    bezier={false}
+                    style={styles.miniMapChart}
+                  />
+                </View>
+                {miniMapSelection.width > 0 ? (
+                  <View
+                    pointerEvents="box-none"
+                    style={[styles.miniMapSelectionLayer, { width: innerWidth, height: miniMapHeight }]}
+                  >
+                    {miniMapShadeWidths.left > 0 ? (
+                      <View
+                        style={[
+                          styles.miniMapShade,
+                          { left: 0, width: miniMapShadeWidths.left, backgroundColor: miniMapShadeColor },
+                        ]}
+                      />
+                    ) : null}
+                    {miniMapShadeWidths.right > 0 ? (
+                      <View
+                        style={[
+                          styles.miniMapShade,
+                          {
+                            left: miniMapSelection.left + miniMapSelection.width,
+                            width: miniMapShadeWidths.right,
+                            backgroundColor: miniMapShadeColor,
+                          },
+                        ]}
+                      />
+                    ) : null}
+                    <View
+                      style={[
+                        styles.miniMapSelection,
+                        {
+                          left: miniMapSelection.left,
+                          width: miniMapSelection.width,
+                          borderColor: colors.accent,
+                          backgroundColor: miniMapSelectionFill,
+                        },
+                      ]}
+                      {...(miniMapPanResponder ? miniMapPanResponder.panHandlers : {})}
+                    >
+                      <View
+                        style={[
+                          styles.miniMapHandle,
+                          styles.miniMapHandleLeft,
+                          { borderColor: colors.accent, backgroundColor: colors.card },
+                        ]}
+                        {...(miniMapLeftHandleResponder ? miniMapLeftHandleResponder.panHandlers : {})}
+                      >
+                        <View style={[styles.miniMapHandleGrip, { backgroundColor: colors.accent }]} />
+                      </View>
+                      <View
+                        style={[
+                          styles.miniMapHandle,
+                          styles.miniMapHandleRight,
+                          { borderColor: colors.accent, backgroundColor: colors.card },
+                        ]}
+                        {...(miniMapRightHandleResponder ? miniMapRightHandleResponder.panHandlers : {})}
+                      >
+                        <View style={[styles.miniMapHandleGrip, { backgroundColor: colors.accent }]} />
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : (
           <View style={[styles.emptyContainer, { height: chartHeight, margin: 0, backgroundColor: colors.card }]}>
@@ -767,4 +1057,30 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   emptyText: { fontSize: 16, color: '#6B7280', textAlign: 'center' },
+  miniMapContainer: { marginTop: 12, position: 'relative' },
+  miniMapChartWrapper: { borderRadius: 12, overflow: 'hidden' },
+  miniMapChart: { borderRadius: 12 },
+  miniMapSelectionLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  miniMapShade: { position: 'absolute', top: 0, bottom: 0 },
+  miniMapSelection: {
+    position: 'absolute',
+    top: -2,
+    bottom: -2,
+    borderWidth: 1,
+    borderRadius: 10,
+    justifyContent: 'center',
+  },
+  miniMapHandle: {
+    position: 'absolute',
+    top: -4,
+    bottom: -4,
+    width: 20,
+    borderWidth: 1,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  miniMapHandleLeft: { left: -10 },
+  miniMapHandleRight: { right: -10 },
+  miniMapHandleGrip: { width: 3, height: 24, borderRadius: 2 },
 });
