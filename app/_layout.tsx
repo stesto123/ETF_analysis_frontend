@@ -18,6 +18,7 @@ import { ThemeProvider, useTheme } from '@/components/common/ThemeProvider';
 import { ChartSettingsProvider } from '@/components/common/ChartSettingsProvider';
 import { ActivityIndicator, View } from 'react-native';
 import { setClerkTokenGetter } from '@/utils/clerkToken';
+import { AppPreferencesProvider } from '@/components/common/AppPreferencesProvider';
 
 export default function RootLayout() {
   // Basta che ClerkProvider stia più in alto di qualunque hook/useAuth o componenti che lo usano
@@ -29,10 +30,12 @@ export default function RootLayout() {
       >
         <ThemeProvider>
           <ChartSettingsProvider>
-            <SafeAreaProvider>
-              <ClerkTokenBridge />
-              <ThemedContent />
-            </SafeAreaProvider>
+            <AppPreferencesProvider>
+              <SafeAreaProvider>
+                <ClerkTokenBridge />
+                <ThemedContent />
+              </SafeAreaProvider>
+            </AppPreferencesProvider>
           </ChartSettingsProvider>
         </ThemeProvider>
       </ClerkProvider>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, TextInput, Switch } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Trash2, Info, Sparkles, Sun, Moon, BarChart3, Signpost } from 'lucide-react-native';
+import { Trash2, Info, Sparkles, Sun, Moon, BarChart3, Signpost, BookOpen } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { apiService } from '@/services/api';
 import SignOutButton from '@/components/common/SignOutButton';
@@ -9,6 +9,7 @@ import { useChartSettings, CHART_MAX_POINTS_LIMITS } from '@/components/common/C
 import { useTheme } from '@/components/common/ThemeProvider';
 import { useRouter } from 'expo-router';
 import { getForceOnboarding, setForceOnboarding } from '@/utils/onboardingPreferences';
+import { useAppPreferences } from '@/components/common/AppPreferencesProvider';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -19,6 +20,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const [forceOnboarding, setForceOnboardingState] = useState(false);
   const [onboardingPrefLoaded, setOnboardingPrefLoaded] = useState(false);
+  const { learnTabEnabled, setLearnTabEnabled } = useAppPreferences();
 
   useEffect(() => {
     setDraft(String(maxPoints));
@@ -91,6 +93,14 @@ export default function SettingsScreen() {
     const next = !forceOnboarding;
     setForceOnboardingState(next);
     await setForceOnboarding(next);
+  };
+
+  const handleToggleLearnTab = async () => {
+    await setLearnTabEnabled(!learnTabEnabled);
+  };
+
+  const handleOpenLearn = () => {
+    router.push('/(tabs)/learn');
   };
 
   const ThemeIcon = isDark ? Moon : Sun;
@@ -175,7 +185,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Guided tour</Text>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Learning</Text>
           <TouchableOpacity
             style={[styles.settingRow, { borderColor: colors.border, backgroundColor: colors.background }]}
             onPress={handleOpenOnboarding}
@@ -211,6 +221,41 @@ export default function SettingsScreen() {
               disabled={!onboardingPrefLoaded}
             />
           </View>
+
+          <View
+            style={[styles.settingRow, styles.settingRowSpaceBetween, { borderColor: colors.border, backgroundColor: colors.background }]}
+          >
+            <View style={[styles.settingHeader, { flex: 1 }]}>
+              <View style={[styles.settingIcon, { backgroundColor: colors.accent }]}>
+                <BookOpen size={20} color="#FFFFFF" />
+              </View>
+              <View style={styles.settingTextSpace}>
+                <Text style={[styles.settingTitle, { color: colors.text }]}>Show Learn tab</Text>
+                <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Enable the Learn screen with mini lessons.</Text>
+              </View>
+            </View>
+            <Switch
+              value={learnTabEnabled}
+              onValueChange={handleToggleLearnTab}
+              trackColor={{ false: colors.border, true: colors.accent }}
+              thumbColor={learnTabEnabled ? '#FFFFFF' : '#f4f3f4'}
+              ios_backgroundColor={colors.border}
+            />
+          </View>
+
+          <TouchableOpacity
+            style={[styles.settingRow, { borderColor: colors.border, backgroundColor: colors.background }]}
+            onPress={handleOpenLearn}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.settingIcon, { backgroundColor: colors.accent }]}>
+              <BookOpen size={20} color="#FFFFFF" />
+            </View>
+            <View style={styles.settingText}>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>Open Learn screen</Text>
+              <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Jump to the new Learn tab and explore lessons.</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
         <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
