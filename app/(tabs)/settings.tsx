@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, TextInput, Switch } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Trash2, Info, Sparkles, Sun, Moon, BarChart3 } from 'lucide-react-native';
+import { Trash2, Info, Sparkles, Sun, Moon, BarChart3, Signpost } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { apiService } from '@/services/api';
 import SignOutButton from '@/components/common/SignOutButton';
 import { useChartSettings, CHART_MAX_POINTS_LIMITS } from '@/components/common/ChartSettingsProvider';
 import { useTheme } from '@/components/common/ThemeProvider';
+import { useRouter } from 'expo-router';
+import { getForceOnboarding, setForceOnboarding } from '@/utils/onboardingPreferences';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -14,10 +16,27 @@ export default function SettingsScreen() {
   const { maxPoints, setMaxPoints } = useChartSettings();
   const [draft, setDraft] = useState(String(maxPoints));
   const [feedback, setFeedback] = useState<string | null>(null);
+  const router = useRouter();
+  const [forceOnboarding, setForceOnboardingState] = useState(false);
+  const [onboardingPrefLoaded, setOnboardingPrefLoaded] = useState(false);
 
   useEffect(() => {
     setDraft(String(maxPoints));
   }, [maxPoints]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const value = await getForceOnboarding();
+      if (active) {
+        setForceOnboardingState(value);
+        setOnboardingPrefLoaded(true);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const commit = () => {
     const n = parseInt(draft, 10);
@@ -62,6 +81,16 @@ export default function SettingsScreen() {
       'This app provides real-time analysis of ETF data through interactive charts and comprehensive analytics.\n\nVersion: 1.0.0\nDeveloped with React Native & Expo',
       [{ text: 'OK' }]
     );
+  };
+
+  const handleOpenOnboarding = () => {
+    router.push('/onboarding');
+  };
+
+  const handleToggleOnboarding = async () => {
+    const next = !forceOnboarding;
+    setForceOnboardingState(next);
+    await setForceOnboarding(next);
   };
 
   const ThemeIcon = isDark ? Moon : Sun;
@@ -142,6 +171,45 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
             {feedback && <Text style={[styles.errorText, { color: '#DC2626' }]}>{feedback}</Text>}
+          </View>
+        </View>
+
+        <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Guided tour</Text>
+          <TouchableOpacity
+            style={[styles.settingRow, { borderColor: colors.border, backgroundColor: colors.background }]}
+            onPress={handleOpenOnboarding}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.settingIcon, { backgroundColor: colors.accent }]}>
+              <Sparkles size={20} color="#FFFFFF" />
+            </View>
+            <View style={styles.settingText}>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>Play onboarding</Text>
+              <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Preview the welcome tour from the start.</Text>
+            </View>
+          </TouchableOpacity>
+
+          <View
+            style={[styles.settingRow, styles.settingRowSpaceBetween, { borderColor: colors.border, backgroundColor: colors.background }]}
+          >
+            <View style={[styles.settingHeader, { flex: 1 }]}>
+              <View style={[styles.settingIcon, { backgroundColor: colors.accent }]}>
+                <Signpost size={20} color="#FFFFFF" />
+              </View>
+              <View style={styles.settingTextSpace}>
+                <Text style={[styles.settingTitle, { color: colors.text }]}>Show on launch (dev)</Text>
+                <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Always open onboarding when the app starts.</Text>
+              </View>
+            </View>
+            <Switch
+              value={forceOnboarding}
+              onValueChange={handleToggleOnboarding}
+              trackColor={{ false: colors.border, true: colors.accent }}
+              thumbColor={forceOnboarding ? '#FFFFFF' : '#f4f3f4'}
+              ios_backgroundColor={colors.border}
+              disabled={!onboardingPrefLoaded}
+            />
           </View>
         </View>
 
@@ -287,6 +355,9 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'flex-start',
     rowGap: 14,
+  },
+  settingRowSpaceBetween: {
+    justifyContent: 'space-between',
   },
   settingHeader: {
     flexDirection: 'row',
