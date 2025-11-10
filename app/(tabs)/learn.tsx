@@ -64,13 +64,12 @@ export default function LearnScreen() {
             </View>
           </View>
         </LinearGradient>
-
         <MiniLessonCarousel />
 
         <View style={[styles.tipCard, { backgroundColor: colors.card, borderColor: colors.border }]}> 
           <Text style={[styles.tipTitle, { color: colors.text }]}>Try this next</Text>
           <Text style={[styles.tipDescription, { color: colors.secondaryText }]}>
-            Browse a few ETFs you\'re curious about, add them to your watchlist, and ask the AI how they differ. Revisit these lessons anytime for a quick refresher.
+            Browse a few ETFs you&apos;re curious about, add them to your watchlist, and ask the AI how they differ. Revisit these lessons anytime for a quick refresher.
           </Text>
         </View>
       </ScrollView>

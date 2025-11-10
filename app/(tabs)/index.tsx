@@ -16,6 +16,8 @@ import AreaChips, { GeographyOption as AreaChipGeographyOption } from '@/compone
 import { apiService } from '@/services/api';
 import { PricePoint, QueryParams, ChartDataPoint, GeographyGroup, TickerSummary } from '@/types';
 import { useChartSettings } from '@/components/common/ChartSettingsProvider';
+import HelpTooltip from '@/components/common/HelpTooltip';
+import { TOOLTIP_COPY } from '@/constants/tooltips';
 
 type GeographyOption = AreaChipGeographyOption;
 type DateRange = { start_date: string; end_date: string };
@@ -574,11 +576,17 @@ export default function HomeScreen() {
             </View>
           </View>
         </LinearGradient>
-
+        <View style={styles.sectionHeaderRow}>
+          <Text style={[styles.sectionHeaderText, { color: colors.text }]}>Focus by geography</Text>
+          <HelpTooltip
+            title={TOOLTIP_COPY.analytics.areaFilter.title}
+            description={TOOLTIP_COPY.analytics.areaFilter.description}
+          />
+        </View>
         <AreaChips areas={geographyOptions} selectedId={selectedArea} onSelect={setSelectedArea} loading={tickersLoading} />
-  <View style={[styles.tickersCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+  <View style={[styles.tickersCard, { backgroundColor: colors.card, borderColor: colors.border }]}> 
           <View style={styles.tickersHeader}>
-            <Text style={[styles.tickersTitle, { color: colors.text }] }>
+            <Text style={[styles.tickersTitle, { color: colors.text }]}>
               {selectedArea == null ? 'ETFs from all areas' : 'ETFs from the selected area'}
             </Text>
             <View style={[styles.badge, { backgroundColor: colors.background }]}> 
@@ -594,11 +602,17 @@ export default function HomeScreen() {
           ) : (
             <>
               <View style={styles.bulkRow}>
-                <Pressable onPress={toggleSelectAllInArea} style={[styles.bulkBtn, { borderColor: colors.border, backgroundColor: colors.background }]}>
-                  <Text style={[styles.bulkBtnText, { color: colors.text }]}>
-                    {allCurrentSelected ? 'Deselect all' : 'Select all'}
-                  </Text>
-                </Pressable>
+                <View style={styles.inlineHelpRow}>
+                  <Pressable onPress={toggleSelectAllInArea} style={[styles.bulkBtn, { borderColor: colors.border, backgroundColor: colors.background }]}>
+                    <Text style={[styles.bulkBtnText, { color: colors.text }]}> 
+                      {allCurrentSelected ? 'Deselect all' : 'Select all'}
+                    </Text>
+                  </Pressable>
+                  <HelpTooltip
+                    title={TOOLTIP_COPY.analytics.bulkSelect.title}
+                    description={TOOLTIP_COPY.analytics.bulkSelect.description}
+                  />
+                </View>
                 <Text style={[styles.selectedCounter, { color: colors.secondaryText }]}>
                   Selected: {selectedCount}
                 </Text>
@@ -667,7 +681,21 @@ export default function HomeScreen() {
             </>
           )}
         </View>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={[styles.sectionHeaderText, { color: colors.text }]}>Query settings</Text>
+          <HelpTooltip
+            title={TOOLTIP_COPY.analytics.queryForm.title}
+            description={TOOLTIP_COPY.analytics.queryForm.description}
+          />
+        </View>
         <ETFQueryForm onSubmit={handleSubmit} loading={loading} />
+        <View style={styles.sectionHeaderRow}>
+          <Text style={[styles.sectionHeaderText, { color: colors.text }]}>Performance overview</Text>
+          <HelpTooltip
+            title={TOOLTIP_COPY.analytics.performanceChart.title}
+            description={TOOLTIP_COPY.analytics.performanceChart.description}
+          />
+        </View>
         <View style={[styles.chartContainer, { paddingBottom: Math.max(12, insets.bottom) }]}>
           {renderChart()}
         </View>
@@ -774,6 +802,21 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 8,
+  },
+  sectionHeaderText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  inlineHelpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 8,
   },
   bulkRow: {
     flexDirection: 'row',

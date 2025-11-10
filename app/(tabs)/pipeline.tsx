@@ -26,6 +26,8 @@ import { apiService } from '@/services/api';
 import ETFLineChart from '@/components/Chart/LineChart';
 import { useTheme } from '@/components/common/ThemeProvider';
 import Toast, { ToastType } from '@/components/common/Toast';
+import HelpTooltip from '@/components/common/HelpTooltip';
+import { TOOLTIP_COPY } from '@/constants/tooltips';
 import {
   ChartDataPoint,
   GeographyGroup,
@@ -67,6 +69,8 @@ export default function PipelineScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
+
+  const pipelineTooltips = TOOLTIP_COPY.pipeline;
   const [idPortafoglio, setIdPortafoglio] = useState('1');
   const [ammontare, setAmmontare] = useState('10000');
   const [capitaleIniziale, setCapitaleIniziale] = useState('0');
@@ -817,7 +821,19 @@ export default function PipelineScreen() {
           {openSections.composition && (
             <Animated.View style={{ opacity: sectionOpacity.current.composition }}>
               <View style={{ marginBottom: 12 }}>
-                <Text style={[styles.label, { marginBottom: 8, color: colors.secondaryText }]}>Portfolio Composition</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={[styles.sectionHeaderText, { color: colors.secondaryText }]}>Portfolio Composition</Text>
+                  <View style={styles.inlineHelpRow}>
+                    <HelpTooltip
+                      title={pipelineTooltips.compositionSection.title}
+                      description={pipelineTooltips.compositionSection.description}
+                    />
+                    <HelpTooltip
+                      title={pipelineTooltips.deletePortfolio.title}
+                      description={pipelineTooltips.deletePortfolio.description}
+                    />
+                  </View>
+                </View>
                 {userProfileError && <Text style={styles.error}>{userProfileError}</Text>}
                 {!userProfileError && tableError && <Text style={styles.error}>{tableError}</Text>}
                 {portfoliosLoading ? (
@@ -842,7 +858,13 @@ export default function PipelineScreen() {
           {openSections.create && (
             <Animated.View style={{ opacity: sectionOpacity.current.create }}>
               <View style={{ marginBottom: 16 }}>
-                <Text style={[styles.title, { color: colors.text, fontSize: 18 }]}>Create New Portfolio</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={[styles.sectionTitleText, { color: colors.text }]}>Create New Portfolio</Text>
+                  <HelpTooltip
+                    title={pipelineTooltips.createSection.title}
+                    description={pipelineTooltips.createSection.description}
+                  />
+                </View>
                 {userProfileError && <Text style={styles.error}>{userProfileError}</Text>}
                 {!userProfileError && tableError && <Text style={styles.error}>{tableError}</Text>}
                 <View style={styles.field}>
@@ -1037,13 +1059,19 @@ export default function PipelineScreen() {
                   </Pressable>
                   <Text style={styles.small}>Total: {totalPercent.toFixed(1)}%</Text>
                 </View>
-                <Pressable
-                  style={[styles.btn, (saving || !canManagePortfolios) && { opacity: 0.7 }]}
-                  onPress={createPortfolioAndSave}
-                  disabled={saving || !canManagePortfolios}
-                >
-                  <Text style={styles.btnText}>{saving ? 'Saving…' : 'Create & Save Composition'}</Text>
-                </Pressable>
+                <View style={[styles.inlineHelpRow, { marginTop: 8 }]}>
+                  <Pressable
+                    style={[styles.btn, { flex: 1, marginTop: 0 }, (saving || !canManagePortfolios) && { opacity: 0.7 }]}
+                    onPress={createPortfolioAndSave}
+                    disabled={saving || !canManagePortfolios}
+                  >
+                    <Text style={styles.btnText}>{saving ? 'Saving…' : 'Create & Save Composition'}</Text>
+                  </Pressable>
+                  <HelpTooltip
+                    title={pipelineTooltips.saveComposition.title}
+                    description={pipelineTooltips.saveComposition.description}
+                  />
+                </View>
               </View>
             </Animated.View>
           )}
@@ -1055,7 +1083,13 @@ export default function PipelineScreen() {
           {openSections.run && (
             <Animated.View style={{ opacity: sectionOpacity.current.run }}>
               <View style={{ marginBottom: 16 }}>
-                <Text style={[styles.title, { color: colors.text, fontSize: 18 }]}>Run Pipeline</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={[styles.sectionTitleText, { color: colors.text }]}>Run Pipeline</Text>
+                  <HelpTooltip
+                    title={pipelineTooltips.runSection.title}
+                    description={pipelineTooltips.runSection.description}
+                  />
+                </View>
                 <View style={styles.field}>
                   <Text style={[styles.label, { color: colors.secondaryText }]}>Portfolio ID</Text>
                   <TextInput
@@ -1088,7 +1122,13 @@ export default function PipelineScreen() {
                   />
                 </View>
                 <View style={styles.field}>
-                  <Text style={[styles.label, { color: colors.secondaryText }]}>Strategy</Text>
+                  <View style={styles.labelRow}>
+                    <Text style={[styles.label, { color: colors.secondaryText, marginBottom: 0 }]}>Strategy</Text>
+                    <HelpTooltip
+                      title={pipelineTooltips.strategyPicker.title}
+                      description={pipelineTooltips.strategyPicker.description}
+                    />
+                  </View>
                   {strategiesLoading ? (
                     <Text style={styles.small}>Loading strategies…</Text>
                   ) : strategies.length ? (
@@ -1181,7 +1221,13 @@ export default function PipelineScreen() {
           {openSections.chart && (
             <Animated.View style={{ opacity: sectionOpacity.current.chart }}>
               <View style={{ marginTop: 8 }}>
-                <Text style={[styles.label, { color: colors.secondaryText }]}>Selected Portfolios Total Value Over Time</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={[styles.sectionHeaderText, { color: colors.secondaryText }]}>Selected Portfolios Total Value Over Time</Text>
+                  <HelpTooltip
+                    title={pipelineTooltips.chartSection.title}
+                    description={pipelineTooltips.chartSection.description}
+                  />
+                </View>
                 <View style={styles.row}>
                   <View style={[styles.field, { flex: 1, marginRight: 8 }]}>
                     <Text style={[styles.label, { color: colors.secondaryText }]}>Start (YYYYMMDD)</Text>
@@ -1303,6 +1349,36 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: '700', color: '#111827', marginBottom: 12 },
   field: { marginBottom: 10 },
   label: { fontSize: 12, color: '#6B7280', marginBottom: 6 },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: 8,
+    marginBottom: 10,
+  },
+  sectionHeaderText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  sectionTitleText: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 0,
+  },
+  inlineHelpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 8,
+    flexShrink: 0,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 8,
+    marginBottom: 6,
+  },
   input: {
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,

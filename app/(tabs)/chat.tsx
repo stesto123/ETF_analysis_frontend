@@ -24,6 +24,67 @@ type ChatMessage = {
   content: string;
 };
 
+type MarkdownToken = {
+  type: 'text' | 'bold' | 'italic';
+  content: string;
+};
+
+const INLINE_MARKDOWN_PATTERN = /(\*\*|__)(.+?)\1|(\*|_)(.+?)\3/g;
+
+const parseInlineMarkdown = (input: string): MarkdownToken[] => {
+  if (!input) return [{ type: 'text', content: '' }];
+
+  const tokens: MarkdownToken[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = INLINE_MARKDOWN_PATTERN.exec(input)) !== null) {
+    if (match.index > lastIndex) {
+      tokens.push({ type: 'text', content: input.slice(lastIndex, match.index) });
+    }
+
+    if (match[1]) {
+      tokens.push({ type: 'bold', content: match[2] });
+    } else if (match[3]) {
+      tokens.push({ type: 'italic', content: match[4] });
+    }
+
+    lastIndex = INLINE_MARKDOWN_PATTERN.lastIndex;
+  }
+
+  if (lastIndex < input.length) {
+    tokens.push({ type: 'text', content: input.slice(lastIndex) });
+  }
+
+  if (tokens.length === 0) {
+    tokens.push({ type: 'text', content: input });
+  }
+
+  INLINE_MARKDOWN_PATTERN.lastIndex = 0;
+  return tokens;
+};
+
+const renderFormattedContent = (content: string, baseColor: string): React.ReactNode[] => {
+  const tokens = parseInlineMarkdown(content);
+  return tokens.map((token, index) => {
+    if (token.type === 'bold') {
+      return (
+        <Text key={`bold-${index}`} style={{ color: baseColor, fontWeight: '700' }}>
+          {token.content}
+        </Text>
+      );
+    }
+    if (token.type === 'italic') {
+      return (
+        <Text key={`italic-${index}`} style={{ color: baseColor, fontStyle: 'italic' }}>
+          {token.content}
+        </Text>
+      );
+    }
+    return <React.Fragment key={`text-${index}`}>{token.content}</React.Fragment>;
+  });
+};
+
 const CHAT_SUGGESTIONS = [
   'Show me the top-performing ETFs from the last quarter',
   'Which ETFs have the lowest volatility?',
@@ -128,7 +189,7 @@ export default function ChatScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.heroTitle}>ETF Assistant</Text>
                 <Text style={styles.heroSubtitle}>
-                  Ask about performance, volatility, or allocation strategies and I\'ll answer in seconds.
+                  Ask about performance, volatility, or allocation strategies and I&apos;ll answer in seconds.
                 </Text>
               </View>
             </LinearGradient>
@@ -172,7 +233,9 @@ export default function ChatScreen() {
 
               return (
                 <View key={message.id} style={bubbleStyle}>
-                  <Text style={[styles.messageText, { color: textColor }]}>{message.content}</Text>
+                  <Text style={[styles.messageText, { color: textColor }]}>
+                    {renderFormattedContent(message.content, textColor)}
+                  </Text>
                 </View>
               );
             })}
