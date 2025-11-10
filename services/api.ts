@@ -5,6 +5,8 @@ import {
   QueryParams,
   GeographyGroup,
   GeographyResponse,
+  GeographyResponseItem,
+  GeographyResponseTicker,
   TickerSummary,
   PriceHistoryResponse,
   TickerPriceSeries,
@@ -398,15 +400,25 @@ class APIService {
       throw new Error(`Failed to fetch geographies (${res.status}): ${txt}`);
     }
 
-    const body: GeographyResponse | null = await res
+    const raw: GeographyResponse | GeographyResponse['items'] | null = await res
       .json()
       .catch(() => null);
-    if (!body || !Array.isArray(body.items)) {
+
+    const itemsSource: unknown = Array.isArray((raw as any)?.items)
+      ? (raw as any).items
+      : Array.isArray(raw)
+        ? raw
+        : Array.isArray((raw as any)?.data)
+          ? (raw as any).data
+          : null;
+
+    if (!Array.isArray(itemsSource)) {
       throw new Error('Invalid geographies response format');
     }
 
-    const items: GeographyGroup[] = body.items.map((group) => {
-      const rawId = Number(group.geography_id);
+    const items: GeographyGroup[] = (itemsSource as unknown[]).map((groupLike) => {
+      const group = groupLike as GeographyResponseItem;
+      const rawId = Number((group as any)?.geography_id);
       const geography_id = Number.isFinite(rawId) ? rawId : -1;
       const geography_name = String(group.geography_name ?? '');
       const continent = typeof group.continent === 'string' ? group.continent.trim() : null;
@@ -414,19 +426,21 @@ class APIService {
       const isoRaw = typeof group.iso_code === 'string' ? group.iso_code.trim() : null;
       const iso_code = isoRaw ? isoRaw.toUpperCase() : null;
 
-      const tickers: TickerSummary[] = Array.isArray(group.tickers)
+      const tickerItems: GeographyResponseTicker[] = Array.isArray(group.tickers)
         ? group.tickers
-            .map((t) => {
-              if (!t || typeof t !== 'object') return null;
-              const ticker_id = Number((t as any).ticker_id);
+        : [];
+
+      const tickers: TickerSummary[] = tickerItems
+        .map((tickerLike: GeographyResponseTicker) => {
+          if (!tickerLike || typeof tickerLike !== 'object') return null;
+          const ticker_id = Number((tickerLike as any).ticker_id);
               if (!Number.isFinite(ticker_id)) return null;
-              const symbol = typeof t.symbol === 'string' ? t.symbol : '';
-              const name = typeof t.name === 'string' ? t.name : undefined;
-              const asset_class = typeof t.asset_class === 'string' ? t.asset_class : undefined;
+          const symbol = typeof tickerLike.symbol === 'string' ? tickerLike.symbol : '';
+          const name = typeof tickerLike.name === 'string' ? tickerLike.name : undefined;
+          const asset_class = typeof tickerLike.asset_class === 'string' ? tickerLike.asset_class : undefined;
               return { ticker_id, symbol, name, asset_class } as TickerSummary;
             })
-            .filter((t): t is TickerSummary => t != null)
-        : [];
+        .filter((entry): entry is TickerSummary => entry != null);
 
       return { geography_id, geography_name, continent, country, iso_code, tickers };
     });
@@ -521,25 +535,25 @@ class APIService {
   // ------- Simulations -------
   async runSimulation(payload: SimulationRunPayload): Promise<SimulationRunResponse> {
     if (!Number.isFinite(payload.user_id)) {
-      throw new Error('runSimulation: user_id richiesto');
+      throw new Error('runSimulation: user_id is required');
     }
     if (!Number.isFinite(payload.portfolio_id)) {
-      throw new Error('runSimulation: portfolio_id richiesto');
+      throw new Error('runSimulation: portfolio_id is required');
     }
     if (!Number.isFinite(payload.strategy_id)) {
-      throw new Error('runSimulation: strategy_id richiesto');
+      throw new Error('runSimulation: strategy_id is required');
     }
     if (!Number.isFinite(payload.monthly_investment) || payload.monthly_investment <= 0) {
-      throw new Error('runSimulation: monthly_investment deve essere maggiore di 0');
+      throw new Error('runSimulation: monthly_investment must be greater than 0');
     }
     if (payload.initial_capital != null && payload.initial_capital < 0) {
-      throw new Error('runSimulation: initial_capital non può essere negativo');
+      throw new Error('runSimulation: initial_capital cannot be negative');
     }
     if (
       payload.rebalance_threshold != null &&
       (payload.rebalance_threshold < 0 || payload.rebalance_threshold > 1)
     ) {
-      throw new Error('runSimulation: rebalance_threshold deve essere tra 0 e 1');
+      throw new Error('runSimulation: rebalance_threshold must be between 0 and 1');
     }
 
     const body: Record<string, any> = {
@@ -601,7 +615,7 @@ class APIService {
     useCache?: boolean;
   }): Promise<SimulationAggregateSeries[]> {
     if (!options || !Array.isArray(options.portfolioIds)) {
-      throw new Error('getPortfolioResults: portfolioIds è obbligatorio');
+      throw new Error('getPortfolioResults: portfolioIds is required');
     }
 
     const uniqueIds = Array.from(
@@ -612,22 +626,22 @@ class APIService {
       )
     );
     if (uniqueIds.length === 0) {
-      throw new Error('getPortfolioResults: nessun portfolioId valido specificato');
+      throw new Error('getPortfolioResults: no valid portfolioId provided');
     }
 
     const normalizedStart = options.startCalendarId != null ? Number(options.startCalendarId) : undefined;
     if (normalizedStart != null && !Number.isFinite(normalizedStart)) {
-      throw new Error('getPortfolioResults: startCalendarId non valido');
+      throw new Error('getPortfolioResults: startCalendarId is invalid');
     }
     const normalizedEnd = options.endCalendarId != null ? Number(options.endCalendarId) : undefined;
     if (normalizedEnd != null && !Number.isFinite(normalizedEnd)) {
-      throw new Error('getPortfolioResults: endCalendarId non valido');
+      throw new Error('getPortfolioResults: endCalendarId is invalid');
     }
 
     const profile = await this.getCurrentUserProfile();
     const userId = Number(profile.user_id);
     if (!Number.isFinite(userId) || userId <= 0) {
-      throw new Error('getPortfolioResults: user_id non disponibile');
+      throw new Error('getPortfolioResults: user_id unavailable');
     }
 
     const sortedIds = uniqueIds.slice().sort((a, b) => a - b);

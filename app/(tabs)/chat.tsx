@@ -25,9 +25,9 @@ type ChatMessage = {
 };
 
 const CHAT_SUGGESTIONS = [
-  'Mostrami gli ETF più performanti dell’ultimo trimestre',
-  'Quali ETF hanno la volatilità più bassa?',
-  'Suggerisci una diversificazione per ETF tecnologici europei',
+  'Show me the top-performing ETFs from the last quarter',
+  'Which ETFs have the lowest volatility?',
+  'Suggest a diversification plan for European tech ETFs',
 ];
 
 export default function ChatScreen() {
@@ -37,7 +37,7 @@ export default function ChatScreen() {
     {
       id: 'assistant-welcome',
       role: 'assistant',
-      content: 'Ciao! Sono qui per aiutarti con domande su ETF, mercati o qualsiasi curiosità tu abbia.',
+      content: 'Hi! I\'m here to help with questions about ETFs, markets, or anything you\'re curious about.',
     },
   ]);
   const [input, setInput] = useState('');
@@ -81,8 +81,8 @@ export default function ChatScreen() {
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
-      console.error('Errore nella chat con il backend', error);
-      const fallbackMessage = 'Si è verificato un problema nel contattare il modello. Riprova più tardi.';
+      console.error('Error contacting chat backend', error);
+      const fallbackMessage = 'We ran into a problem contacting the model. Please try again later.';
       setMessages((prev) => [
         ...prev,
         {
@@ -126,9 +126,9 @@ export default function ChatScreen() {
                 <Sparkles size={22} color="#FFFFFF" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.heroTitle}>Assistente ETF</Text>
+                <Text style={styles.heroTitle}>ETF Assistant</Text>
                 <Text style={styles.heroSubtitle}>
-                  Fai domande su performance, volatilità o strategie di allocazione: ti rispondo in pochi secondi.
+                  Ask about performance, volatility, or allocation strategies and I\'ll answer in seconds.
                 </Text>
               </View>
             </LinearGradient>
@@ -209,7 +209,7 @@ export default function ChatScreen() {
                   borderColor: colors.border,
                 },
               ]}
-              placeholder="Scrivi un messaggio"
+              placeholder="Type a message"
               placeholderTextColor={colors.secondaryText}
               value={input}
               onChangeText={setInput}

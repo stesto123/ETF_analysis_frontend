@@ -968,7 +968,7 @@ export default function ETFLineChart(props: Props) {
           </View>
         ) : (
           <View style={[styles.emptyContainer, { height: chartHeight, margin: 0, backgroundColor: colors.card }]}>
-            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>Nessuna serie visibile. Tocca una voce in legenda per mostrarla.</Text>
+            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>No series visible. Tap a legend item to display it.</Text>
           </View>
         )
       ) : (
@@ -982,7 +982,7 @@ export default function ETFLineChart(props: Props) {
               return (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Serie ${it.label}${hidden ? ' nascosta' : ''}`}
+                  accessibilityLabel={`Series ${it.label}${hidden ? ' hidden' : ''}`}
                   key={it.key}
                   style={[
                     legendLayout === 'stacked' ? styles.legendItemStacked : styles.legendItem,

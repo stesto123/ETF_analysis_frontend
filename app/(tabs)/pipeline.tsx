@@ -194,7 +194,7 @@ export default function PipelineScreen() {
   useEffect(() => {
     if (!user) {
       setCurrentUserId(null);
-      setUserProfileError('Accedi per gestire i portafogli');
+      setUserProfileError('Sign in to manage your portfolios');
       return;
     }
 
@@ -204,7 +204,7 @@ export default function PipelineScreen() {
   let cancelled = false;
     const email = user.primaryEmailAddress?.emailAddress ?? user.emailAddresses?.[0]?.emailAddress ?? null;
     if (!email) {
-      setUserProfileError('Email utente non disponibile');
+      setUserProfileError('User email not available');
       return;
     }
     const usernameCandidate = user.username ?? (email.includes('@') ? email.split('@')[0] : email);
@@ -219,7 +219,7 @@ export default function PipelineScreen() {
           setUserProfileError(null);
           return;
         }
-        setUserProfileError("Profilo backend privo di user_id valido");
+  setUserProfileError('Backend profile missing a valid user_id');
       } catch (err: any) {
         if (cancelled || !isMountedRef.current) return;
         const status = typeof err?.status === 'number' ? err.status : undefined;
@@ -241,16 +241,16 @@ export default function PipelineScreen() {
               setUserProfileError(null);
               return;
             }
-            setUserProfileError("Profilo backend non disponibile dopo la sincronizzazione");
+            setUserProfileError('Backend profile unavailable after synchronization');
           } catch (syncErr) {
             if (cancelled || !isMountedRef.current) return;
             const detail = syncErr instanceof Error ? syncErr.message : String(syncErr);
-            setUserProfileError(`Sync profilo fallita: ${detail}`);
+            setUserProfileError(`Profile sync failed: ${detail}`);
           }
           return;
         }
         if (status === 401 || status === 403) {
-          setUserProfileError('Sessione scaduta, accedi nuovamente.');
+          setUserProfileError('Session expired, please sign in again.');
           setCurrentUserId(null);
           return;
         }
@@ -324,18 +324,18 @@ export default function PipelineScreen() {
     setSimulationResult(null);
 
     if (!currentUserId) {
-      fail('Accedi per avviare una simulazione.');
+      fail('Sign in to start a simulation.');
       return;
     }
 
     const portfolioId = Number(idPortafoglio);
     if (!Number.isFinite(portfolioId) || portfolioId <= 0) {
-      fail('Inserisci un Portfolio ID valido.');
+      fail('Enter a valid portfolio ID.');
       return;
     }
 
     if (selectedStrategyId == null) {
-      fail('Seleziona una strategia di simulazione.');
+      fail('Select a simulation strategy.');
       return;
     }
 
@@ -347,19 +347,19 @@ export default function PipelineScreen() {
 
     const monthlyInvestment = normalizeNumber(ammontare);
     if (monthlyInvestment == null || monthlyInvestment <= 0) {
-      fail('L\'investimento mensile deve essere maggiore di zero.');
+      fail('Monthly investment must be greater than zero.');
       return;
     }
 
     const initialCapital = normalizeNumber(capitaleIniziale ?? '');
     if (initialCapital != null && initialCapital < 0) {
-      fail('Il capitale iniziale non può essere negativo.');
+      fail('Initial capital cannot be negative.');
       return;
     }
 
     const thresholdValue = normalizeNumber(rebalanceThreshold ?? '') ?? undefined;
     if (thresholdValue != null && (thresholdValue < 0 || thresholdValue > 1)) {
-      fail('La soglia di ribilanciamento deve essere compresa tra 0 e 1.');
+      fail('Rebalance threshold must be between 0 and 1.');
       return;
     }
 
@@ -367,7 +367,7 @@ export default function PipelineScreen() {
       const trimmed = value?.trim();
       if (!trimmed) return undefined;
       if (!/^\d{8}$/.test(trimmed)) {
-        fail('Le date devono essere nel formato YYYYMMDD.');
+        fail('Dates must follow the YYYYMMDD format.');
         throw new Error('invalid_calendar_id');
       }
       return Number(trimmed);
@@ -406,7 +406,7 @@ export default function PipelineScreen() {
       if (response.message) {
         setToast({ type: 'success', message: response.message });
       } else {
-        setToast({ type: 'success', message: 'Simulazione avviata.' });
+    setToast({ type: 'success', message: 'Simulation started.' });
       }
     } catch (error) {
       if (!isMountedRef.current) return;
@@ -617,7 +617,7 @@ export default function PipelineScreen() {
   const createPortfolioAndSave = useCallback(async () => {
     setTableError(null);
     if (!currentUserId) {
-      setTableError("Profilo utente non disponibile");
+  setTableError('User profile not available');
       return;
     }
     const trimmedName = newPortfolioName.trim();
@@ -707,7 +707,7 @@ export default function PipelineScreen() {
               <Pressable
                 onPress={async () => {
                   if (!currentUserId) {
-                    setToast({ type: 'error', message: 'Accedi per eliminare un portafoglio.' });
+                    setToast({ type: 'error', message: 'Sign in to delete a portfolio.' });
                     return;
                   }
                   try {
@@ -734,9 +734,9 @@ export default function PipelineScreen() {
                     const status = typeof (e as any)?.status === 'number' ? (e as any).status : undefined;
                     let msg = e instanceof Error ? e.message : String(e);
                     if (status === 403) {
-                      msg = 'Non puoi eliminare un portafoglio di un altro utente.';
+                      msg = "You cannot delete another user's portfolio.";
                     } else if (status === 404) {
-                      msg = 'Portafoglio non trovato o già eliminato.';
+                      msg = 'Portfolio not found or already deleted.';
                     }
                     setToast({ type: 'error', message: `Delete error: ${msg}` });
                   }
@@ -894,7 +894,7 @@ export default function PipelineScreen() {
                               ]}
                               numberOfLines={1}
                             >
-                              {areaInfo ? areaInfo.geography_name : 'Seleziona area'}
+                              {areaInfo ? areaInfo.geography_name : 'Select area'}
                             </Text>
                             {areaInfo && (areaInfo.country || areaInfo.continent) ? (
                               <Text
@@ -958,7 +958,7 @@ export default function PipelineScreen() {
                               ]}
                               numberOfLines={1}
                             >
-                              {tickerPrimary || 'Seleziona ETF'}
+                              {tickerPrimary || 'Select ETF'}
                             </Text>
                             {tickerSecondary ? (
                               <Text
@@ -1090,7 +1090,7 @@ export default function PipelineScreen() {
                 <View style={styles.field}>
                   <Text style={[styles.label, { color: colors.secondaryText }]}>Strategy</Text>
                   {strategiesLoading ? (
-                    <Text style={styles.small}>Caricamento strategie…</Text>
+                    <Text style={styles.small}>Loading strategies…</Text>
                   ) : strategies.length ? (
                     <View style={[styles.pickerWrapper, { backgroundColor: colors.card, borderColor: colors.border }]}>  
                       <Picker
@@ -1110,7 +1110,7 @@ export default function PipelineScreen() {
                       </Picker>
                     </View>
                   ) : (
-                    <Text style={styles.small}>Nessuna strategia disponibile</Text>
+                    <Text style={styles.small}>No strategies available</Text>
                   )}
                   {strategiesError && <Text style={styles.error}>{strategiesError}</Text>}
                   {selectedStrategy?.strategy_description && (
@@ -1158,8 +1158,8 @@ export default function PipelineScreen() {
                 </Pressable>
                 <View style={[styles.statusCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <Text style={[styles.statusLabel, { color: colors.secondaryText }]}>Simulation Status</Text>
-                  <Text style={[styles.statusValue, { color: colors.text }]}>
-                    {simulationStatus ?? 'Nessuna simulazione avviata'}
+                  <Text style={[styles.statusValue, { color: colors.text }]}> 
+                    {simulationStatus ?? 'No simulation started yet'}
                   </Text>
                   {simulationResult?.message && (
                     <Text style={[styles.small, { color: colors.secondaryText }]}>{simulationResult.message}</Text>
@@ -1235,14 +1235,14 @@ export default function PipelineScreen() {
               <View style={[styles.selectCard, { backgroundColor: colors.card, borderColor: colors.border }]}> 
                 <View style={[styles.selectHandle, { backgroundColor: colors.border }]} />
                 <Text style={[styles.selectTitle, { color: colors.text }]}> 
-                  {selectModal.type === 'area' ? 'Seleziona area geografica' : 'Seleziona ETF'}
+                  {selectModal.type === 'area' ? 'Select geographic area' : 'Select ETF'}
                 </Text>
                 {modalSelectedValue != null && (
                   <Pressable
                     style={[styles.clearBtn, { borderColor: colors.border }]}
                     onPress={handleClearSelection}
                   >
-                    <Text style={[styles.clearBtnText, { color: colors.secondaryText }]}>Rimuovi selezione</Text>
+                    <Text style={[styles.clearBtnText, { color: colors.secondaryText }]}>Clear selection</Text>
                   </Pressable>
                 )}
                 <FlatList
@@ -1273,10 +1273,10 @@ export default function PipelineScreen() {
                   ListEmptyComponent={
                     <Text style={[styles.emptyModalText, { color: colors.secondaryText }]}>
                       {selectModal.type === 'area'
-                        ? 'Nessuna area disponibile'
+                        ? 'No areas available'
                         : modalRow?.areaId
-                        ? "Nessun ETF disponibile per quest'area"
-                        : "Seleziona prima un'area"}
+                        ? 'No ETFs available for this area'
+                        : 'Select an area first'}
                     </Text>
                   }
                   contentContainerStyle={modalOptions.length ? { paddingVertical: 12 } : { paddingVertical: 24 }}
@@ -1287,7 +1287,7 @@ export default function PipelineScreen() {
                   style={[styles.modalCloseBtn, { borderColor: colors.border }]}
                   onPress={() => setSelectModal(null)}
                 >
-                  <Text style={[styles.modalCloseText, { color: colors.secondaryText }]}>Chiudi</Text>
+                  <Text style={[styles.modalCloseText, { color: colors.secondaryText }]}>Close</Text>
                 </Pressable>
               </View>
             </View>

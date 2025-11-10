@@ -201,10 +201,10 @@ const QUICK_RANGE_DISPLAY: Record<QuickRangeKey, string> = {
   '1Y': '1Y',
 };
 const QUICK_RANGE_HINT: Record<QuickRangeKey, string> = {
-  '1M': 'Ultimo mese',
-  '3M': 'Ultimi 3 mesi',
-  YTD: 'Inizio anno',
-  '1Y': 'Ultimo anno',
+  '1M': 'Last month',
+  '3M': 'Last 3 months',
+  YTD: 'Year to date',
+  '1Y': 'Last year',
 };
 const DEFAULT_PRESET: QuickRangeKey = '1M';
 const DEFAULT_PRESET_DATES = resolveQuickRange(DEFAULT_PRESET);
@@ -401,14 +401,14 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
       </TouchableOpacity>
 
       <Text style={[styles.hint, { color: colors.secondaryText }] }>
-        Seleziona un’area dalle pilloline sopra, scegli le date e premi Fetch.
+        Pick an area with the chips above, choose the dates, and tap Fetch.
       </Text>
 
       {/* --------- iOS MODALS --------- */}
       <Modal transparent visible={showStartModal} animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: colors.card }] }>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Seleziona Start Date</Text>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Select Start Date</Text>
             <DateTimePicker
               value={tempStart}
               mode="date"
@@ -419,10 +419,10 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
             />
             <View style={styles.modalActions}>
               <Pressable onPress={cancelIOS} style={[styles.actionBtn, styles.btnCancel, { backgroundColor: colors.background }]}>
-                <Text style={[styles.btnTextCancel, { color: colors.text }]}>Annulla</Text>
+                <Text style={[styles.btnTextCancel, { color: colors.text }]}>Cancel</Text>
               </Pressable>
               <Pressable onPress={confirmIOSStart} style={[styles.actionBtn, styles.btnOk, { backgroundColor: colors.accent }]}>
-                <Text style={styles.btnTextOk}>Conferma</Text>
+                <Text style={styles.btnTextOk}>Confirm</Text>
               </Pressable>
             </View>
           </View>
@@ -432,7 +432,7 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
       <Modal transparent visible={showEndModal} animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: colors.card }] }>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Seleziona End Date</Text>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Select End Date</Text>
             <DateTimePicker
               value={tempEnd}
               mode="date"
@@ -444,10 +444,10 @@ export default function ETFQueryForm({ onSubmit, loading }: Props) {
             />
             <View style={styles.modalActions}>
               <Pressable onPress={cancelIOS} style={[styles.actionBtn, styles.btnCancel, { backgroundColor: colors.background }]}>
-                <Text style={[styles.btnTextCancel, { color: colors.text }]}>Annulla</Text>
+                <Text style={[styles.btnTextCancel, { color: colors.text }]}>Cancel</Text>
               </Pressable>
               <Pressable onPress={confirmIOSEnd} style={[styles.actionBtn, styles.btnOk, { backgroundColor: colors.accent }]}>
-                <Text style={styles.btnTextOk}>Conferma</Text>
+                <Text style={styles.btnTextOk}>Confirm</Text>
               </Pressable>
             </View>
           </View>

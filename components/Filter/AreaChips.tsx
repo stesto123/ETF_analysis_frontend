@@ -19,14 +19,14 @@ type Props = {
 };
 
 const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) => {
-  // Aggiungo una "Tutti" per deselezionare
-  const data = [{ geography_name: 'Tutte', geography_id: -1 }, ...areas];
+  // Add an "All" entry to clear the selection
+  const data = [{ geography_name: 'All', geography_id: -1 }, ...areas];
 
   const { colors, isDark } = useTheme();
   const selectedGradient = isDark ? ['#1D4ED8', '#1E3A8A'] as const : ['#2563EB', '#1E3A8A'] as const;
   return (
     <View style={styles.container}>
-      <Text style={[styles.label, { color: colors.text }]}>Aree geografiche</Text>
+  <Text style={[styles.label, { color: colors.text }]}>Geographies</Text>
 
       <FlatList
         data={data}
@@ -74,7 +74,7 @@ const AreaChips: React.FC<Props> = ({ areas, selectedId, onSelect, loading }) =>
         }}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>{loading ? 'Caricamento geografie…' : 'Nessuna geografia'}</Text>
+            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>{loading ? 'Loading geographies…' : 'No geographies available'}</Text>
           </View>
         }
       />

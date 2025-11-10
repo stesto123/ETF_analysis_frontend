@@ -83,25 +83,25 @@ export default function SettingsScreen() {
             <Sparkles size={28} color="#FFFFFF" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.heroTitle}>Personalizza la tua esperienza</Text>
+            <Text style={styles.heroTitle}>Customize your experience</Text>
             <Text style={styles.heroSubtitle}>
-              Controlla tema, preferenze dei grafici e gestione dei dati per lavorare in modo più fluido.
+              Adjust theme, chart preferences, and data management for a smoother workflow.
             </Text>
             <View style={styles.heroStatsRow}>
               <View style={styles.heroStatPill}>
                 <ThemeIcon size={16} color="#FFFFFF" />
-                <Text style={styles.heroStatText}>{isDark ? 'Tema scuro attivo' : 'Tema chiaro attivo'}</Text>
+                <Text style={styles.heroStatText}>{isDark ? 'Dark theme active' : 'Light theme active'}</Text>
               </View>
               <View style={styles.heroStatPill}>
                 <BarChart3 size={16} color="#FFFFFF" />
-                <Text style={styles.heroStatText}>Max punti: {maxPoints}</Text>
+                <Text style={styles.heroStatText}>Max points: {maxPoints}</Text>
               </View>
             </View>
           </View>
         </LinearGradient>
 
         <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Aspetto</Text>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Appearance</Text>
           <TouchableOpacity
             style={[styles.settingRow, { borderColor: colors.border, backgroundColor: colors.background }]}
             onPress={() => setTheme(isDark ? 'light' : 'dark')}
@@ -111,20 +111,20 @@ export default function SettingsScreen() {
               <ThemeIcon size={20} color="#FFFFFF" />
             </View>
             <View style={styles.settingText}>
-              <Text style={[styles.settingTitle, { color: colors.text }]}>Tema</Text>
-              <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Tocca per alternare tra chiaro e scuro</Text>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>Theme</Text>
+              <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Tap to toggle between light and dark</Text>
             </View>
           </TouchableOpacity>
         </View>
 
         <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Grafici</Text>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Charts</Text>
           <View style={[styles.settingRow, styles.settingRowColumn, { borderColor: colors.border, backgroundColor: colors.background }]}>
             <View style={styles.settingHeader}>
               <BarChart3 size={22} color={colors.accent} />
               <View style={styles.settingTextSpace}>
-                <Text style={[styles.settingTitle, { color: colors.text }]}>Max punti per linea</Text>
-                <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Default {CHART_MAX_POINTS_LIMITS.DEFAULT} · intervallo {CHART_MAX_POINTS_LIMITS.MIN}-{CHART_MAX_POINTS_LIMITS.MAX}</Text>
+                <Text style={[styles.settingTitle, { color: colors.text }]}>Max points per line</Text>
+                <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Default {CHART_MAX_POINTS_LIMITS.DEFAULT} · range {CHART_MAX_POINTS_LIMITS.MIN}-{CHART_MAX_POINTS_LIMITS.MAX}</Text>
               </View>
             </View>
             <View style={styles.inputRowInline}>
@@ -138,7 +138,7 @@ export default function SettingsScreen() {
                 maxLength={4}
               />
               <TouchableOpacity style={[styles.applyBtn, { backgroundColor: colors.accent }]} onPress={commit} activeOpacity={0.85}>
-                <Text style={styles.applyBtnText}>Applica</Text>
+                <Text style={styles.applyBtnText}>Apply</Text>
               </TouchableOpacity>
             </View>
             {feedback && <Text style={[styles.errorText, { color: '#DC2626' }]}>{feedback}</Text>}
@@ -146,7 +146,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Gestione dati</Text>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Data management</Text>
           <TouchableOpacity
             style={[styles.settingRow, { borderColor: colors.border, backgroundColor: colors.background }]}
             onPress={handleClearCache}
@@ -156,14 +156,14 @@ export default function SettingsScreen() {
               <Trash2 size={20} color="#FFFFFF" />
             </View>
             <View style={styles.settingText}>
-              <Text style={[styles.settingTitle, { color: colors.text }]}>Svuota cache</Text>
-              <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Rimuove i dati archiviati localmente</Text>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>Clear cache</Text>
+              <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Removes locally stored data</Text>
             </View>
           </TouchableOpacity>
         </View>
 
         <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Applicazione</Text>
+          <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>Application</Text>
           <TouchableOpacity
             style={[styles.settingRow, { borderColor: colors.border, backgroundColor: colors.background }]}
             onPress={showAbout}
@@ -173,8 +173,8 @@ export default function SettingsScreen() {
               <Info size={20} color="#FFFFFF" />
             </View>
             <View style={styles.settingText}>
-              <Text style={[styles.settingTitle, { color: colors.text }]}>Informazioni</Text>
-              <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Dettagli versione e credits</Text>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>About</Text>
+              <Text style={[styles.settingDescription, { color: colors.secondaryText }]}>Version details and credits</Text>
             </View>
           </TouchableOpacity>
 
@@ -187,7 +187,7 @@ export default function SettingsScreen() {
           <Text style={[styles.apiTitle, { color: colors.text }]}>Endpoint API</Text>
           <Text style={[styles.apiText, { color: colors.secondaryText }]}>Base URL: wa-etf-analysis-d0enavd0h5e9f5gr.italynorth-01.azurewebsites.net</Text>
           <Text style={[styles.apiText, { color: colors.secondaryText }]}>Endpoint: /api/dati</Text>
-          <Text style={[styles.apiText, { color: colors.secondaryText }]}>Cache locale: 1 ora per risposte più rapide</Text>
+          <Text style={[styles.apiText, { color: colors.secondaryText }]}>Local cache: 1 hour for faster responses</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

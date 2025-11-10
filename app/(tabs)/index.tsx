@@ -228,12 +228,12 @@ export default function HomeScreen() {
   const totalTickers = tickers.length;
   const totalAreas = geographies.length;
   const currentAreaName = useMemo(() => {
-    if (selectedArea == null) return 'Tutte le aree';
+    if (selectedArea == null) return 'All areas';
     const match = geographies.find((g) => g.geography_id === selectedArea);
-    return match?.geography_name ?? 'Area selezionata';
+    return match?.geography_name ?? 'Selected area';
   }, [geographies, selectedArea]);
   const lastRangeLabel = useMemo(() => {
-    if (!lastRange) return 'Intervallo non impostato';
+    if (!lastRange) return 'Range not set';
     const start = formatDisplayDate(lastRange.start_date);
     const end = formatDisplayDate(lastRange.end_date);
     if (!start || !end) return `${lastRange.start_date} → ${lastRange.end_date}`;
@@ -244,12 +244,12 @@ export default function HomeScreen() {
   const heroPillBorder = isDark ? 'rgba(148,163,184,0.3)' : 'rgba(255,255,255,0.45)';
   const contentBottomPadding = Math.max(32, insets.bottom + 24);
   const contentTopPadding = Math.max(24, insets.top + 8);
-  const selectionStatLabel = totalTickers > 0 ? `${selectedCount}/${totalTickers} selezionati` : `${selectedCount} selezionati`;
-  const areaStatLabel = totalAreas > 0 ? `${totalAreas} aree · ${lastRangeLabel}` : lastRangeLabel;
+  const selectionStatLabel = totalTickers > 0 ? `${selectedCount}/${totalTickers} selected` : `${selectedCount} selected`;
+  const areaStatLabel = totalAreas > 0 ? `${totalAreas} areas · ${lastRangeLabel}` : lastRangeLabel;
   const heroSubtitle = useMemo(() => {
-    if (totalTickers === 0) return 'Nessun ETF disponibile per quest’area. Prova con un’altra selezione.';
-    if (selectedCount > 0) return `Stai monitorando ${selectedCount} ETF da ${currentAreaName}.`;
-    return `Seleziona ETF per analizzare l’andamento di ${currentAreaName}.`;
+    if (totalTickers === 0) return 'No ETFs available for this area. Try a different selection.';
+    if (selectedCount > 0) return `You are tracking ${selectedCount} ETFs from ${currentAreaName}.`;
+    return `Select ETFs to analyze the performance of ${currentAreaName}.`;
   }, [selectedCount, currentAreaName, totalTickers]);
 
   // responsive sizing (kept for possible future use)
@@ -443,8 +443,8 @@ export default function HomeScreen() {
         setCumDatasets(cumDatasetsNew);
         setLastRange(range);
       } catch (e) {
-        setMultiDatasets(null);
-        setError(e instanceof Error ? e.message : 'Errore inatteso durante il caricamento');
+  setMultiDatasets(null);
+  setError(e instanceof Error ? e.message : 'Unexpected error while loading data');
       } finally {
         setLoading(false);
       }
@@ -494,11 +494,11 @@ export default function HomeScreen() {
     if (!multiDatasets || multiDatasets.length === 0) {
       return (
         <EmptyState
-          title="Nessun dato"
+          title="No data"
           message={
             Object.keys(selectedTickers).length === 0
-              ? 'Seleziona uno o più ETF dalla lista e imposta le date.'
-              : 'Premi Fetch per caricare il grafico degli ETF selezionati.'
+              ? 'Select one or more ETFs from the list and set the dates.'
+              : 'Press Fetch to load the chart for the selected ETFs.'
           }
         />
       );
@@ -579,28 +579,28 @@ export default function HomeScreen() {
   <View style={[styles.tickersCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.tickersHeader}>
             <Text style={[styles.tickersTitle, { color: colors.text }] }>
-              {selectedArea == null ? 'ETF di tutte le aree' : 'ETF dell’area selezionata'}
+              {selectedArea == null ? 'ETFs from all areas' : 'ETFs from the selected area'}
             </Text>
             <View style={[styles.badge, { backgroundColor: colors.background }]}> 
               <Text style={[styles.badgeText, { color: colors.text }]}>{tickers.length}</Text>
             </View>
           </View>
           {tickersLoading ? (
-            <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Caricamento ETF…</Text>
+            <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Loading ETFs…</Text>
           ) : tickers.length === 0 ? (
             <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>
-              {selectedArea == null ? 'Nessun ticker attivo assegnato alle geografie.' : 'Nessun ticker attivo per quest’area.'}
+              {selectedArea == null ? 'No active tickers assigned to geographies.' : 'No active tickers for this area.'}
             </Text>
           ) : (
             <>
               <View style={styles.bulkRow}>
                 <Pressable onPress={toggleSelectAllInArea} style={[styles.bulkBtn, { borderColor: colors.border, backgroundColor: colors.background }]}>
                   <Text style={[styles.bulkBtnText, { color: colors.text }]}>
-                    {allCurrentSelected ? 'Deseleziona tutti' : 'Seleziona tutti'}
+                    {allCurrentSelected ? 'Deselect all' : 'Select all'}
                   </Text>
                 </Pressable>
                 <Text style={[styles.selectedCounter, { color: colors.secondaryText }]}>
-                  Selezionati: {selectedCount}
+                  Selected: {selectedCount}
                 </Text>
               </View>
               <Animated.View style={[styles.tickerScrollableContainer, { height: animatedHeight }]}> 
@@ -608,7 +608,7 @@ export default function HomeScreen() {
                   <Pressable onPress={() => setExpandedTickers(e => !e)} style={styles.dragHandlePress} hitSlop={8}>
                     <View style={[styles.dragHandleBar, { backgroundColor: colors.border }]} />
                     <Text style={[styles.handleLabel, { color: colors.secondaryText }]}>
-                      {expandedTickers ? 'Riduci elenco' : 'Espandi elenco'}
+                      {expandedTickers ? 'Collapse list' : 'Expand list'}
                     </Text>
                   </Pressable>
                 </View>
@@ -658,7 +658,7 @@ export default function HomeScreen() {
                   <Pressable disabled={!canPrev} onPress={() => canPrev && setPage(p => p - 1)} style={[styles.pageBtn, !canPrev && styles.pageBtnDisabled]}>
                     <Text style={styles.pageBtnText}>{'<'}</Text>
                   </Pressable>
-                  <Text style={[styles.pageIndicator, { color: colors.text }]}>Pagina {page + 1} / {maxPage + 1}</Text>
+                  <Text style={[styles.pageIndicator, { color: colors.text }]}>Page {page + 1} / {maxPage + 1}</Text>
                   <Pressable disabled={!canNext} onPress={() => canNext && setPage(p => p + 1)} style={[styles.pageBtn, !canNext && styles.pageBtnDisabled]}>
                     <Text style={styles.pageBtnText}>{'>'}</Text>
                   </Pressable>
