@@ -8,6 +8,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   useWindowDimensions,
+  LayoutChangeEvent,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/components/common/ThemeProvider';
@@ -101,13 +102,34 @@ export default function MiniLessonCarousel() {
   const scrollRef = useRef<ScrollView>(null);
   const { colors, isDark } = useTheme();
   const { width } = useWindowDimensions();
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [revealedCards, setRevealedCards] = useState<Record<string, boolean>>({});
   const activeLesson = LESSONS[activeIndex] ?? LESSONS[0];
   const activeAccent = activeLesson?.accent ?? '#2563EB';
 
-  const cardWidth = useMemo(() => Math.min(MAX_CARD_WIDTH, width - 56), [width]);
-  const sidePadding = useMemo(() => Math.max(16, (width - cardWidth) / 2), [width, cardWidth]);
+  const effectiveWidth = containerWidth ?? width;
+  const cardWidth = useMemo(() => {
+    const base = Math.min(MAX_CARD_WIDTH, width - 56);
+    const containerLimit = effectiveWidth - 24;
+    const constrained = containerLimit > 0 ? Math.min(base, containerLimit) : base;
+    if (Number.isFinite(constrained) && constrained > 0) {
+      return constrained;
+    }
+    if (effectiveWidth > 0) {
+      const fallbackLimit = effectiveWidth - 16;
+      const fallback = Math.max(180, fallbackLimit);
+      const safeFallback = effectiveWidth - 12;
+      return Math.max(160, Math.min(MAX_CARD_WIDTH, Math.min(fallback, safeFallback)));
+    }
+    return 240;
+  }, [effectiveWidth, width]);
+
+  const sidePadding = useMemo(() => {
+    const diff = (effectiveWidth - cardWidth) / 2;
+    return diff > 0 ? diff : 0;
+  }, [effectiveWidth, cardWidth]);
+
   const snapInterval = cardWidth + CARD_GAP;
 
   const handleMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -142,8 +164,18 @@ export default function MiniLessonCarousel() {
     setRevealedCards((prev) => ({ ...prev, [lessonId]: !prev[lessonId] }));
   };
 
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextWidth = Math.round(event.nativeEvent.layout.width);
+    if (Number.isFinite(nextWidth) && nextWidth > 0 && nextWidth !== Math.round(containerWidth ?? 0)) {
+      setContainerWidth(nextWidth);
+    }
+  }, [containerWidth]);
+
   return (
-    <View style={[styles.wrapper, { backgroundColor: isDark ? colors.card : '#F7F9FC', borderColor: colors.border }]}> 
+    <View
+      style={[styles.wrapper, { backgroundColor: isDark ? colors.card : '#F7F9FC', borderColor: colors.border }]}
+      onLayout={handleLayout}
+    > 
       <View style={styles.headerRow}>
         <View>
           <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>Mini lessons</Text>

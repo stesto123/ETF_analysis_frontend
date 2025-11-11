@@ -24,8 +24,9 @@ export default function TabLayout() {
   const { colors } = useTheme();
   const { learnTabEnabled } = useAppPreferences();
 
-  const bottomPad = Math.max(insets.bottom, 0);
-  const baseHeight = 40; // barra più compatta, identica su iOS/Android
+  const minTabPadding = Platform.OS === 'android' ? 14 : 8;
+  const bottomPad = Math.max(insets.bottom, minTabPadding);
+  const baseHeight = 44; // barra leggermente più alta per migliore reachability
 
   if (!isLoaded) {
     return null; // o uno spinner
@@ -48,9 +49,9 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
-          height: baseHeight + bottomPad, // più compatto
+          height: baseHeight + bottomPad,
           paddingBottom: bottomPad,
-          paddingTop: 2,                  // meno spazio sopra le icone
+          paddingTop: 6,
         },
         tabBarItemStyle: { paddingVertical: 0 }, // niente spazio extra
         tabBarLabelStyle: {
