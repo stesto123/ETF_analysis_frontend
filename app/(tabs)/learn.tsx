@@ -13,8 +13,8 @@ export default function LearnScreen() {
   const router = useRouter();
 
   const heroGradient = isDark
-    ? (['#0F172A', '#1E3A8A'] as const)
-    : (['#DBEAFE', '#BFDBFE'] as const);
+    ? (['#0F172A', '#1F2937', '#111827'] as const)
+    : (['#2563EB', '#1D4ED8', '#1E3A8A'] as const);
 
   const handleOpenChat = () => {
     router.push('/(tabs)/chat');
@@ -28,7 +28,12 @@ export default function LearnScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}> 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: Math.max(24, insets.bottom + 12), rowGap: 20 }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingBottom: Math.max(24, insets.bottom + 12),
+          paddingTop: Math.max(36, insets.top + 18),
+          rowGap: 20,
+        }}
       >
         <LinearGradient
           colors={heroGradient}
@@ -37,25 +42,25 @@ export default function LearnScreen() {
           style={styles.heroCard}
         >
           <View style={styles.heroIconWrap}>
-            <BookOpenCheck size={28} color="#1E40AF" />
+            <BookOpenCheck size={28} color="#FFFFFF" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.heroTitle}>Learn the ETF essentials</Text>
-            <Text style={styles.heroSubtitle}>
+            <Text style={[styles.heroTitle, { color: '#FFFFFF' }]}>Learn the ETF essentials</Text>
+            <Text style={[styles.heroSubtitle, { color: 'rgba(255,255,255,0.92)' }]}>
               Bite-sized lessons help you understand ETFs, risk, and fees. Swipe through topics, then jump into the app to put them in action.
             </Text>
             <View style={styles.heroCtaRow}>
               <TouchableOpacity
                 onPress={handleOpenAnalytics}
-                style={[styles.heroCtaButton, { backgroundColor: 'rgba(30,64,175,0.12)', borderColor: 'rgba(30,64,175,0.25)' }]}
+                style={[styles.heroCtaButton, { backgroundColor: 'rgba(255,255,255,0.18)', borderColor: 'rgba(255,255,255,0.35)' }]}
                 activeOpacity={0.9}
               >
-                <Compass size={18} color="#1E3A8A" />
-                <Text style={[styles.heroCtaText, { color: '#1E3A8A' }]}>Explore analytics</Text>
+                <Compass size={18} color="#FFFFFF" />
+                <Text style={[styles.heroCtaText, { color: '#FFFFFF' }]}>Explore analytics</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleOpenChat}
-                style={[styles.heroCtaButton, { backgroundColor: 'rgba(30,64,175,0.9)' }]}
+                style={[styles.heroCtaButton, { backgroundColor: 'rgba(15,23,42,0.85)', borderColor: 'rgba(255,255,255,0.12)' }]}
                 activeOpacity={0.9}
               >
                 <MessageSquare size={18} color="#FFFFFF" />
@@ -97,20 +102,18 @@ const styles = StyleSheet.create({
     width: 54,
     height: 54,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.85)',
+    backgroundColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   heroTitle: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#1E3A8A',
     letterSpacing: 0.2,
   },
   heroSubtitle: {
     fontSize: 14,
     lineHeight: 20,
-    color: 'rgba(30,58,138,0.85)',
     marginTop: 10,
     marginBottom: 18,
   },

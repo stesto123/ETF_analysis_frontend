@@ -20,7 +20,8 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@clerk/clerk-expo';
-import { ChevronDown } from 'lucide-react-native';
+import { ChevronDown, ChevronRight, Sparkles, Layers3, FolderPlus, PlayCircle, BarChart3 } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { apiService } from '@/services/api';
 import ETFLineChart from '@/components/Chart/LineChart';
@@ -44,6 +45,19 @@ type OpenSections = { composition: boolean; create: boolean; run: boolean; chart
 const OPEN_SECTIONS_KEY = 'pipeline_open_sections_v1';
 const defaultOpen: OpenSections = { composition: false, create: false, run: false, chart: false };
 
+const friendlyAccent = (hex: string, alpha = 0.18) => {
+  if (!hex || hex[0] !== '#' || (hex.length !== 7 && hex.length !== 4)) {
+    return `rgba(37, 99, 235, ${alpha})`;
+  }
+  const normalized = hex.length === 4
+    ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+    : hex;
+  const r = parseInt(normalized.slice(1, 3), 16);
+  const g = parseInt(normalized.slice(3, 5), 16);
+  const b = parseInt(normalized.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 type CompositionDraft = {
   key: string;
   areaId?: number;
@@ -66,7 +80,7 @@ type ModalOption = {
 };
 
 export default function PipelineScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
 
@@ -317,6 +331,80 @@ export default function PipelineScreen() {
     if (!selectModal || !modalRow) return null;
     return selectModal.type === 'area' ? modalRow.areaId ?? null : modalRow.ticker_id ?? null;
   }, [selectModal, modalRow]);
+  const selectedPortfolioCount = useMemo(() => Object.values(selectedPortfolios).filter(Boolean).length, [selectedPortfolios]);
+  const totalPortfolios = portfolios.length;
+  const totalStrategies = strategies.length;
+  const heroGradient = isDark
+    ? (['#0F172A', '#1F2937', '#111827'] as const)
+    : (['#2563EB', '#1D4ED8', '#1E3A8A'] as const);
+  const heroStatus = simulationStatus
+    || (simulationResult ? 'Simulation ready to explore' : 'No simulation started yet');
+  const heroStats = useMemo(
+    () => [
+      {
+        label: 'Selected portfolios',
+        value: totalPortfolios ? `${selectedPortfolioCount}/${totalPortfolios}` : '0',
+      },
+      {
+        label: 'Strategies',
+        value: totalStrategies ? String(totalStrategies) : '0',
+      },
+      {
+        label: 'Status',
+        value: heroStatus,
+      },
+    ],
+    [heroStatus, selectedPortfolioCount, totalPortfolios, totalStrategies],
+  );
+
+  const renderSectionCard = (
+    key: keyof OpenSections,
+    {
+      icon: Icon,
+      accent,
+      title,
+      subtitle,
+      children,
+    }: {
+      icon: React.ComponentType<{ size?: number; color?: string }>;
+      accent: string;
+      title: string;
+      subtitle: string;
+      children: React.ReactNode;
+    }
+  ) => {
+    const isOpen = openSections[key];
+    return (
+      <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}> 
+        <Pressable
+          style={styles.cardHeader}
+          onPress={() => toggleSection(key)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: isOpen }}
+        >
+          <View style={styles.cardHeaderLeft}>
+            <View style={[styles.cardIconWrap, { backgroundColor: friendlyAccent(accent) }]}> 
+              <Icon size={20} color={accent} />
+            </View>
+            <View style={styles.cardHeaderText}>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>{title}</Text>
+              <Text style={[styles.cardSubtitle, { color: colors.secondaryText }]}>{subtitle}</Text>
+            </View>
+          </View>
+          <ChevronDown
+            size={18}
+            color={colors.secondaryText}
+            style={{ transform: [{ rotate: isOpen ? '180deg' : '0deg' }] }}
+          />
+        </Pressable>
+        {isOpen ? (
+          <Animated.View style={[styles.cardBody, { opacity: sectionOpacity.current[key] }]}> 
+            {children}
+          </Animated.View>
+        ) : null}
+      </View>
+    );
+  };
   const startPipeline = useCallback(async () => {
     const fail = (message: string) => {
       setSimulationError(message);
@@ -808,31 +896,78 @@ export default function PipelineScreen() {
         <View style={{ position: 'absolute', top: insets.top + 8, left: 16, right: 16, zIndex: 20 }}>
           {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
         </View>
-        <ScrollView 
-          contentContainerStyle={{ padding: 16, paddingBottom: Math.max(24, insets.bottom + 12), paddingTop: insets.top + 56 }}
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingBottom: Math.max(28, insets.bottom + 16),
+            paddingTop: Math.max(24, insets.top + 12),
+            rowGap: 20,
+          }}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
         >
-          <Text style={[styles.title, { color: colors.text, marginBottom: 8 }]}>Pipeline Actions</Text>
+          <LinearGradient
+            colors={heroGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.heroCard, { shadowColor: isDark ? '#1E3A8A' : '#0F172A' }]}
+          >
+            <View style={styles.heroTopRow}>
+              <View style={styles.heroBadge}> 
+                <Sparkles size={22} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.heroTitle}>Pipeline workspace</Text>
+                <Text style={styles.heroSubtitle}>{heroStatus}</Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  if (!openSections.run) {
+                    toggleSection('run');
+                  }
+                }}
+                style={styles.heroCta}
+              >
+                <Text style={styles.heroCtaText}>Run</Text>
+                <ChevronRight size={16} color="#FFFFFF" />
+              </Pressable>
+            </View>
+            <View style={styles.heroStatsRow}>
+              {heroStats.map((stat) => (
+                <View
+                  key={stat.label}
+                  style={[
+                    styles.heroStatCard,
+                    {
+                      backgroundColor: 'rgba(255,255,255,0.16)',
+                      borderColor: 'rgba(255,255,255,0.35)',
+                    },
+                  ]}
+                >
+                  <Text style={styles.heroStatLabel}>{stat.label}</Text>
+                  <Text style={styles.heroStatValue} numberOfLines={1}>
+                    {stat.value}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </LinearGradient>
 
-          {/* Composition Toggle */}
-          <Pressable style={[styles.toggleBtn, openSections.composition && styles.toggleBtnActive]} onPress={() => toggleSection('composition')}>
-            <Text style={styles.toggleBtnText}>{openSections.composition ? 'Hide Portfolio Composition' : 'Show Portfolio Composition'}</Text>
-          </Pressable>
-          {openSections.composition && (
-            <Animated.View style={{ opacity: sectionOpacity.current.composition }}>
-              <View style={{ marginBottom: 12 }}>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={[styles.sectionHeaderText, { color: colors.secondaryText }]}>Portfolio Composition</Text>
-                  <View style={styles.inlineHelpRow}>
-                    <HelpTooltip
-                      title={pipelineTooltips.compositionSection.title}
-                      description={pipelineTooltips.compositionSection.description}
-                    />
-                    <HelpTooltip
-                      title={pipelineTooltips.deletePortfolio.title}
-                      description={pipelineTooltips.deletePortfolio.description}
-                    />
-                  </View>
+          {renderSectionCard('composition', {
+            icon: Layers3,
+            accent: '#6366F1',
+            title: 'Portfolio library',
+            subtitle: 'Review saved mixes and select which ones to chart.',
+            children: (
+              <View style={styles.cardContentGap}>
+                <View style={styles.inlineHelpRow}>
+                  <HelpTooltip
+                    title={pipelineTooltips.compositionSection.title}
+                    description={pipelineTooltips.compositionSection.description}
+                  />
+                  <HelpTooltip
+                    title={pipelineTooltips.deletePortfolio.title}
+                    description={pipelineTooltips.deletePortfolio.description}
+                  />
                 </View>
                 {userProfileError && <Text style={styles.error}>{userProfileError}</Text>}
                 {!userProfileError && tableError && <Text style={styles.error}>{tableError}</Text>}
@@ -843,28 +978,26 @@ export default function PipelineScreen() {
                 ) : portfolios.length === 0 ? (
                   <Text style={styles.small}>No portfolios available</Text>
                 ) : (
-                  <ScrollView horizontal style={{ backgroundColor: colors.card, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}>
-                    <View style={{ padding: 8 }}>{renderPortfolioTable(portfolios)}</View>
+                  <ScrollView
+                    horizontal
+                    style={{ backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}
+                    contentContainerStyle={{ padding: 8 }}
+                    showsHorizontalScrollIndicator={false}
+                  >
+                    {renderPortfolioTable(portfolios)}
                   </ScrollView>
                 )}
               </View>
-            </Animated.View>
-          )}
+            ),
+          })}
 
-          {/* Create Portfolio Toggle */}
-          <Pressable style={[styles.toggleBtn, openSections.create && styles.toggleBtnActive]} onPress={() => toggleSection('create')}>
-            <Text style={styles.toggleBtnText}>{openSections.create ? 'Hide Create Portfolio' : 'Show Create Portfolio'}</Text>
-          </Pressable>
-          {openSections.create && (
-            <Animated.View style={{ opacity: sectionOpacity.current.create }}>
-              <View style={{ marginBottom: 16 }}>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={[styles.sectionTitleText, { color: colors.text }]}>Create New Portfolio</Text>
-                  <HelpTooltip
-                    title={pipelineTooltips.createSection.title}
-                    description={pipelineTooltips.createSection.description}
-                  />
-                </View>
+          {renderSectionCard('create', {
+            icon: FolderPlus,
+            accent: '#2563EB',
+            title: 'Create a portfolio',
+            subtitle: 'Name it, assign tickers, and save for future runs.',
+            children: (
+              <View style={styles.cardContentGap}>
                 {userProfileError && <Text style={styles.error}>{userProfileError}</Text>}
                 {!userProfileError && tableError && <Text style={styles.error}>{tableError}</Text>}
                 <View style={styles.field}>
@@ -887,9 +1020,8 @@ export default function PipelineScreen() {
                     placeholderTextColor={colors.secondaryText}
                   />
                 </View>
-                {/* Preferred Area selector removed as requested */}
                 <Text style={[styles.label, { marginTop: 8, color: colors.secondaryText }]}>Composition (must sum to 100)</Text>
-                {compItems.map(row => {
+                {compItems.map((row) => {
                   const areaInfo = row.areaId != null ? geographies.find((g) => g.geography_id === row.areaId) ?? null : null;
                   const tickerInfo = row.ticker_id != null ? tickerLookup[row.ticker_id] : undefined;
                   const tickerPrimary = tickerInfo?.name || tickerInfo?.symbol || row.name || row.symbol || null;
@@ -1073,18 +1205,17 @@ export default function PipelineScreen() {
                   />
                 </View>
               </View>
-            </Animated.View>
-          )}
+            ),
+          })}
 
-          {/* Run Pipeline Toggle */}
-          <Pressable style={[styles.toggleBtn, openSections.run && styles.toggleBtnActive]} onPress={() => toggleSection('run')}>
-            <Text style={styles.toggleBtnText}>{openSections.run ? 'Hide Run Pipeline' : 'Show Run Pipeline'}</Text>
-          </Pressable>
-          {openSections.run && (
-            <Animated.View style={{ opacity: sectionOpacity.current.run }}>
-              <View style={{ marginBottom: 16 }}>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={[styles.sectionTitleText, { color: colors.text }]}>Run Pipeline</Text>
+          {renderSectionCard('run', {
+            icon: PlayCircle,
+            accent: '#F97316',
+            title: 'Run a simulation',
+            subtitle: 'Configure capital, strategy, and dates before launching.',
+            children: (
+              <View style={styles.cardContentGap}>
+                <View style={styles.inlineHelpRow}>
                   <HelpTooltip
                     title={pipelineTooltips.runSection.title}
                     description={pipelineTooltips.runSection.description}
@@ -1154,7 +1285,7 @@ export default function PipelineScreen() {
                   )}
                   {strategiesError && <Text style={styles.error}>{strategiesError}</Text>}
                   {selectedStrategy?.strategy_description && (
-                    <Text style={[styles.small, { color: colors.secondaryText, marginTop: 4 }]}>
+                    <Text style={[styles.small, { color: colors.secondaryText, marginTop: 4 }]}> 
                       {selectedStrategy.strategy_description}
                     </Text>
                   )}
@@ -1205,24 +1336,23 @@ export default function PipelineScreen() {
                     <Text style={[styles.small, { color: colors.secondaryText }]}>{simulationResult.message}</Text>
                   )}
                   {simulationResult && (
-                    <Text style={[styles.small, { color: colors.secondaryText }]}>
+                    <Text style={[styles.small, { color: colors.secondaryText }]}> 
                       {`Asset rows: ${simulationResult.asset_rows?.length ?? 0} • Aggregate rows: ${simulationResult.aggregate_rows?.length ?? 0} • Transactions: ${simulationResult.transaction_rows?.length ?? 0}`}
                     </Text>
                   )}
                 </View>
               </View>
-            </Animated.View>
-          )}
+            ),
+          })}
 
-          {/* Chart Toggle */}
-          <Pressable style={[styles.toggleBtn, openSections.chart && styles.toggleBtnActive]} onPress={() => toggleSection('chart')}>
-            <Text style={styles.toggleBtnText}>{openSections.chart ? 'Hide Portfolio Chart' : 'Show Portfolio Chart'}</Text>
-          </Pressable>
-          {openSections.chart && (
-            <Animated.View style={{ opacity: sectionOpacity.current.chart }}>
-              <View style={{ marginTop: 8 }}>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={[styles.sectionHeaderText, { color: colors.secondaryText }]}>Selected Portfolios Total Value Over Time</Text>
+          {renderSectionCard('chart', {
+            icon: BarChart3,
+            accent: '#0EA5E9',
+            title: 'Results & charts',
+            subtitle: 'Filter the timeline and inspect total value curves.',
+            children: (
+              <View style={styles.cardContentGap}>
+                <View style={styles.inlineHelpRow}>
                   <HelpTooltip
                     title={pipelineTooltips.chartSection.title}
                     description={pipelineTooltips.chartSection.description}
@@ -1250,14 +1380,27 @@ export default function PipelineScreen() {
                     />
                   </View>
                 </View>
-                {(chartStartDate || chartEndDate) && <Text style={styles.small}>Active filter {chartStartDate && `from ${chartStartDate}`} {chartEndDate && `to ${chartEndDate}`}</Text>}
+                {(chartStartDate || chartEndDate) && (
+                  <Text style={styles.small}>
+                    Active filter {chartStartDate && `from ${chartStartDate}`} {chartEndDate && `to ${chartEndDate}`}
+                  </Text>
+                )}
                 {resultsError && <Text style={styles.error}>{resultsError}</Text>}
-                {resultsLoading && !portfolioDatasets && <Text style={[styles.small, { color: colors.secondaryText }]}>Loading results…</Text>}
-                {!resultsLoading && (!portfolioDatasets || !portfolioDatasets.length) && <Text style={[styles.small, { color: colors.secondaryText }]}>Select one or more portfolios from the table above.</Text>}
+                {resultsLoading && !portfolioDatasets && (
+                  <Text style={[styles.small, { color: colors.secondaryText }]}>Loading results…</Text>
+                )}
+                {!resultsLoading && (!portfolioDatasets || !portfolioDatasets.length) && (
+                  <Text style={[styles.small, { color: colors.secondaryText }]}>Select one or more portfolios from the table above.</Text>
+                )}
                 {portfolioDatasets && portfolioDatasets.length > 0 && (
                   <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <ETFLineChart
-                      multi={portfolioDatasets.map(ds => ({ label: ds.label, data: ds.data, labels: ds.labels, colorHint: ds.colorHint as 'up' | 'down' }))}
+                      multi={portfolioDatasets.map((ds) => ({
+                        label: ds.label,
+                        data: ds.data,
+                        labels: ds.labels,
+                        colorHint: ds.colorHint as 'up' | 'down',
+                      }))}
                       data={[] as unknown as ChartDataPoint[]}
                       ticker="Portfolios"
                       height={220}
@@ -1265,8 +1408,8 @@ export default function PipelineScreen() {
                   </View>
                 )}
               </View>
-            </Animated.View>
-          )}
+            ),
+          })}
         </ScrollView>
   {/* iOS selector modal */}
   {Platform.OS === 'ios' && selectModal && modalRow && (
@@ -1347,6 +1490,130 @@ export default function PipelineScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F3F4F6' },
   title: { fontSize: 20, fontWeight: '700', color: '#111827', marginBottom: 12 },
+  heroCard: {
+    borderRadius: 22,
+    padding: 22,
+    shadowColor: '#000000',
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 16,
+    marginBottom: 18,
+  },
+  heroBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+    color: '#FFFFFF',
+  },
+  heroSubtitle: {
+    fontSize: 14,
+    marginTop: 6,
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.88)',
+  },
+  heroCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  heroCtaText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 12,
+    rowGap: 12,
+  },
+  heroStatCard: {
+    flex: 1,
+    minWidth: 120,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+  },
+  heroStatLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    color: 'rgba(255,255,255,0.75)',
+  },
+  heroStatValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 6,
+    color: '#FFFFFF',
+  },
+  sectionCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 18,
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: 12,
+  },
+  cardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 12,
+    flex: 1,
+  },
+  cardIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardHeaderText: {
+    flex: 1,
+  },
+  cardTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  cardSubtitle: {
+    fontSize: 13,
+    marginTop: 4,
+  },
+  cardBody: {
+    paddingTop: 16,
+  },
+  cardContentGap: {
+    gap: 14,
+  },
   field: { marginBottom: 10 },
   label: { fontSize: 12, color: '#6B7280', marginBottom: 6 },
   sectionHeaderRow: {
