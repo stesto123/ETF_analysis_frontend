@@ -268,6 +268,284 @@ export const LEARNING_PATHS: Record<LearningLevelId, LearningTopic[]> = {
         'Start a chat asking how two saved ETFs complement each other.',
       ],
     },
+    {
+      id: 'topic-beginner-understand-purchases',
+      track: 'foundations',
+      title: 'Understand what you are buying',
+      summary: 'Master ETF vocabulary—what you hold, how it trades, which costs matter, and why structure affects compounding.',
+      lessons: [
+        {
+          id: 'lesson-etf-vs-mutual-funds',
+          title: 'ETF vs mutual funds',
+          duration: '6 min',
+          content: [
+            'An ETF replicates an index and trades intraday like a stock; it aims to mirror market performance rather than beat it.',
+            'Passive rules remove day-to-day discretion, so holdings change only when the benchmark rebalances.',
+            'One share buys a pre-built bundle of securities, giving instant diversification without paying for constant portfolio churn.',
+          ],
+          takeaways: [
+            'ETFs follow rule-based indices while many mutual funds rely on discretionary managers.',
+            'Transparency and low turnover keep costs predictable.',
+            'Buying a single ETF feels like buying hundreds of companies at once.',
+          ],
+          ctas: [
+            {
+              id: 'cta-beginner-etf-mutual-chat',
+              label: 'Ask the AI',
+              description: 'Request a comparison between your favorite mutual fund and an ETF.',
+              route: '/(tabs)/chat',
+              prompt: 'Explain the main differences between a passive ETF and an actively managed mutual fund for a new investor.',
+            },
+          ],
+          aiPrompts: [
+            'Describe three reasons ETFs are often cheaper than mutual funds.',
+          ],
+        },
+        {
+          id: 'lesson-understanding-indices',
+          title: 'Understanding indices',
+          duration: '6 min',
+          content: [
+            'An index is a rule-based basket that represents a market segment, such as US large caps (S&P 500) or global developed equities (MSCI World).',
+            'Each index defines selection criteria, weighting methods, and rebalancing schedules that determine what your ETF truly owns.',
+            'Studying the methodology tells you whether the ETF is concentrated, sector-biased, or diversified beyond the marketing name.',
+          ],
+          takeaways: [
+            'Owning an ETF means owning the index methodology under the hood.',
+            'Two global indices can have different eligibility rules, so holdings differ.',
+            'Knowing the rules helps you anticipate when and why the ETF rebalances.',
+          ],
+          ctas: [
+            {
+              id: 'cta-beginner-index-analytics',
+              label: 'Inspect an index',
+              description: 'Open analytics and review the sector mix of an index ETF.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'Summarize the difference between MSCI World and FTSE Developed.',
+          ],
+        },
+        {
+          id: 'lesson-nav-vs-price',
+          title: 'NAV vs trading price',
+          duration: '5 min',
+          content: [
+            'The NAV is the theoretical per-share value calculated from closing prices of the holdings, while the market price reflects intraday supply and demand.',
+            'Bid/ask spread is the gap between the highest buyer and lowest seller; tighter spreads mean cheaper execution.',
+            'When the market price sits above or below NAV you see a premium or discount, typically tiny for liquid ETFs but important to monitor.',
+          ],
+          takeaways: [
+            'NAV anchors value but trades execute at live market prices.',
+            'Spreads are a hidden cost you can influence by trading carefully.',
+            'Premiums/discounts are usually small but spike in stressed markets.',
+          ],
+          ctas: [
+            {
+              id: 'cta-beginner-nav-chat',
+              label: 'Clarify with AI',
+              description: 'Paste a ticker and ask when it last traded at a premium.',
+              route: '/(tabs)/chat',
+              prompt: 'Why would an ETF briefly trade at a premium to NAV?',
+            },
+          ],
+          aiPrompts: [
+            'How can I minimize spread costs when buying ETFs?',
+          ],
+        },
+        {
+          id: 'lesson-etf-types',
+          title: 'Major ETF categories',
+          duration: '6 min',
+          content: [
+            'Equity ETFs target growth and cover geographies from single countries to global baskets or individual sectors.',
+            'Bond ETFs package government or corporate debt, typically to dampen portfolio volatility.',
+            'Commodity and thematic ETFs (often ETCs) give access to metals, energy, or narratives such as clean energy, but come with higher concentration risk.',
+          ],
+          takeaways: [
+            'Different ETF types map to different goals—growth, income, diversification, or speculation.',
+            'Sector and thematic funds amplify potential returns and drawdowns.',
+            'Bond ETFs are not risk-free; they simply respond to different drivers.',
+          ],
+          ctas: [
+            {
+              id: 'cta-beginner-type-watchlist',
+              label: 'Classify your watchlist',
+              description: 'Tag each saved ETF as equity, bond, commodity, or thematic inside analytics.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'List pros and cons of using a commodity ETC versus an equity sector ETF.',
+          ],
+        },
+        {
+          id: 'lesson-base-costs',
+          title: 'Core cost components',
+          duration: '5 min',
+          content: [
+            'The TER (Total Expense Ratio) is deducted daily and sets the baseline annual cost you pay the issuer.',
+            'Trading introduces broker commissions, spreads, and price impact—costs that matter when rebalancing frequently.',
+            'Winning with ETFs means stacking the odds via low cost, low turnover, and patience rather than constant tinkering.',
+          ],
+          takeaways: [
+            'TER is only part of total cost of ownership.',
+            'Few, well-planned trades preserve the cost advantage of ETFs.',
+            'Small percentage differences compound massively over decades.',
+          ],
+          ctas: [
+            {
+              id: 'cta-beginner-cost-chat',
+              label: 'Run a cost scenario',
+              description: 'Ask the AI to estimate long-term impact of TER differences.',
+              route: '/(tabs)/chat',
+              prompt: 'If I invest €500 monthly, how much does a 0.15% TER difference cost after 20 years?',
+            },
+          ],
+          aiPrompts: [
+            'What hidden costs should I watch when rebalancing ETFs quarterly?',
+          ],
+        },
+        {
+          id: 'lesson-minimums-pac',
+          title: 'Minimum capital & recurring plans',
+          duration: '5 min',
+          content: [
+            'Most brokers let you buy whole ETF shares, and many now offer fractional purchases so you can start with modest amounts.',
+            'Recurring investment plans (PAC/DCA) automate contributions, smoothing entry points without timing every dip.',
+            'Flexible contribution sizes and schedules make ETFs friendly for everyday savers, not only high-net-worth investors.',
+          ],
+          takeaways: [
+            'You can start investing with the cost of a single share or even less via fractional features.',
+            'DCA builds exposure steadily and removes timing anxiety.',
+            'Consistency beats perfectly timing the market.',
+          ],
+          ctas: [
+            {
+              id: 'cta-beginner-pac-pipeline',
+              label: 'Schedule contributions',
+              description: 'Draft a simple recurring-plan simulation inside the pipeline tab.',
+              route: '/(tabs)/pipeline',
+            },
+          ],
+          aiPrompts: [
+            'Suggest a €200 monthly ETF plan for a cautious investor.',
+          ],
+        },
+        {
+          id: 'lesson-risk-return-basics',
+          title: 'Risk, return & volatility',
+          duration: '6 min',
+          content: [
+            'Equity ETFs swing more but offer higher long-term expected returns; bond ETFs swing less but grow slower.',
+            'Volatility measures how wildly prices move—it is not “bad”, but it tests your emotional resilience.',
+            'Understanding risk/return trade-offs keeps you invested during inevitable downturns.',
+          ],
+          takeaways: [
+            'Match ETF type to your time horizon and ability to stomach volatility.',
+            'A diversified ETF can drop sharply in the short run yet still compound long term.',
+            'Volatility is the “fee” you pay for higher expected returns.',
+          ],
+          ctas: [
+            {
+              id: 'cta-beginner-risk-analytics',
+              label: 'Check volatility',
+              description: 'Chart historical drawdowns for one equity and one bond ETF.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'How do I explain volatility to someone scared of market swings?',
+          ],
+        },
+        {
+          id: 'lesson-diversification-basics',
+          title: 'Diversification layers',
+          duration: '6 min',
+          content: [
+            'Geographic diversification spreads risk across countries—global ETFs shield you from single-country shocks.',
+            'Sector diversification keeps you balanced when industries cycle in and out of favor.',
+            'Style diversification (value, growth, small caps) becomes more relevant as you move beyond basics but starts with understanding what each ETF tilts toward.',
+          ],
+          takeaways: [
+            'A single broad ETF may cover thousands of companies worldwide.',
+            'Concentrated sector bets need to stay small to avoid portfolio swings.',
+            'Knowing each ETF’s style tilt prevents unintentional overlaps.',
+          ],
+          ctas: [
+            {
+              id: 'cta-beginner-diversification-watchlist',
+              label: 'Audit diversification',
+              description: 'Label each watchlist ETF by geography and sector focus.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'What is the benefit of mixing global and regional ETFs?',
+          ],
+        },
+        {
+          id: 'lesson-acc-vs-dist',
+          title: 'Accumulating vs distributing ETFs',
+          duration: '5 min',
+          content: [
+            'Accumulating share classes reinvest dividends, boosting compounding automatically.',
+            'Distributing share classes pay cash, useful if you seek income but reducing reinvestment speed.',
+            'Tax rules and life stage influence which share class makes sense for you.',
+          ],
+          takeaways: [
+            'Compounding accelerates when payouts stay inside the fund.',
+            'Cash distributions can fund spending goals but slow growth.',
+            'Always check how your country taxes each share class.',
+          ],
+          ctas: [
+            {
+              id: 'cta-beginner-acc-dist-chat',
+              label: 'Discuss share classes',
+              description: 'Ask the AI to contrast an accumulating vs distributing ETF you follow.',
+              route: '/(tabs)/chat',
+              prompt: 'Help me decide between an accumulating and distributing UCITS ETF for long-term investing.',
+            },
+          ],
+          aiPrompts: [
+            'Give me a checklist for picking between acc and dist share classes.',
+          ],
+        },
+        {
+          id: 'lesson-ucits-domicile-currency',
+          title: 'UCITS, domicile & currencies',
+          duration: '6 min',
+          content: [
+            'UCITS is the European regulatory framework that enforces diversification, disclosure, and investor protection standards.',
+            'Fund domicile (Ireland, Luxembourg, etc.) drives legal jurisdiction and certain tax treaties but does not dictate where the ETF invests.',
+            'Base currency is the accounting currency for the portfolio, while the listing currency is what you trade in—FX risk ultimately comes from the underlying assets.',
+          ],
+          takeaways: [
+            'UCITS labeling signals compliance with EU rules.',
+            'Domicile affects taxation of dividends before they reach you.',
+            'Listing currency differs from the currencies of the holdings.',
+          ],
+          ctas: [
+            {
+              id: 'cta-beginner-ucits-chat',
+              label: 'Clarify FX exposure',
+              description: 'Send the assistant a question about domicile vs investment region.',
+              route: '/(tabs)/chat',
+              prompt: 'Does an Irish-domiciled ETF quoted in EUR still carry USD exposure if it tracks the S&P 500?',
+            },
+          ],
+          aiPrompts: [
+            'What is the difference between fund domicile and trading exchange?',
+          ],
+        },
+      ],
+      practice: [
+        'Pick one ETF and write down the index methodology in your own words.',
+        'Record the spread, NAV, and market price at two different times of the day.',
+        'List whether each ETF in your watchlist is accumulating or distributing and why.',
+      ],
+    },
   ],
   intermediate: [
     {
@@ -463,6 +741,282 @@ export const LEARNING_PATHS: Record<LearningLevelId, LearningTopic[]> = {
         'Pick two ETFs tracking the same index and compare tracking error.',
         'List the exchanges and tickers for your core ETFs and note the spreads.',
         'Document the tax treatment for each ETF in your watchlist.',
+      ],
+    },
+    {
+      id: 'topic-intermediate-select-combine',
+      track: 'portfolio',
+      title: 'Selecting & combining ETFs',
+      summary: 'Evaluate replication, costs, liquidity, and behavioral discipline so your ETF mix works together.',
+      lessons: [
+        {
+          id: 'lesson-replication-methods',
+          title: 'Replication methods explained',
+          duration: '7 min',
+          content: [
+            'Full physical replication buys nearly every index constituent, ideal for concentrated benchmarks but costly for sprawling ones.',
+            'Sampling holds a representative subset when an index has thousands of names, trading precision for practicality.',
+            'Synthetic replication uses swaps with a counterparty to match the index, introducing extra due-diligence on collateral and counterparty risk.',
+          ],
+          takeaways: [
+            'Replication choice affects tracking quality and operational risk.',
+            'Sampling is efficient for complex indices but can widen tracking differences.',
+            'Synthetic ETFs demand scrutiny of swap counterparties and collateral rules.',
+          ],
+          ctas: [
+            {
+              id: 'cta-intermediate-replication-chat',
+              label: 'Discuss replication',
+              description: 'Ask the assistant which replication style fits a specific index.',
+              route: '/(tabs)/chat',
+              prompt: 'When is synthetic replication safer than physical for ETFs?',
+            },
+          ],
+          aiPrompts: [
+            'List pros and cons of sampling vs full replication.',
+          ],
+        },
+        {
+          id: 'lesson-tracking-diff-error',
+          title: 'Tracking difference vs tracking error',
+          duration: '6 min',
+          content: [
+            'Tracking difference measures how far the ETF’s total return deviates from the index over time; ideally it aligns with TER plus minor frictions.',
+            'Tracking error captures the volatility of that difference—how tightly the ETF hugs the benchmark day after day.',
+            'Securities lending, taxes, cash drag, and replication style drive these gaps more than headline TER alone.',
+          ],
+          takeaways: [
+            'A low TER is meaningless if tracking difference is sloppy.',
+            'Stable tracking error indicates operational excellence.',
+            'Always inspect historical performance charts, not just marketing pages.',
+          ],
+          ctas: [
+            {
+              id: 'cta-intermediate-tracking-analytics',
+              label: 'Quantify deviations',
+              description: 'Overlay two ETFs against their benchmark in analytics.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'How can two ETFs with identical TER show different tracking difference?',
+          ],
+        },
+        {
+          id: 'lesson-real-liquidity',
+          title: 'Measuring real liquidity',
+          duration: '6 min',
+          content: [
+            'Screen liquidity using spreads, average on-screen size, and the ability of market makers to tap the primary market.',
+            'Thin-looking ETFs can still be liquid if the underlying basket trades actively, because APs can create shares on demand.',
+            'Large orders may require working with your broker or the issuer’s capital-markets desk to avoid slippage.',
+          ],
+          takeaways: [
+            'Exchange volume is only one slice of the liquidity puzzle.',
+            'Underlying asset liquidity determines how quickly APs can create/redeem shares.',
+            'Planning large trades with professionals minimizes impact cost.',
+          ],
+          ctas: [
+            {
+              id: 'cta-intermediate-liquidity-watch',
+              label: 'Log spreads',
+              description: 'Track spreads for three ETFs across different times of day.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'What signals tell me an ETF has poor real liquidity?',
+          ],
+        },
+        {
+          id: 'lesson-bond-etf-metrics',
+          title: 'Bond ETF drivers',
+          duration: '7 min',
+          content: [
+            'Duration quantifies rate sensitivity: the higher it is, the more the ETF moves when yields shift.',
+            'Yield to maturity estimates long-term return if bonds are held until they roll off, but is not a guarantee.',
+            'Differentiate rate risk (duration) from credit risk (issuer quality) to avoid lumping all bonds together as “safe”.',
+          ],
+          takeaways: [
+            'High-duration bond ETFs can be as volatile as equities when rates jump.',
+            'Credit exposure (government vs HY corporate) changes drawdown behavior.',
+            'Yield figures must be weighed alongside duration to judge reward per unit of risk.',
+          ],
+          ctas: [
+            {
+              id: 'cta-intermediate-bond-analytics',
+              label: 'Compare bond stats',
+              description: 'Use analytics to contrast duration and yield for two bond ETFs.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'How do I explain rate risk vs credit risk within bond ETFs?',
+          ],
+        },
+        {
+          id: 'lesson-core-satellite-simple',
+          title: 'Core-satellite in practice',
+          duration: '6 min',
+          content: [
+            'Anchor your account with broad ETFs (global equity, aggregate bonds) that cover most of the allocation.',
+            'Add satellites—sector, thematic, or factor ETFs—in small percentages to tilt toward convictions.',
+            'Document rules for max satellite size and when to trim them so they never hijack the portfolio.',
+          ],
+          takeaways: [
+            'Core positions deliver beta; satellites express active views.',
+            'Writing allocation rules prevents emotion-driven overweights.',
+            'Review satellites quarterly to confirm the thesis is alive.',
+          ],
+          ctas: [
+            {
+              id: 'cta-intermediate-core-pipeline',
+              label: 'Model allocations',
+              description: 'Sketch a simple core-satellite mix inside the pipeline simulator.',
+              route: '/(tabs)/pipeline',
+            },
+          ],
+          aiPrompts: [
+            'Suggest a 70/30 core-satellite structure for a growth investor.',
+          ],
+        },
+        {
+          id: 'lesson-currency-hedging',
+          title: 'Currency risk & hedging',
+          duration: '6 min',
+          content: [
+            'Unhedged ETFs expose you to both asset performance and FX swings; a stronger foreign currency boosts returns for EUR investors, and vice versa.',
+            'Hedged share classes neutralize FX moves through forwards, lowering volatility but adding cost.',
+            'Decide whether you want FX exposure based on time horizon, base currency, and the role the ETF plays.',
+          ],
+          takeaways: [
+            'FX can amplify or drag performance depending on currency trends.',
+            'Hedging reduces volatility but is not free or perfect.',
+            'Treat hedging as a strategic decision, not a default toggle.',
+          ],
+          ctas: [
+            {
+              id: 'cta-intermediate-hedge-chat',
+              label: 'Debate hedging',
+              description: 'Ask the AI when hedged share classes earn their keep.',
+              route: '/(tabs)/chat',
+              prompt: 'I am an EUR investor considering a USD equity ETF. When should I prefer a hedged class?',
+            },
+          ],
+          aiPrompts: [
+            'Create a checklist for deciding between hedged and unhedged ETFs.',
+          ],
+        },
+        {
+          id: 'lesson-compare-similar-etfs',
+          title: 'Comparing similar ETFs',
+          duration: '6 min',
+          content: [
+            'When two ETFs track similar indices, dig into AUM, replication, domicile, and how “similar” the indices truly are.',
+            'Examine liquidity (spreads, volumes) and real performance history, not just launch marketing.',
+            'Prefer products with sufficient track record unless you intentionally need a brand-new fund.',
+          ],
+          takeaways: [
+            'Small methodological differences (MSCI vs FTSE) lead to different outcomes.',
+            'Operational maturity reduces surprises.',
+            'Keep a comparison template to avoid decision fatigue.',
+          ],
+          ctas: [
+            {
+              id: 'cta-intermediate-compare-template',
+              label: 'Build a comparison sheet',
+              description: 'Use analytics exports to fill in AUM, TER, and tracking stats for two ETFs.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'What questions should I ask when two ETFs claim to track the same exposure?',
+          ],
+        },
+        {
+          id: 'lesson-dca-pac',
+          title: 'Recurring plans & DCA',
+          duration: '5 min',
+          content: [
+            'Dollar/Euro-Cost Averaging buys more shares when prices are low and fewer when prices are high, smoothing the entry price.',
+            'A PAC reduces the urge to time markets and automates discipline, which matters more than perfect timing.',
+            'Pair recurring buys with periodic reviews so you can adjust contributions without chasing noise.',
+          ],
+          takeaways: [
+            'DCA is a behavioral tool as much as a mathematical one.',
+            'Automation keeps your plan alive during volatile stretches.',
+            'Review, don’t micromanage—adjust annually or when goals change.',
+          ],
+          ctas: [
+            {
+              id: 'cta-intermediate-dca-pipeline',
+              label: 'Simulate a PAC',
+              description: 'Use the pipeline to simulate monthly contributions into two ETFs.',
+              route: '/(tabs)/pipeline',
+            },
+          ],
+          aiPrompts: [
+            'How does DCA change my average entry price during a bear market?',
+          ],
+        },
+        {
+          id: 'lesson-factsheet-reading',
+          title: 'Reading an ETF factsheet',
+          duration: '6 min',
+          content: [
+            'Start with objective, benchmark, and inception date to confirm the strategy is what you expect.',
+            'Dive into geographic/sector weightings, top holdings, and risk metrics to see concentration and volatility.',
+            'Check for changes—index switches, fee adjustments, or methodology updates that could alter behavior.',
+          ],
+          takeaways: [
+            'Factsheets are nutrition labels—read them fully.',
+            'Concentration metrics reveal hidden bets.',
+            'Past changes hint at how the issuer manages the strategy over time.',
+          ],
+          ctas: [
+            {
+              id: 'cta-intermediate-factsheet-check',
+              label: 'Annotate a factsheet',
+              description: 'Download a PDF factsheet and highlight three metrics that matter to you.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'What red flags should I look for on an ETF factsheet?',
+          ],
+        },
+        {
+          id: 'lesson-investor-psychology',
+          title: 'Investor psychology & drawdowns',
+          duration: '6 min',
+          content: [
+            'Drawdown measures the distance from peak to trough—seeing it on paper is easier than living through it with real money.',
+            'Define your time horizon so you know whether a multi-year slump is survivable within your plan.',
+            'Volatility is the toll for long-term returns; panic-selling turns temporary losses into permanent ones.',
+          ],
+          takeaways: [
+            'Expect downturns even with diversified ETFs.',
+            'Time horizon and cash needs dictate how you react to drawdowns.',
+            'Process beats prediction—follow a rules-based plan when markets fall.',
+          ],
+          ctas: [
+            {
+              id: 'cta-intermediate-psychology-chat',
+              label: 'Plan for volatility',
+              description: 'Ask the assistant to outline coping rules for future downturns.',
+              route: '/(tabs)/chat',
+              prompt: 'Help me define guardrails so I stay invested during a 30% drawdown.',
+            },
+          ],
+          aiPrompts: [
+            'How can I rehearse market crashes so I do not panic-sell ETFs?',
+          ],
+        },
+      ],
+      practice: [
+        'Create a comparison table for two ETFs tracking the same region but different indices.',
+        'Simulate a core-satellite allocation and note the max drawdown tolerance for each sleeve.',
+        'Download a factsheet and annotate replication method, top holdings, TER, and tracking stats.',
       ],
     },
   ],
@@ -662,6 +1216,280 @@ export const LEARNING_PATHS: Record<LearningLevelId, LearningTopic[]> = {
         'List ETFs where you would prefer hedged share classes and explain why.',
         'Simulate a covered-call overlay in the pipeline with two strike scenarios.',
         'Build a diligence template and store it with your analytics exports.',
+      ],
+    },
+    {
+      id: 'topic-advanced-refine',
+      track: 'strategy',
+      title: 'Refine & avoid expert traps',
+      summary: 'Go beyond basics by dissecting factor ETFs, legal docs, taxes, complex products, and behavioral pitfalls.',
+      lessons: [
+        {
+          id: 'lesson-factor-investing-pro',
+          title: 'Factor investing & smart beta',
+          duration: '8 min',
+          content: [
+            'Factor ETFs weight holdings by characteristics such as value, momentum, quality, or low volatility instead of pure market cap.',
+            'Each methodology handles rebalancing, turnover, and constraints differently, so know whether the factor is concentrated in small caps or diluted across mega caps.',
+            'Higher tracking error relative to broad benchmarks is normal—understand when each factor historically shines or lags so you can stick with it.',
+          ],
+          takeaways: [
+            'Factor ETFs are rule-based active bets, not passive clones.',
+            'Turnover, capacity, and constraints affect real-world returns.',
+            'Expect long stretches of underperformance and size positions accordingly.',
+          ],
+          ctas: [
+            {
+              id: 'cta-advanced-factor-analytics',
+              label: 'Audit factor behavior',
+              description: 'Compare drawdowns of two smart-beta ETFs inside analytics.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'When did value and momentum factors last diverge sharply?',
+          ],
+        },
+        {
+          id: 'lesson-advanced-index-review',
+          title: 'Index methodology deep dive',
+          duration: '7 min',
+          content: [
+            'Reading the methodology tells you how securities enter, exit, and get weighted—details that marketing decks gloss over.',
+            'Look for rebalancing frequency, turnover caps, and guardrails that might create unintended bets.',
+            'Understand how corporate actions, IPOs, and liquidity screens are handled so you can anticipate behavior during volatile periods.',
+          ],
+          takeaways: [
+            'Methodology documents are the “brain” behind your ETF.',
+            'Frequent rebalances increase trading costs inside the fund.',
+            'Knowing the rules lets you predict how the ETF adapts to shocks.',
+          ],
+          ctas: [
+            {
+              id: 'cta-advanced-methodology-note',
+              label: 'Summarize a methodology',
+              description: 'Write a one-page memo on your favorite ETF index rules.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'What questions should I answer after reading an index methodology?',
+          ],
+        },
+        {
+          id: 'lesson-legal-docs',
+          title: 'Reading KID & prospectus',
+          duration: '7 min',
+          content: [
+            'The KID condenses risk, cost, and scenario data, but the full prospectus outlines leverage limits, derivative usage, and counterparties.',
+            'Focus on securities-lending policies, swap collateral rules, and what happens if the index closes or becomes uninvestable.',
+            'Review annual or semi-annual reports for operational changes and auditor notes.',
+          ],
+          takeaways: [
+            'Serious allocations deserve a read beyond glossy brochures.',
+            'Legal documents reveal hidden leverage or structural quirks.',
+            'Document findings so you can defend decisions to clients or compliance.',
+          ],
+          ctas: [
+            {
+              id: 'cta-advanced-legal-check',
+              label: 'Log legal insights',
+              description: 'Create a dedicated diligence note for KID/prospectus takeaways.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'Which sections of an ETF prospectus highlight counterparty risk?',
+          ],
+        },
+        {
+          id: 'lesson-advanced-tax',
+          title: 'Tax drag awareness',
+          duration: '6 min',
+          content: [
+            'Real returns depend on after-tax outcomes—dividends, interest, and capital gains are taxed differently across jurisdictions.',
+            'Fund domicile plus treaties (e.g., Irish UCITS on US equities) can shave withholding rates by dozens of basis points.',
+            'Share-class choice (acc vs dist) influences when taxes are due and whether compounding stays intact.',
+          ],
+          takeaways: [
+            'Your personal tax situation can outweigh TER differences.',
+            'Treaties and domicile quietly affect net performance.',
+            'Always pair investing decisions with professional tax advice.',
+          ],
+          ctas: [
+            {
+              id: 'cta-advanced-tax-chat',
+              label: 'Discuss tax scenarios',
+              description: 'Ask the AI to outline how taxes impact two ETF structures.',
+              route: '/(tabs)/chat',
+              prompt: 'Compare potential tax drag between an accumulating Irish UCITS ETF and a distributing US-domiciled ETF for an EU investor.',
+            },
+          ],
+          aiPrompts: [
+            'What tax questions should I prepare for my accountant before buying new ETFs?',
+          ],
+        },
+        {
+          id: 'lesson-complex-etfs',
+          title: 'Complex ETF structures',
+          duration: '7 min',
+          content: [
+            'Leveraged and inverse ETFs reset exposure daily, so compounding creates path-dependent outcomes—great for tactical trades, risky for long holds.',
+            'Volatility and commodity ETFs often roll futures, suffering from contango or backwardation as contracts expire.',
+            'Treat these products as short-term instruments with explicit exit rules, not as buy-and-hold replacements.',
+          ],
+          takeaways: [
+            'Daily reset products rarely behave like simple multiples over weeks or months.',
+            'Futures-based ETFs add roll yield and collateral considerations.',
+            'Have a playbook for entry, monitoring, and exit before deploying capital.',
+          ],
+          ctas: [
+            {
+              id: 'cta-advanced-complex-pipeline',
+              label: 'Stress test leverage',
+              description: 'Use pipeline simulations to model a leveraged ETF through volatile periods.',
+              route: '/(tabs)/pipeline',
+            },
+          ],
+          aiPrompts: [
+            'What risks make leveraged ETFs unsuitable for long-term investors?',
+          ],
+        },
+        {
+          id: 'lesson-multi-broker-selection',
+          title: 'Choosing listings across brokers',
+          duration: '6 min',
+          content: [
+            'Multiple listings of the same ETF can differ in trading currency, exchange hours, and local liquidity.',
+            'Factor in each broker’s commissions, FX conversion fees, and settlement mechanics.',
+            'Select venues that align with your cash currency and minimize operational friction.',
+          ],
+          takeaways: [
+            'Identical ISINs can trade differently depending on the venue.',
+            'Your brokerage fee schedule may dictate the optimal listing.',
+            'Consolidate positions when possible to simplify tracking and taxes.',
+          ],
+          ctas: [
+            {
+              id: 'cta-advanced-broker-matrix',
+              label: 'Build a venue matrix',
+              description: 'Document which exchanges and currencies suit each broker account.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'How do I decide between buying an ETF on Xetra vs LSE?',
+          ],
+        },
+        {
+          id: 'lesson-advanced-risk-hedge',
+          title: 'Advanced risk management',
+          duration: '7 min',
+          content: [
+            'Combine defensive ETFs (long-duration govies, gold, minimum-vol) to cushion drawdowns instead of panic selling core holdings.',
+            'Partial hedges—reducing equity weight or adding inverse ETFs temporarily—should follow predefined triggers.',
+            'Document how hedges enter and exit the portfolio so they do not morph into speculative bets.',
+          ],
+          takeaways: [
+            'Hedges should complement, not replace, a thoughtful asset mix.',
+            'Rule-based triggers prevent hedges from becoming emotional trades.',
+            'Position sizing is critical so hedges don’t overwhelm the portfolio.',
+          ],
+          ctas: [
+            {
+              id: 'cta-advanced-hedge-plan',
+              label: 'Draft a hedge plan',
+              description: 'Outline trigger levels for adding/removing defensive ETFs.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'Help me design rules for deploying a defensive ETF sleeve during crises.',
+          ],
+        },
+        {
+          id: 'lesson-backtest-limits',
+          title: 'Backtesting without fooling yourself',
+          duration: '6 min',
+          content: [
+            'Backtests suffer from survivorship bias (dead ETFs disappear) and data-mining (cherry-picking the best combination).',
+            'Include realistic assumptions: slippage, TER, taxes, and the emotional challenge of living through historical drawdowns.',
+            'Use backtests to understand orders of magnitude, not to find a “perfect” allocation.',
+          ],
+          takeaways: [
+            'Historical perfection rarely survives contact with the real future.',
+            'Document every assumption so collaborators can critique the test.',
+            'Treat simulations as decision-support, not decision-replacement.',
+          ],
+          ctas: [
+            {
+              id: 'cta-advanced-backtest-pipeline',
+              label: 'Annotate simulations',
+              description: 'Add notes to each pipeline run to capture assumptions and caveats.',
+              route: '/(tabs)/pipeline',
+            },
+          ],
+          aiPrompts: [
+            'What biases should I watch for when backtesting ETF portfolios?',
+          ],
+        },
+        {
+          id: 'lesson-multi-asset-integration',
+          title: 'ETFs inside real portfolios',
+          duration: '6 min',
+          content: [
+            'Map your entire balance sheet—cash, deposits, pensions, real estate—so ETF allocations complement rather than duplicate risk.',
+            'Consider correlations between your career, business ownership, or property exposure and the ETFs you hold.',
+            'Treat ETFs as the flexible sleeve that can dial risk up or down while other assets remain illiquid.',
+          ],
+          takeaways: [
+            'Portfolio design happens at the household level, not just the brokerage account.',
+            'Real-world commitments might already give you exposure to certain sectors/countries.',
+            'ETFs are the adjustable lever; everything else sets the baseline risk tolerance.',
+          ],
+          ctas: [
+            {
+              id: 'cta-advanced-balance-sheet',
+              label: 'Draft a household map',
+              description: 'List every asset/liability and note how ETFs complement them.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'How can I account for my real-estate exposure when sizing ETF allocations?',
+          ],
+        },
+        {
+          id: 'lesson-advanced-mistakes',
+          title: 'Avoid advanced-investor mistakes',
+          duration: '6 min',
+          content: [
+            'Overtrading erodes returns through costs and taxes—define thresholds before making allocation tweaks.',
+            'Overconfidence and overfitting lure you into complex strategies with little incremental benefit.',
+            'Reset to simplicity when in doubt: robust core allocations beat constant tinkering.',
+          ],
+          takeaways: [
+            'Being more informed does not immunize you against behavioral traps.',
+            'Process discipline is the best antidote to overconfidence.',
+            'Regularly audit your trades to ensure each had a clear, documented rationale.',
+          ],
+          ctas: [
+            {
+              id: 'cta-advanced-mistake-audit',
+              label: 'Schedule retrospectives',
+              description: 'Set a quarterly reminder to review trades and note lessons learned.',
+              route: '/(tabs)',
+            },
+          ],
+          aiPrompts: [
+            'Create a checklist that stops me from overtrading my ETF portfolio.',
+          ],
+        },
+      ],
+      practice: [
+        'Summarize the methodology and risk controls of your favorite factor ETF.',
+        'Build a venue-and-broker matrix to decide where each ETF should be traded.',
+        'Write a brief post-mortem on your last three allocation changes to spot patterns.',
       ],
     },
   ],
