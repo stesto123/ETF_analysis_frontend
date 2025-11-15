@@ -12,6 +12,7 @@ import {
   Pressable,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
 import { Send, Sparkles, Lightbulb } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/components/common/ThemeProvider';
@@ -94,6 +95,7 @@ const CHAT_SUGGESTIONS = [
 export default function ChatScreen() {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
+  const { presetPrompt } = useLocalSearchParams<{ presetPrompt?: string }>();
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'assistant-welcome',
@@ -108,6 +110,12 @@ export default function ChatScreen() {
   useEffect(() => {
     scrollRef.current?.scrollToEnd({ animated: true });
   }, [messages, isSending]);
+
+  useEffect(() => {
+    if (typeof presetPrompt === 'string' && presetPrompt.trim().length > 0) {
+      setInput(presetPrompt.trim());
+    }
+  }, [presetPrompt]);
 
   const sendPrompt = async (raw: string) => {
     const trimmed = raw.trim();

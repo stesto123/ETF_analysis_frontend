@@ -1,5 +1,13 @@
 export const TOOLTIP_COPY = {
   learn: {
+    heroProgress: {
+      title: 'Track progress',
+      description: 'Each level shows how many lessons you have completed so you always know what is next.',
+    },
+    levelTabs: {
+      title: 'Choose difficulty',
+      description: 'Switch between beginner, intermediate, and advanced paths. The modules below update automatically.',
+    },
     exploreAnalytics: {
       title: 'Explore Analytics',
       description:
@@ -11,14 +19,24 @@ export const TOOLTIP_COPY = {
         'Open the assistant chat to ask follow-up questions, compare funds, or clarify lesson topics in plain language.',
     },
     miniLessons: {
-      title: 'Swipe Lessons',
+      title: 'Warm-up cards',
       description:
-        'Browse curated micro-lessons about ETF basics, risk, and fees. Swipe horizontally to move between topics.',
+        'Browse curated micro-lessons about ETF basics, risk, and fees. Swipe horizontally to refresh the fundamentals.',
     },
-    tipCard: {
-      title: 'Next Steps',
+    topicSections: {
+      title: 'Topic modules',
       description:
-        'Use what you learned to research a few ETFs, save them, and ask the assistant how they differ or work together.',
+        'Each card bundles lessons, takeaways, and checklists for a specific theme. Tap a lesson to open the detailed view.',
+    },
+    practiceMissions: {
+      title: 'Practice missions',
+      description:
+        'Actionable tasks bring the content to life—open analytics, test a scenario in the pipeline, or ask the AI for guidance.',
+    },
+    lessonDetail: {
+      title: 'Lesson detail',
+      description:
+        'Mark lessons complete, revisit the explanations, and launch contextual CTAs or AI prompts from a single screen.',
     },
   },
   analytics: {

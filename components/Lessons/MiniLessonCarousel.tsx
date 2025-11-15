@@ -178,8 +178,8 @@ export default function MiniLessonCarousel() {
     > 
       <View style={styles.headerRow}>
         <View>
-          <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>Mini lessons</Text>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Swipe to learn the basics</Text>
+          <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>Warm-up</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Refresh ETF basics</Text>
         </View>
         <View style={[styles.counterBadge, { backgroundColor: colors.background }]}>
           <Text style={[styles.counterText, { color: colors.secondaryText }]}>
