@@ -2,11 +2,12 @@
 import React from 'react';
 import { Tabs, Redirect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { TrendingUp, Settings, MessageCircle } from 'lucide-react-native';
+import { TrendingUp, Settings, MessageCircle, BookOpen } from 'lucide-react-native';
 import { Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/components/common/ThemeProvider';
 import { useAuth } from '@clerk/clerk-expo';
+import { useAppPreferences } from '@/components/common/AppPreferencesProvider';
 
 // Dev aid: log the first chars of the Clerk key so we can verify instance (pk_test vs pk_live)
 if (__DEV__) {
@@ -21,9 +22,11 @@ export default function TabLayout() {
   }
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const { learnTabEnabled } = useAppPreferences();
 
-  const bottomPad = Math.max(insets.bottom, 0);
-  const baseHeight = 40; // barra più compatta, identica su iOS/Android
+  const minTabPadding = Platform.OS === 'android' ? 14 : 8;
+  const bottomPad = Math.max(insets.bottom, minTabPadding);
+  const baseHeight = 44; // barra leggermente più alta per migliore reachability
 
   if (!isLoaded) {
     return null; // o uno spinner
@@ -33,8 +36,11 @@ export default function TabLayout() {
     return <Redirect href="/(auth)/sign-in" />;
   }
 
+  const initialRoute = learnTabEnabled ? 'learn' : 'index';
+
   return (
     <Tabs
+      initialRouteName={initialRoute}
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
@@ -43,9 +49,9 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
-          height: baseHeight + bottomPad, // più compatto
+          height: baseHeight + bottomPad,
           paddingBottom: bottomPad,
-          paddingTop: 2,                  // meno spazio sopra le icone
+          paddingTop: 6,
         },
         tabBarItemStyle: { paddingVertical: 0 }, // niente spazio extra
         tabBarLabelStyle: {
@@ -55,6 +61,18 @@ export default function TabLayout() {
         },
       }}
     >
+      <Tabs.Screen
+        name="learn"
+        options={{
+          title: 'Learn',
+          href: learnTabEnabled ? undefined : null,
+          tabBarIcon: ({ size, color }) => (
+            <View style={{ marginTop: -1 }}>
+              <BookOpen size={size} color={color} />
+            </View>
+          ),
+        }}
+      />
       <Tabs.Screen
         name="index"
         options={{

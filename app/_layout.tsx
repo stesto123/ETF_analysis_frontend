@@ -1,8 +1,9 @@
 // app/_layout.tsx
 import 'react-native-url-polyfill/auto';
-import { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { ClerkProvider, useAuth } from '@clerk/clerk-expo';
+import { shouldShowOnboarding } from '@/utils/onboardingPreferences';
 // Opzione A: se usi il token cache built-in
 // import { tokenCache } from '@clerk/clerk-expo';
 
@@ -17,6 +18,7 @@ import { ThemeProvider, useTheme } from '@/components/common/ThemeProvider';
 import { ChartSettingsProvider } from '@/components/common/ChartSettingsProvider';
 import { ActivityIndicator, View } from 'react-native';
 import { setClerkTokenGetter } from '@/utils/clerkToken';
+import { AppPreferencesProvider } from '@/components/common/AppPreferencesProvider';
 
 export default function RootLayout() {
   // Basta che ClerkProvider stia più in alto di qualunque hook/useAuth o componenti che lo usano
@@ -28,10 +30,12 @@ export default function RootLayout() {
       >
         <ThemeProvider>
           <ChartSettingsProvider>
-            <SafeAreaProvider>
-              <ClerkTokenBridge />
-              <ThemedContent />
-            </SafeAreaProvider>
+            <AppPreferencesProvider>
+              <SafeAreaProvider>
+                <ClerkTokenBridge />
+                <ThemedContent />
+              </SafeAreaProvider>
+            </AppPreferencesProvider>
           </ChartSettingsProvider>
         </ThemeProvider>
       </ClerkProvider>
@@ -42,6 +46,9 @@ export default function RootLayout() {
 function ThemedContent() {
   const { isDark, colors } = useTheme();
   const { isLoaded, isSignedIn } = useAuth();
+  const router = useRouter();
+  const segments = useSegments();
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
 
   // Android Navigation Bar styling bound to theme
   useEffect(() => {
@@ -55,6 +62,25 @@ function ThemedContent() {
     })();
   }, [colors.background, isDark]);
 
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || onboardingChecked) {
+      return;
+    }
+    let active = true;
+    (async () => {
+      const display = await shouldShowOnboarding();
+      if (display && active && segments[0] !== 'onboarding') {
+        router.replace('/onboarding');
+      }
+      if (active) {
+        setOnboardingChecked(true);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [isLoaded, isSignedIn, router, segments, onboardingChecked]);
+
   // Finché Clerk non ha caricato lo stato auth, mostra uno splash coerente col tema
   if (!isLoaded) {
     return (
@@ -67,13 +93,15 @@ function ThemedContent() {
   return (
     <>
       <Stack
-        initialRouteName={isSignedIn ? '(tabs)' : '(auth)'}
+        initialRouteName={isSignedIn ? '(tabs)' : 'onboarding'}
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        {/* Gruppo auth */}
+  {/* Onboarding */}
+  <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+  {/* Gruppo auth */}
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         {/* Rotte protette */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

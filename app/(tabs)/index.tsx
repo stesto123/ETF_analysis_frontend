@@ -1,6 +1,8 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Dimensions, PanResponder, Animated } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Sparkles, Target, MapPin, Globe2, ListChecks, SlidersHorizontal, LineChart } from 'lucide-react-native';
 
 import ETFQueryForm from '@/components/Form/ETFQueryForm';
 import ETFLineChart from '@/components/Chart/LineChart';
@@ -13,6 +15,9 @@ import AreaChips, { GeographyOption as AreaChipGeographyOption } from '@/compone
 
 import { apiService } from '@/services/api';
 import { PricePoint, QueryParams, ChartDataPoint, GeographyGroup, TickerSummary } from '@/types';
+import { useChartSettings } from '@/components/common/ChartSettingsProvider';
+import HelpTooltip from '@/components/common/HelpTooltip';
+import { TOOLTIP_COPY } from '@/constants/tooltips';
 
 type GeographyOption = AreaChipGeographyOption;
 type DateRange = { start_date: string; end_date: string };
@@ -21,6 +26,19 @@ type SelectedMap = Record<number, TickerSummary>;
 type MultiDataset = { label: string; data: number[]; colorHint?: 'up' | 'down'; ticker?: string };
 // allow optional labels per dataset (shared across series)
 type MultiDatasetWithLabels = MultiDataset & { labels?: string[] };
+
+const friendlyAccent = (hex: string, alpha = 0.18) => {
+  if (!hex || hex[0] !== '#' || (hex.length !== 7 && hex.length !== 4)) {
+    return `rgba(37, 99, 235, ${alpha})`;
+  }
+  const normalized = hex.length === 4
+    ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+    : hex;
+  const r = parseInt(normalized.slice(1, 3), 16);
+  const g = parseInt(normalized.slice(3, 5), 16);
+  const b = parseInt(normalized.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
 
 const parseYYYYMMDD = (n: number) => {
   const y = Math.floor(n / 10000);
@@ -34,54 +52,12 @@ const daysBetween = (a: Date, b: Date) => Math.max(1, Math.round((+b - +a) / 864
 const diffDays = (a: Date, b: Date) => Math.max(0, Math.floor((+b - +a) / 86400000));
 
 const chooseBucketDays = (spanDays: number, maxPoints = 60) => {
-  let bucketDays: number;
-  if (spanDays <= 60) bucketDays = 1;
-  else if (spanDays <= 180) bucketDays = 7;
-  else if (spanDays <= 720) bucketDays = 30;
-  else bucketDays = 90;
-  const est = Math.ceil(spanDays / bucketDays);
-  return est > maxPoints ? Math.ceil(spanDays / maxPoints) : bucketDays;
-};
-
-const aggregateCumulativeOnBuckets = (
-  calendar_days: number[],
-  values: number[],
-  globalStart: Date,
-  bucketDays: number,
-  bucketCount: number
-): number[] => {
-  const buckets: ({ day: number; value: number } | undefined)[] = new Array(bucketCount).fill(undefined);
-  const n = Math.min(calendar_days.length, values.length);
-  const pts: { day: number; value: number }[] = [];
-  for (let i = 0; i < n; i++) {
-    const day = Number(calendar_days[i]);
-    const value = Number(values[i]);
-    if (!Number.isFinite(day) || !Number.isFinite(value)) continue;
-    pts.push({ day, value });
+  if (!Number.isFinite(spanDays) || spanDays <= 1) {
+    return 1;
   }
-  pts.sort((a, b) => a.day - b.day);
-  for (const p of pts) {
-    const d = parseYYYYMMDD(p.day);
-    let idx = Math.floor(diffDays(globalStart, d) / bucketDays);
-    if (idx < 0) idx = 0;
-    if (idx >= bucketCount) idx = bucketCount - 1;
-    const cur = buckets[idx];
-    if (!cur || p.day > cur.day) {
-      buckets[idx] = { day: p.day, value: p.value };
-    }
-  }
-  const series: number[] = [];
-  let prev = 0;
-  for (let i = 0; i < bucketCount; i++) {
-    const cell = buckets[i];
-    if (cell && !Number.isNaN(cell.value)) { prev = cell.value; break; }
-  }
-  for (let i = 0; i < bucketCount; i++) {
-    const cell = buckets[i];
-    if (cell && !Number.isNaN(cell.value)) prev = cell.value;
-    series.push(prev);
-  }
-  return series;
+  const target = Math.max(2, Math.round(maxPoints));
+  const effectiveBuckets = Math.max(1, target - 1);
+  return Math.max(1, Math.ceil(spanDays / effectiveBuckets));
 };
 
 const aggregateOnBuckets = (
@@ -126,9 +102,54 @@ const aggregateOnBuckets = (
   return { data: series, upOrDown };
 };
 
+const clampIndex = (idx: number, length: number) => {
+  if (length <= 0) return 0;
+  if (idx < 0) return 0;
+  if (idx >= length) return length - 1;
+  return idx;
+};
+
+const buildDownsampleIndices = (length: number, target: number) => {
+  if (!Number.isFinite(length) || length <= 0) return [];
+  if (!Number.isFinite(target) || target <= 0) {
+    return Array.from({ length }, (_, i) => i);
+  }
+  const roundedTarget = Math.max(1, Math.round(target));
+  if (length <= roundedTarget) {
+    return Array.from({ length }, (_, i) => i);
+  }
+
+  const steps = Math.max(1, roundedTarget - 1);
+  const step = (length - 1) / steps;
+  const indices: number[] = [];
+  for (let i = 0; i < roundedTarget; i += 1) {
+    indices.push(Math.round(i * step));
+  }
+  const unique = Array.from(new Set(indices.map((idx) => clampIndex(idx, length))));
+  unique.sort((a, b) => a - b);
+  return unique;
+};
+
+const sampleArrayByIndices = <T,>(source: T[], indices: number[]): T[] => {
+  if (!Array.isArray(source) || source.length === 0) return [];
+  if (!indices.length) return source.slice();
+  return indices.map((idx) => source[clampIndex(idx, source.length)]);
+};
+
+const formatDisplayDate = (iso: string | undefined | null) => {
+  if (!iso) return '';
+  const parts = iso.split('-').map((p) => Number(p));
+  if (parts.length < 3 || parts.some((p) => Number.isNaN(p) || p <= 0)) return iso;
+  const [year, month, day] = parts;
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+};
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const { maxPoints } = useChartSettings();
+  const prevMaxPointsRef = useRef(maxPoints);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -217,6 +238,80 @@ export default function HomeScreen() {
     selectedArray.forEach((t, i) => m.set(t.ticker_id, i));
     return m;
   }, [selectedArray]);
+
+  const selectedCount = useMemo(() => Object.keys(selectedTickers).length, [selectedTickers]);
+  const totalTickers = tickers.length;
+  const totalAreas = geographies.length;
+  const currentAreaName = useMemo(() => {
+    if (selectedArea == null) return 'All areas';
+    const match = geographies.find((g) => g.geography_id === selectedArea);
+    return match?.geography_name ?? 'Selected area';
+  }, [geographies, selectedArea]);
+  const lastRangeLabel = useMemo(() => {
+    if (!lastRange) return 'Range not set';
+    const start = formatDisplayDate(lastRange.start_date);
+    const end = formatDisplayDate(lastRange.end_date);
+    if (!start || !end) return `${lastRange.start_date} → ${lastRange.end_date}`;
+    return `${start} → ${end}`;
+  }, [lastRange]);
+  const heroGradient = isDark ? ['#0F172A', '#1F2937', '#111827'] as const : ['#2563EB', '#1D4ED8', '#1E3A8A'] as const;
+  const heroPillBackground = isDark ? 'rgba(148, 163, 184, 0.18)' : 'rgba(255,255,255,0.18)';
+  const heroPillBorder = isDark ? 'rgba(148,163,184,0.3)' : 'rgba(255,255,255,0.45)';
+  const contentBottomPadding = Math.max(32, insets.bottom + 24);
+  const contentTopPadding = Math.max(18, insets.top + 6);
+  const selectionStatLabel = totalTickers > 0 ? `${selectedCount}/${totalTickers} selected` : `${selectedCount} selected`;
+  const areaStatLabel = totalAreas > 0 ? `${totalAreas} areas · ${lastRangeLabel}` : lastRangeLabel;
+  const heroSubtitle = useMemo(() => {
+    if (totalTickers === 0) return 'No ETFs available for this area. Try a different selection.';
+    if (selectedCount > 0) return `You are tracking ${selectedCount} ETFs from ${currentAreaName}.`;
+    return `Select ETFs to analyze the performance of ${currentAreaName}.`;
+  }, [selectedCount, currentAreaName, totalTickers]);
+  const tickersSubtitle = useMemo(() => {
+    if (tickers.length === 0) return selectedArea == null ? 'No ETFs mapped yet' : 'No ETFs for this geography';
+    return `${tickers.length} ETFs available · ${selectedCount} selected`;
+  }, [tickers.length, selectedCount, selectedArea]);
+  const querySubtitle = useMemo(() => {
+    if (!lastRange) return 'Pick a date window and run your query';
+    return `Last range: ${lastRangeLabel}`;
+  }, [lastRange, lastRangeLabel]);
+  const performanceSubtitle = useMemo(() => {
+    if (loading) return 'Crunching the latest numbers…';
+    if (error) return 'We hit a snag fetching the data';
+    if (!multiDatasets || multiDatasets.length === 0) return 'Run a query to populate the charts';
+    return `Comparing ${multiDatasets.length} dataset${multiDatasets.length > 1 ? 's' : ''}`;
+  }, [loading, error, multiDatasets]);
+
+  const renderSectionCard = ({
+    icon: Icon,
+    accent,
+    title,
+    subtitle,
+    rightAccessory,
+    children,
+  }: {
+    icon: React.ComponentType<{ size?: number; color?: string }>;
+    accent: string;
+    title: string;
+    subtitle?: string;
+    rightAccessory?: React.ReactNode;
+    children: React.ReactNode;
+  }) => (
+    <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}> 
+      <View style={styles.cardHeaderRow}>
+        <View style={styles.cardHeaderLeft}>
+          <View style={[styles.cardIconWrap, { backgroundColor: friendlyAccent(accent) }]}> 
+            <Icon size={20} color={accent} />
+          </View>
+          <View style={styles.cardHeaderText}>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>{title}</Text>
+            {subtitle ? <Text style={[styles.cardSubtitle, { color: colors.secondaryText }]}>{subtitle}</Text> : null}
+          </View>
+        </View>
+        {rightAccessory}
+      </View>
+      <View style={styles.cardContent}>{children}</View>
+    </View>
+  );
 
   // responsive sizing (kept for possible future use)
   // const screenHeight = Dimensions.get('window').height;
@@ -325,7 +420,7 @@ export default function HomeScreen() {
           useCache
         );
         const seriesMap = new Map<number, PricePoint[]>(
-          seriesList.map((series) => [series.ticker_id, series.points])
+          seriesList.map((series) => [series.ticker_id, series.points ?? []])
         );
         const results = toLoadOrdered.map((t) => ({ t, rows: seriesMap.get(t.ticker_id) ?? [] }));
 
@@ -346,11 +441,11 @@ export default function HomeScreen() {
           return;
         }
 
-        const globalStart = parseYYYYMMDD(minCal);
-        const globalEnd = parseYYYYMMDD(maxCal);
-        const spanDays = daysBetween(globalStart, globalEnd);
-        const bucketDays = chooseBucketDays(spanDays, 60);
-        const bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
+    const globalStart = parseYYYYMMDD(minCal);
+    const globalEnd = parseYYYYMMDD(maxCal);
+    const spanDays = daysBetween(globalStart, globalEnd);
+    const bucketDays = chooseBucketDays(spanDays, maxPoints);
+    const bucketCount = Math.max(1, Math.ceil(spanDays / bucketDays) + 1);
 
         const buildLabel = (d: Date) => {
           const y = d.getFullYear();
@@ -364,32 +459,58 @@ export default function HomeScreen() {
           labels.push(buildLabel(dt));
         }
 
-        const datasets: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
-          const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount);
+        const aggregated = results.map(({ t, rows }) => {
+          const priceAgg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount);
+          const cumulativeAgg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount, 'cumulative_return');
           const displayName = t.name || t.symbol;
-          return { label: displayName, ticker: t.symbol, data: agg.data, colorHint: agg.upOrDown, labels };
+          return {
+            label: displayName,
+            ticker: t.symbol,
+            priceData: priceAgg.data,
+            priceTrend: priceAgg.upOrDown,
+            cumulativeData: cumulativeAgg.data,
+            cumulativeTrend: cumulativeAgg.upOrDown,
+          };
         });
 
+        const keepIndices = buildDownsampleIndices(labels.length, maxPoints);
+        const shouldSample = keepIndices.length > 0 && keepIndices.length < labels.length;
+        const sharedLabels = shouldSample ? sampleArrayByIndices(labels, keepIndices) : labels.slice();
+        const sampleSeries = (series: number[]) =>
+          shouldSample ? sampleArrayByIndices(series, keepIndices) : series.slice();
+
+        const datasets: MultiDatasetWithLabels[] = aggregated.map((series) => ({
+          label: series.label,
+          ticker: series.ticker,
+          data: sampleSeries(series.priceData),
+          colorHint: series.priceTrend,
+          labels: sharedLabels,
+        }));
+
         setMultiDatasets(datasets);
-        // Popola cumDatasets direttamente dai dati ricevuti (simple_return)
-        const cumDatasetsNew: MultiDatasetWithLabels[] = results.map(({ t, rows }) => {
-          // Aggrega cumulative_return sugli stessi bucket dei prezzi
-          const agg = aggregateOnBuckets(rows, globalStart, bucketDays, bucketCount, 'cumulative_return');
-          const displayName = t.name || t.symbol;
-          // Trasforma in percentuale e filtra null
-          const dataPerc: number[] = agg.data.map((v: number) => (Number.isFinite(v) ? v * 100 : 0));
-          return { label: displayName + ' (%)', ticker: t.symbol, data: dataPerc, colorHint: agg.upOrDown, labels };
+
+        // Popola cumDatasets direttamente dai dati ricevuti (cumulative_return)
+        const cumDatasetsNew: MultiDatasetWithLabels[] = aggregated.map((series) => {
+          const sampled = sampleSeries(series.cumulativeData);
+          const dataPerc = sampled.map((v: number) => (Number.isFinite(v) ? v * 100 : 0));
+          return {
+            label: `${series.label} (%)`,
+            ticker: series.ticker,
+            data: dataPerc,
+            colorHint: series.cumulativeTrend,
+            labels: sharedLabels,
+          };
         });
         setCumDatasets(cumDatasetsNew);
         setLastRange(range);
       } catch (e) {
-        setMultiDatasets(null);
-        setError(e instanceof Error ? e.message : 'Errore inatteso durante il caricamento');
+  setMultiDatasets(null);
+  setError(e instanceof Error ? e.message : 'Unexpected error while loading data');
       } finally {
         setLoading(false);
       }
     },
-  [selectedTickers]
+  [selectedTickers, maxPoints]
   );
 
   const handleSubmit = useCallback(
@@ -414,6 +535,14 @@ export default function HomeScreen() {
     if (lastRange) fetchSelected(lastRange, false);
   };
 
+  useEffect(() => {
+    if (prevMaxPointsRef.current === maxPoints) return;
+    prevMaxPointsRef.current = maxPoints;
+    if (!lastRange) return;
+    if (!Object.keys(selectedTickers).length) return;
+    fetchSelected(lastRange, true);
+  }, [maxPoints, lastRange, fetchSelected, selectedTickers]);
+
   
 
   // ===== RENDER HELPERS =====
@@ -426,37 +555,39 @@ export default function HomeScreen() {
     if (!multiDatasets || multiDatasets.length === 0) {
       return (
         <EmptyState
-          title="Nessun dato"
+          title="No data"
           message={
             Object.keys(selectedTickers).length === 0
-              ? 'Seleziona uno o più ETF dalla lista e imposta le date.'
-              : 'Premi Fetch per caricare il grafico degli ETF selezionati.'
+              ? 'Select one or more ETFs from the list and set the dates.'
+              : 'Press Fetch to load the chart for the selected ETFs.'
           }
         />
       );
     }
 
     return (
-      <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={styles.chartStack}>
         <ETFLineChart
-          // nuovo modo: un unico grafico con più serie
           multi={multiDatasets.map((ds) => ({
             label: ds.label,
             data: ds.data,
             colorHint: ds.colorHint,
             labels: ds.labels,
           }))}
-          // fallback props legacy non usate
           data={[] as unknown as ChartDataPoint[]}
           ticker="Selected ETFs"
           height={220}
           yAxisFormat="currency"
           currencySymbol="$"
         />
-        {/* second chart: cumulative simple returns */}
         {cumDatasets && cumDatasets.length > 0 && (
           <ETFLineChart
-            multi={cumDatasets.map((ds) => ({ label: ds.label, data: ds.data, colorHint: ds.colorHint, labels: ds.labels }))}
+            multi={cumDatasets.map((ds) => ({
+              label: ds.label,
+              data: ds.data,
+              colorHint: ds.colorHint,
+              labels: ds.labels,
+            }))}
             data={[] as unknown as ChartDataPoint[]}
             ticker="Cumulative Returns"
             height={180}
@@ -468,119 +599,221 @@ export default function HomeScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background, paddingBottom: Math.max(12, insets.bottom + 12) }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            colors={['#3B82F6']}
-            tintColor="#3B82F6"
+            colors={[colors.accent]}
+            tintColor={colors.accent}
           />
         }
-        contentContainerStyle={{ paddingBottom: Math.max(24, insets.bottom + 12) }}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: contentBottomPadding, paddingTop: contentTopPadding },
+        ]}
       >
-        <AreaChips
-          areas={geographyOptions}
-          selectedId={selectedArea}
-          onSelect={setSelectedArea}
-          loading={tickersLoading}
-        />
-  <View style={[styles.tickersCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.tickersHeader}>
-            <Text style={[styles.tickersTitle, { color: colors.text }] }>
-              {selectedArea == null ? 'ETF di tutte le aree' : 'ETF dell’area selezionata'}
-            </Text>
-            <View style={[styles.badge, { backgroundColor: colors.background }]}> 
-              <Text style={[styles.badgeText, { color: colors.text }]}>{tickers.length}</Text>
-            </View>
+        <LinearGradient colors={heroGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
+          <View style={styles.heroIcon}>
+            <Sparkles size={28} color="#FFFFFF" />
           </View>
-          {tickersLoading ? (
-            <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Caricamento ETF…</Text>
-          ) : tickers.length === 0 ? (
-            <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>
-              {selectedArea == null ? 'Nessun ticker attivo assegnato alle geografie.' : 'Nessun ticker attivo per quest’area.'}
-            </Text>
-          ) : (
-            <>
-              <View style={styles.bulkRow}>
-                <Pressable onPress={toggleSelectAllInArea} style={[styles.bulkBtn, { borderColor: colors.border, backgroundColor: colors.background }]}>
-                  <Text style={[styles.bulkBtnText, { color: colors.text }]}>
-                    {allCurrentSelected ? 'Deseleziona tutti' : 'Seleziona tutti'}
-                  </Text>
-                </Pressable>
-                <Text style={[styles.selectedCounter, { color: colors.secondaryText }]}>
-                  Selezionati: {Object.keys(selectedTickers).length}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.heroTitle}>ETF Analytics</Text>
+            <Text style={styles.heroSubtitle}>{heroSubtitle}</Text>
+            <View style={styles.heroStatsRow}>
+              <View style={[styles.heroStat, { backgroundColor: heroPillBackground, borderColor: heroPillBorder }]}>
+                <Target size={16} color="#FFFFFF" />
+                <Text style={styles.heroStatText}>
+                  {selectionStatLabel}
                 </Text>
               </View>
-              <Animated.View style={[styles.tickerScrollableContainer, { height: animatedHeight }]}> 
-                <View style={styles.dragHandleWrapper} {...panResponder.panHandlers}>
-                  <Pressable onPress={() => setExpandedTickers(e => !e)} style={styles.dragHandlePress} hitSlop={8}>
-                    <View style={[styles.dragHandleBar, { backgroundColor: colors.border }]} />
-                    <Text style={[styles.handleLabel, { color: colors.secondaryText }]}>
-                      {expandedTickers ? 'Riduci elenco' : 'Espandi elenco'}
+              <View style={[styles.heroStat, { backgroundColor: heroPillBackground, borderColor: heroPillBorder }]}>
+                <MapPin size={16} color="#FFFFFF" />
+                <Text style={styles.heroStatText}>
+                  {areaStatLabel}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </LinearGradient>
+        {renderSectionCard({
+          icon: Globe2,
+          accent: '#38BDF8',
+          title: 'Focus by geography',
+          subtitle: `Currently viewing ${currentAreaName}`,
+          rightAccessory: (
+            <HelpTooltip
+              title={TOOLTIP_COPY.analytics.areaFilter.title}
+              description={TOOLTIP_COPY.analytics.areaFilter.description}
+            />
+          ),
+          children: (
+            <View style={styles.cardContentGap}>
+              <AreaChips
+                areas={geographyOptions}
+                selectedId={selectedArea}
+                onSelect={setSelectedArea}
+                loading={tickersLoading}
+              />
+            </View>
+          ),
+        })}
+        {renderSectionCard({
+          icon: ListChecks,
+          accent: '#A855F7',
+          title: 'ETF library',
+          subtitle: tickersSubtitle,
+          rightAccessory: (
+            <View style={[styles.cardBadge, { backgroundColor: colors.background }]}> 
+              <Text style={[styles.cardBadgeText, { color: colors.text }]}>{tickers.length}</Text>
+            </View>
+          ),
+          children: (
+            <View style={styles.cardContentGap}>
+              {tickersLoading ? (
+                <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Loading ETFs…</Text>
+              ) : tickers.length === 0 ? (
+                <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>
+                  {selectedArea == null ? 'No active tickers assigned to geographies.' : 'No active tickers for this area.'}
+                </Text>
+              ) : (
+                <>
+                  <View style={styles.bulkRow}>
+                    <View style={styles.inlineHelpRow}>
+                      <Pressable
+                        onPress={toggleSelectAllInArea}
+                        style={[styles.bulkBtn, { borderColor: colors.border, backgroundColor: colors.background }]}
+                      >
+                        <Text style={[styles.bulkBtnText, { color: colors.text }]}>
+                          {allCurrentSelected ? 'Deselect all' : 'Select all'}
+                        </Text>
+                      </Pressable>
+                      <HelpTooltip
+                        title={TOOLTIP_COPY.analytics.bulkSelect.title}
+                        description={TOOLTIP_COPY.analytics.bulkSelect.description}
+                      />
+                    </View>
+                    <Text style={[styles.selectedCounter, { color: colors.secondaryText }]}>
+                      Selected: {selectedCount}
                     </Text>
-                  </Pressable>
-                </View>
-                <View style={styles.innerScrollWrapper}> 
-                  <ScrollView
-                    nestedScrollEnabled
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator
-                    contentContainerStyle={{ paddingBottom: 8 }}
-                  >
-                    {pagedTickers.map((item, index) => {
-                      const isSel = !!selectedTickers[item.ticker_id];
-                      const selIdx = selectedIndexById.get(item.ticker_id);
-                      const dotColor = isSel && selIdx !== undefined ? getLineColor(selIdx) : '#D1D5DB';
-                      return (
-                        <View key={item.ticker_id}>
-                          <Pressable onPress={() => toggleSelect(item)} style={styles.tickerRow}>
-                            <View style={[styles.checkbox, { borderColor: colors.border, backgroundColor: colors.card }, isSel && { backgroundColor: colors.accent, borderColor: colors.accent }]}>
-                              <Text style={styles.checkboxMark}>{isSel ? '✓' : ''}</Text>
+                  </View>
+                  <Animated.View style={[styles.tickerScrollableContainer, { height: animatedHeight }]}> 
+                    <View style={styles.dragHandleWrapper} {...panResponder.panHandlers}>
+                      <Pressable onPress={() => setExpandedTickers((e) => !e)} style={styles.dragHandlePress} hitSlop={8}>
+                        <View style={[styles.dragHandleBar, { backgroundColor: colors.border }]} />
+                        <Text style={[styles.handleLabel, { color: colors.secondaryText }]}>
+                          {expandedTickers ? 'Collapse list' : 'Expand list'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    <View style={styles.innerScrollWrapper}> 
+                      <ScrollView
+                        nestedScrollEnabled
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator
+                        contentContainerStyle={{ paddingBottom: 8 }}
+                      >
+                        {pagedTickers.map((item, index) => {
+                          const isSel = !!selectedTickers[item.ticker_id];
+                          const selIdx = selectedIndexById.get(item.ticker_id);
+                          const dotColor = isSel && selIdx !== undefined ? getLineColor(selIdx) : '#D1D5DB';
+                          return (
+                            <View key={item.ticker_id}>
+                              <Pressable onPress={() => toggleSelect(item)} style={styles.tickerRow}>
+                                <View
+                                  style={[
+                                    styles.checkbox,
+                                    { borderColor: colors.border, backgroundColor: colors.card },
+                                    isSel && { backgroundColor: colors.accent, borderColor: colors.accent },
+                                  ]}
+                                >
+                                  <Text style={styles.checkboxMark}>{isSel ? '✓' : ''}</Text>
+                                </View>
+                                <View style={[styles.tickerDot, { backgroundColor: dotColor }]} />
+                                <View style={{ flex: 1 }}>
+                                  <Text style={[styles.tickerName, { color: colors.text }]} numberOfLines={1}>
+                                    {item.name || item.symbol}
+                                  </Text>
+                                  <Text style={[styles.tickerSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>
+                                    {item.symbol}
+                                    {item.asset_class ? ` • ${item.asset_class}` : ''}
+                                  </Text>
+                                </View>
+                              </Pressable>
+                              {index < pagedTickers.length - 1 && (
+                                <View style={[styles.separator, { backgroundColor: colors.border }]} />
+                              )}
                             </View>
-                            {/* colored dot matches chart/legend color for selected items; grey when not selected */}
-                            <View style={[styles.tickerDot, { backgroundColor: dotColor }]} />
-                            <View style={{ flex: 1 }}>
-                              <Text style={[styles.tickerName, { color: colors.text }]} numberOfLines={1}>{item.name || item.symbol}</Text>
-                              <Text style={[styles.tickerSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>
-                                {item.symbol}
-                                {item.asset_class ? ` • ${item.asset_class}` : ''}
-                              </Text>
-                            </View>
-                            {/* removed numeric ID label */}
-                          </Pressable>
-                          {index < pagedTickers.length - 1 && <View style={[styles.separator, { backgroundColor: colors.border }]} />}
-                        </View>
-                      );
-                    })}
-                    <View style={{ height: 4 }} />
-                  </ScrollView>
-                  {/* Gradient / fade when collapsed & not last page */}
-                  {!expandedTickers && canNext && (
-                    <View pointerEvents="none" style={[styles.fadeBottom, { backgroundColor: colors.card }]} />
+                          );
+                        })}
+                        <View style={{ height: 4 }} />
+                      </ScrollView>
+                      {!expandedTickers && canNext && (
+                        <View pointerEvents="none" style={[styles.fadeBottom, { backgroundColor: colors.card }]} />
+                      )}
+                    </View>
+                  </Animated.View>
+                  {tickers.length > PAGE_SIZE && (
+                    <View style={styles.paginationRow}>
+                      <Pressable
+                        disabled={!canPrev}
+                        onPress={() => canPrev && setPage((p) => p - 1)}
+                        style={[styles.pageBtn, !canPrev && styles.pageBtnDisabled]}
+                      >
+                        <Text style={styles.pageBtnText}>{'<'}</Text>
+                      </Pressable>
+                      <Text style={[styles.pageIndicator, { color: colors.text }]}>
+                        Page {page + 1} / {maxPage + 1}
+                      </Text>
+                      <Pressable
+                        disabled={!canNext}
+                        onPress={() => canNext && setPage((p) => p + 1)}
+                        style={[styles.pageBtn, !canNext && styles.pageBtnDisabled]}
+                      >
+                        <Text style={styles.pageBtnText}>{'>'}</Text>
+                      </Pressable>
+                    </View>
                   )}
-                </View>
-              </Animated.View>
-              {/* Pagination controls */}
-              {tickers.length > PAGE_SIZE && (
-                <View style={styles.paginationRow}>
-                  <Pressable disabled={!canPrev} onPress={() => canPrev && setPage(p => p - 1)} style={[styles.pageBtn, !canPrev && styles.pageBtnDisabled]}>
-                    <Text style={styles.pageBtnText}>{'<'}</Text>
-                  </Pressable>
-                  <Text style={[styles.pageIndicator, { color: colors.text }]}>Pagina {page + 1} / {maxPage + 1}</Text>
-                  <Pressable disabled={!canNext} onPress={() => canNext && setPage(p => p + 1)} style={[styles.pageBtn, !canNext && styles.pageBtnDisabled]}>
-                    <Text style={styles.pageBtnText}>{'>'}</Text>
-                  </Pressable>
-                </View>
+                </>
               )}
-            </>
-          )}
-        </View>
-        <ETFQueryForm onSubmit={handleSubmit} loading={loading} />
-        <View style={[styles.chartContainer, { paddingBottom: Math.max(12, insets.bottom) }]}>
-          {renderChart()}
-        </View>
+            </View>
+          ),
+        })}
+        {renderSectionCard({
+          icon: SlidersHorizontal,
+          accent: '#F97316',
+          title: 'Query settings',
+          subtitle: querySubtitle,
+          rightAccessory: (
+            <HelpTooltip
+              title={TOOLTIP_COPY.analytics.queryForm.title}
+              description={TOOLTIP_COPY.analytics.queryForm.description}
+            />
+          ),
+          children: (
+            <View style={styles.cardContentGap}>
+              <ETFQueryForm onSubmit={handleSubmit} loading={loading} />
+            </View>
+          ),
+        })}
+        {renderSectionCard({
+          icon: LineChart,
+          accent: '#22C55E',
+          title: 'Performance overview',
+          subtitle: performanceSubtitle,
+          rightAccessory: (
+            <HelpTooltip
+              title={TOOLTIP_COPY.analytics.performanceChart.title}
+              description={TOOLTIP_COPY.analytics.performanceChart.description}
+            />
+          ),
+          children: (
+            <View style={styles.cardContentGap}>
+              {renderChart()}
+            </View>
+          ),
+        })}
   {/* pipeline UI rimossa: spostata in pagina dedicata */}
       </ScrollView>
     </SafeAreaView>
@@ -588,90 +821,254 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F3F4F6' },
-  scrollView: { flex: 1 }, // deprecated after refactor, kept if reused elsewhere
-  firstTickerWrapper: { backgroundColor: '#FFFFFF', marginHorizontal: 12, borderRadius: 10 }, // legacy
-  tickerListContainer: { marginTop: 4 },
-
-  tickersCard: {
-  backgroundColor: '#FFFFFF',
-  borderRadius: 10,
-  padding: 12,
-  marginHorizontal: 12,
-  marginBottom: 8,
+  container: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    rowGap: 20,
+  },
+  sectionCard: {
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 18,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: 12,
+  },
+  cardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 12,
+    flex: 1,
+  },
+  cardIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardHeaderText: {
+    flex: 1,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  cardSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+  },
+  cardContent: {
+    marginTop: 16,
+  },
+  cardContentGap: {
+    rowGap: 16,
+  },
+  cardBadge: {
+    minWidth: 34,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  heroCard: {
+    borderRadius: 22,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    columnGap: 16,
+    shadowColor: '#000000',
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 5,
+  },
+  heroIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
+  heroSubtitle: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.9)',
+    marginBottom: 14,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 8,
+    rowGap: 8,
+  },
+  heroStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 8,
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
-  tickersHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  tickersTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: '#111827' },
-  tickersHint: { color: '#6B7280', fontSize: 13 },
-  separator: { height: 1, backgroundColor: '#E5E7EB', marginVertical: 8 },
-  tickerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, justifyContent: 'space-between' },
-  tickerSymbol: { flex: 1, fontSize: 15, fontWeight: '600', color: '#111827' },
-  tickerName: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  tickerSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
-  tickerId: { fontSize: 12, color: '#6B7280', marginLeft: 8 },
-  tickerDot: { width: 8, height: 8, borderRadius: 4, marginRight: 4, opacity: 0.9 },
-  badge: {
-    minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6,
-    backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center',
+  heroStatText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
   },
-  badgeText: { fontSize: 12, color: '#111827', fontWeight: '700' },
-  bulkRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 12 },
+  tickersHint: {
+    fontSize: 13,
+  },
+  inlineHelpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 8,
+  },
+  bulkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    columnGap: 12,
+  },
   bulkBtn: {
-    paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999,
-    borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    borderWidth: 1,
   },
-  bulkBtnText: { fontSize: 12, color: '#111827', fontWeight: '600' },
-  selectedCounter: { marginLeft: 'auto', fontSize: 12, color: '#374151', fontWeight: '600' },
-
+  bulkBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  selectedCounter: {
+    marginLeft: 'auto',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tickerScrollableContainer: {
+    overflow: 'hidden',
+    width: '100%',
+  },
+  dragHandleWrapper: {
+    alignItems: 'center',
+    paddingTop: 4,
+    paddingBottom: 6,
+  },
+  dragHandlePress: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+  },
+  dragHandleBar: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    marginBottom: 6,
+    opacity: 0.75,
+  },
+  handleLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  innerScrollWrapper: {
+    flex: 1,
+    position: 'relative',
+  },
+  tickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 14,
+    paddingVertical: 10,
+  },
   checkbox: {
-    width: 20, height: 20, borderRadius: 4, borderWidth: 1, borderColor: '#D1D5DB',
-    alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  checkboxOn: { backgroundColor: '#3B82F6', borderColor: '#3B82F6' },
-  checkboxMark: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
-
-  chartContainer: { flex: 1, minHeight: 300, paddingBottom: 16 },
-  chartCard: {
-  backgroundColor: '#FFFFFF',
-  borderRadius: 10,
-  padding: 6,
-  marginHorizontal: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+  checkboxMark: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
   },
-  // New ticker list pagination / expansion styles
-  dragHandleWrapper: { alignItems: 'center', paddingTop: 4, paddingBottom: 4 },
-  dragHandlePress: { alignItems: 'center', justifyContent: 'center', paddingVertical: 4 },
-  dragHandleBar: { width: 44, height: 5, borderRadius: 3, marginBottom: 4, opacity: 0.7 },
-  handleLabel: { fontSize: 11, fontWeight: '500' },
-  flatList: { flexGrow: 0 },
-  flatListContent: { paddingBottom: 8 },
+  tickerDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 2,
+  },
+  tickerName: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  tickerSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    opacity: 0.5,
+    marginVertical: 8,
+  },
   fadeBottom: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
     height: 56,
-    backgroundColor: 'transparent',
-    // gradient simulation via layered opacity (could replace with expo-linear-gradient)
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(0,0,0,0.06)',
   },
-  paginationRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 8 },
-  pageBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: '#E5E7EB' },
-  pageBtnDisabled: { opacity: 0.4 },
-  pageBtnText: { fontSize: 14, fontWeight: '700', color: '#111827' },
-  pageIndicator: { fontSize: 12, fontWeight: '600' },
-  tickerScrollableContainer: { overflow: 'hidden', width: '100%' },
-  innerScrollWrapper: { flex: 1, position: 'relative' },
-  // pipeline styles removed (moved to dedicated screen)
+  paginationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    columnGap: 12,
+    marginTop: 12,
+  },
+  pageBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#E5E7EB',
+  },
+  pageBtnDisabled: {
+    opacity: 0.4,
+  },
+  pageBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  pageIndicator: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  chartStack: {
+    rowGap: 16,
+  },
 });

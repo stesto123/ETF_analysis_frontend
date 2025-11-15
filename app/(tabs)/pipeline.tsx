@@ -12,17 +12,23 @@ import {
   UIManager,
   Animated,
   RefreshControl,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@clerk/clerk-expo';
+import { ChevronDown, ChevronRight, Sparkles, Layers3, FolderPlus, PlayCircle, BarChart3 } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { apiService } from '@/services/api';
 import ETFLineChart from '@/components/Chart/LineChart';
 import { useTheme } from '@/components/common/ThemeProvider';
 import Toast, { ToastType } from '@/components/common/Toast';
+import HelpTooltip from '@/components/common/HelpTooltip';
+import { TOOLTIP_COPY } from '@/constants/tooltips';
 import {
   ChartDataPoint,
   GeographyGroup,
@@ -39,6 +45,19 @@ type OpenSections = { composition: boolean; create: boolean; run: boolean; chart
 const OPEN_SECTIONS_KEY = 'pipeline_open_sections_v1';
 const defaultOpen: OpenSections = { composition: false, create: false, run: false, chart: false };
 
+const friendlyAccent = (hex: string, alpha = 0.18) => {
+  if (!hex || hex[0] !== '#' || (hex.length !== 7 && hex.length !== 4)) {
+    return `rgba(37, 99, 235, ${alpha})`;
+  }
+  const normalized = hex.length === 4
+    ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+    : hex;
+  const r = parseInt(normalized.slice(1, 3), 16);
+  const g = parseInt(normalized.slice(3, 5), 16);
+  const b = parseInt(normalized.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 type CompositionDraft = {
   key: string;
   areaId?: number;
@@ -49,10 +68,23 @@ type CompositionDraft = {
   asset_class?: string;
 };
 
+type SelectModalState = {
+  rowKey: string;
+  type: 'area' | 'ticker';
+};
+
+type ModalOption = {
+  value: number;
+  label: string;
+  subtitle?: string;
+};
+
 export default function PipelineScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
+
+  const pipelineTooltips = TOOLTIP_COPY.pipeline;
   const [idPortafoglio, setIdPortafoglio] = useState('1');
   const [ammontare, setAmmontare] = useState('10000');
   const [capitaleIniziale, setCapitaleIniziale] = useState('0');
@@ -100,6 +132,7 @@ export default function PipelineScreen() {
   const [saving, setSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [openSections, setOpenSections] = useState<OpenSections>(defaultOpen);
+  const [selectModal, setSelectModal] = useState<SelectModalState | null>(null);
   const sectionOpacity = useRef<Record<keyof OpenSections, Animated.Value>>({
     composition: new Animated.Value(0),
     create: new Animated.Value(0),
@@ -124,6 +157,12 @@ export default function PipelineScreen() {
   useEffect(()=>{(async()=>{try{const raw=await AsyncStorage.getItem(OPEN_SECTIONS_KEY);if(raw){const merged={...defaultOpen,...JSON.parse(raw)};setOpenSections(merged);(Object.keys(merged) as (keyof OpenSections)[]).forEach(k=>animate(k,merged[k]));}}catch{}})();},[]);
   useEffect(()=>{AsyncStorage.setItem(OPEN_SECTIONS_KEY, JSON.stringify(openSections)).catch(()=>{});},[openSections]);
   const toggleSection = (k: keyof OpenSections)=>{LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);setOpenSections(p=>{const n={...p,[k]:!p[k]};animate(k,!p[k]);return n;});};
+
+  useEffect(() => {
+    if (!selectModal) return;
+    if (compItems.some((row) => row.key === selectModal.rowKey)) return;
+    setSelectModal(null);
+  }, [selectModal, compItems]);
 
   useEffect(() => {
     let mounted = true;
@@ -173,7 +212,7 @@ export default function PipelineScreen() {
   useEffect(() => {
     if (!user) {
       setCurrentUserId(null);
-      setUserProfileError('Accedi per gestire i portafogli');
+      setUserProfileError('Sign in to manage your portfolios');
       return;
     }
 
@@ -183,7 +222,7 @@ export default function PipelineScreen() {
   let cancelled = false;
     const email = user.primaryEmailAddress?.emailAddress ?? user.emailAddresses?.[0]?.emailAddress ?? null;
     if (!email) {
-      setUserProfileError('Email utente non disponibile');
+      setUserProfileError('User email not available');
       return;
     }
     const usernameCandidate = user.username ?? (email.includes('@') ? email.split('@')[0] : email);
@@ -198,7 +237,7 @@ export default function PipelineScreen() {
           setUserProfileError(null);
           return;
         }
-        setUserProfileError("Profilo backend privo di user_id valido");
+  setUserProfileError('Backend profile missing a valid user_id');
       } catch (err: any) {
         if (cancelled || !isMountedRef.current) return;
         const status = typeof err?.status === 'number' ? err.status : undefined;
@@ -220,16 +259,16 @@ export default function PipelineScreen() {
               setUserProfileError(null);
               return;
             }
-            setUserProfileError("Profilo backend non disponibile dopo la sincronizzazione");
+            setUserProfileError('Backend profile unavailable after synchronization');
           } catch (syncErr) {
             if (cancelled || !isMountedRef.current) return;
             const detail = syncErr instanceof Error ? syncErr.message : String(syncErr);
-            setUserProfileError(`Sync profilo fallita: ${detail}`);
+            setUserProfileError(`Profile sync failed: ${detail}`);
           }
           return;
         }
         if (status === 401 || status === 403) {
-          setUserProfileError('Sessione scaduta, accedi nuovamente.');
+          setUserProfileError('Session expired, please sign in again.');
           setCurrentUserId(null);
           return;
         }
@@ -267,6 +306,105 @@ export default function PipelineScreen() {
     if (selectedStrategyId != null) return selectedStrategyId;
     return strategies.length ? strategies[0].strategy_id : undefined;
   }, [selectedStrategyId, strategies]);
+  const modalRow = useMemo(() => {
+    if (!selectModal) return null;
+    return compItems.find((row) => row.key === selectModal.rowKey) ?? null;
+  }, [selectModal, compItems]);
+  const modalOptions = useMemo<ModalOption[]>(() => {
+    if (!selectModal || !modalRow) return [];
+    if (selectModal.type === 'area') {
+      return geographies.map((geo) => ({
+        value: geo.geography_id,
+        label: geo.geography_name,
+        subtitle: geo.country ?? geo.continent ?? undefined,
+      }));
+    }
+    if (!modalRow.areaId) return [];
+    const list = tickerOptionsByArea[modalRow.areaId] ?? [];
+    return list.map((ticker) => ({
+      value: ticker.ticker_id,
+      label: ticker.name || ticker.symbol,
+      subtitle: [ticker.symbol, ticker.asset_class].filter(Boolean).join(' • ') || undefined,
+    }));
+  }, [selectModal, modalRow, geographies, tickerOptionsByArea]);
+  const modalSelectedValue = useMemo(() => {
+    if (!selectModal || !modalRow) return null;
+    return selectModal.type === 'area' ? modalRow.areaId ?? null : modalRow.ticker_id ?? null;
+  }, [selectModal, modalRow]);
+  const selectedPortfolioCount = useMemo(() => Object.values(selectedPortfolios).filter(Boolean).length, [selectedPortfolios]);
+  const totalPortfolios = portfolios.length;
+  const totalStrategies = strategies.length;
+  const heroGradient = isDark
+    ? (['#0F172A', '#1F2937', '#111827'] as const)
+    : (['#2563EB', '#1D4ED8', '#1E3A8A'] as const);
+  const heroStatus = simulationStatus
+    || (simulationResult ? 'Simulation ready to explore' : 'No simulation started yet');
+  const heroStats = useMemo(
+    () => [
+      {
+        label: 'Selected portfolios',
+        value: totalPortfolios ? `${selectedPortfolioCount}/${totalPortfolios}` : '0',
+      },
+      {
+        label: 'Strategies',
+        value: totalStrategies ? String(totalStrategies) : '0',
+      },
+      {
+        label: 'Status',
+        value: heroStatus,
+      },
+    ],
+    [heroStatus, selectedPortfolioCount, totalPortfolios, totalStrategies],
+  );
+
+  const renderSectionCard = (
+    key: keyof OpenSections,
+    {
+      icon: Icon,
+      accent,
+      title,
+      subtitle,
+      children,
+    }: {
+      icon: React.ComponentType<{ size?: number; color?: string }>;
+      accent: string;
+      title: string;
+      subtitle: string;
+      children: React.ReactNode;
+    }
+  ) => {
+    const isOpen = openSections[key];
+    return (
+      <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}> 
+        <Pressable
+          style={styles.cardHeader}
+          onPress={() => toggleSection(key)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: isOpen }}
+        >
+          <View style={styles.cardHeaderLeft}>
+            <View style={[styles.cardIconWrap, { backgroundColor: friendlyAccent(accent) }]}> 
+              <Icon size={20} color={accent} />
+            </View>
+            <View style={styles.cardHeaderText}>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>{title}</Text>
+              <Text style={[styles.cardSubtitle, { color: colors.secondaryText }]}>{subtitle}</Text>
+            </View>
+          </View>
+          <ChevronDown
+            size={18}
+            color={colors.secondaryText}
+            style={{ transform: [{ rotate: isOpen ? '180deg' : '0deg' }] }}
+          />
+        </Pressable>
+        {isOpen ? (
+          <Animated.View style={[styles.cardBody, { opacity: sectionOpacity.current[key] }]}> 
+            {children}
+          </Animated.View>
+        ) : null}
+      </View>
+    );
+  };
   const startPipeline = useCallback(async () => {
     const fail = (message: string) => {
       setSimulationError(message);
@@ -278,18 +416,18 @@ export default function PipelineScreen() {
     setSimulationResult(null);
 
     if (!currentUserId) {
-      fail('Accedi per avviare una simulazione.');
+      fail('Sign in to start a simulation.');
       return;
     }
 
     const portfolioId = Number(idPortafoglio);
     if (!Number.isFinite(portfolioId) || portfolioId <= 0) {
-      fail('Inserisci un Portfolio ID valido.');
+      fail('Enter a valid portfolio ID.');
       return;
     }
 
     if (selectedStrategyId == null) {
-      fail('Seleziona una strategia di simulazione.');
+      fail('Select a simulation strategy.');
       return;
     }
 
@@ -301,19 +439,19 @@ export default function PipelineScreen() {
 
     const monthlyInvestment = normalizeNumber(ammontare);
     if (monthlyInvestment == null || monthlyInvestment <= 0) {
-      fail('L\'investimento mensile deve essere maggiore di zero.');
+      fail('Monthly investment must be greater than zero.');
       return;
     }
 
     const initialCapital = normalizeNumber(capitaleIniziale ?? '');
     if (initialCapital != null && initialCapital < 0) {
-      fail('Il capitale iniziale non può essere negativo.');
+      fail('Initial capital cannot be negative.');
       return;
     }
 
     const thresholdValue = normalizeNumber(rebalanceThreshold ?? '') ?? undefined;
     if (thresholdValue != null && (thresholdValue < 0 || thresholdValue > 1)) {
-      fail('La soglia di ribilanciamento deve essere compresa tra 0 e 1.');
+      fail('Rebalance threshold must be between 0 and 1.');
       return;
     }
 
@@ -321,7 +459,7 @@ export default function PipelineScreen() {
       const trimmed = value?.trim();
       if (!trimmed) return undefined;
       if (!/^\d{8}$/.test(trimmed)) {
-        fail('Le date devono essere nel formato YYYYMMDD.');
+        fail('Dates must follow the YYYYMMDD format.');
         throw new Error('invalid_calendar_id');
       }
       return Number(trimmed);
@@ -360,7 +498,7 @@ export default function PipelineScreen() {
       if (response.message) {
         setToast({ type: 'success', message: response.message });
       } else {
-        setToast({ type: 'success', message: 'Simulazione avviata.' });
+    setToast({ type: 'success', message: 'Simulation started.' });
       }
     } catch (error) {
       if (!isMountedRef.current) return;
@@ -517,10 +655,61 @@ export default function PipelineScreen() {
   const updateCompRow = (key: string, patch: Partial<CompositionDraft>) =>
     setCompItems((p) => p.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const totalPercent=useMemo(()=>compItems.reduce((s,r)=>s+(Number(r.percentuale)||0),0),[compItems]);
+  const openSelectModal = useCallback((state: SelectModalState) => {
+    if (Platform.OS !== 'ios') return;
+    setSelectModal(state);
+  }, []);
+  const handleSelectOption = useCallback((value: number) => {
+    if (!selectModal) return;
+    if (selectModal.type === 'area') {
+      updateCompRow(selectModal.rowKey, {
+        areaId: value,
+        ticker_id: undefined,
+        symbol: undefined,
+        name: undefined,
+        asset_class: undefined,
+      });
+      setSelectModal(null);
+      return;
+    }
+    if (!modalRow?.areaId) {
+      setSelectModal(null);
+      return;
+    }
+    const list = tickerOptionsByArea[modalRow.areaId] ?? [];
+    const found = list.find((ticker) => ticker.ticker_id === value);
+    updateCompRow(selectModal.rowKey, {
+      ticker_id: value,
+      symbol: found?.symbol,
+      name: found?.name,
+      asset_class: found?.asset_class,
+    });
+    setSelectModal(null);
+  }, [selectModal, modalRow, tickerOptionsByArea, updateCompRow]);
+  const handleClearSelection = useCallback(() => {
+    if (!selectModal) return;
+    if (selectModal.type === 'area') {
+      updateCompRow(selectModal.rowKey, {
+        areaId: undefined,
+        ticker_id: undefined,
+        symbol: undefined,
+        name: undefined,
+        asset_class: undefined,
+      });
+    } else {
+      updateCompRow(selectModal.rowKey, {
+        ticker_id: undefined,
+        symbol: undefined,
+        name: undefined,
+        asset_class: undefined,
+      });
+    }
+    setSelectModal(null);
+  }, [selectModal, updateCompRow]);
   const createPortfolioAndSave = useCallback(async () => {
     setTableError(null);
     if (!currentUserId) {
-      setTableError("Profilo utente non disponibile");
+  setTableError('User profile not available');
       return;
     }
     const trimmedName = newPortfolioName.trim();
@@ -610,7 +799,7 @@ export default function PipelineScreen() {
               <Pressable
                 onPress={async () => {
                   if (!currentUserId) {
-                    setToast({ type: 'error', message: 'Accedi per eliminare un portafoglio.' });
+                    setToast({ type: 'error', message: 'Sign in to delete a portfolio.' });
                     return;
                   }
                   try {
@@ -637,9 +826,9 @@ export default function PipelineScreen() {
                     const status = typeof (e as any)?.status === 'number' ? (e as any).status : undefined;
                     let msg = e instanceof Error ? e.message : String(e);
                     if (status === 403) {
-                      msg = 'Non puoi eliminare un portafoglio di un altro utente.';
+                      msg = "You cannot delete another user's portfolio.";
                     } else if (status === 404) {
-                      msg = 'Portafoglio non trovato o già eliminato.';
+                      msg = 'Portfolio not found or already deleted.';
                     }
                     setToast({ type: 'error', message: `Delete error: ${msg}` });
                   }
@@ -707,20 +896,79 @@ export default function PipelineScreen() {
         <View style={{ position: 'absolute', top: insets.top + 8, left: 16, right: 16, zIndex: 20 }}>
           {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
         </View>
-        <ScrollView 
-          contentContainerStyle={{ padding: 16, paddingBottom: Math.max(24, insets.bottom + 12), paddingTop: insets.top + 56 }}
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingBottom: Math.max(28, insets.bottom + 16),
+            paddingTop: Math.max(24, insets.top + 12),
+            rowGap: 20,
+          }}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
         >
-          <Text style={[styles.title, { color: colors.text, marginBottom: 8 }]}>Pipeline Actions</Text>
+          <LinearGradient
+            colors={heroGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.heroCard, { shadowColor: isDark ? '#1E3A8A' : '#0F172A' }]}
+          >
+            <View style={styles.heroTopRow}>
+              <View style={styles.heroBadge}> 
+                <Sparkles size={22} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.heroTitle}>Pipeline workspace</Text>
+                <Text style={styles.heroSubtitle}>{heroStatus}</Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  if (!openSections.run) {
+                    toggleSection('run');
+                  }
+                }}
+                style={styles.heroCta}
+              >
+                <Text style={styles.heroCtaText}>Run</Text>
+                <ChevronRight size={16} color="#FFFFFF" />
+              </Pressable>
+            </View>
+            <View style={styles.heroStatsRow}>
+              {heroStats.map((stat) => (
+                <View
+                  key={stat.label}
+                  style={[
+                    styles.heroStatCard,
+                    {
+                      backgroundColor: 'rgba(255,255,255,0.16)',
+                      borderColor: 'rgba(255,255,255,0.35)',
+                    },
+                  ]}
+                >
+                  <Text style={styles.heroStatLabel}>{stat.label}</Text>
+                  <Text style={styles.heroStatValue} numberOfLines={1}>
+                    {stat.value}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </LinearGradient>
 
-          {/* Composition Toggle */}
-          <Pressable style={[styles.toggleBtn, openSections.composition && styles.toggleBtnActive]} onPress={() => toggleSection('composition')}>
-            <Text style={styles.toggleBtnText}>{openSections.composition ? 'Hide Portfolio Composition' : 'Show Portfolio Composition'}</Text>
-          </Pressable>
-          {openSections.composition && (
-            <Animated.View style={{ opacity: sectionOpacity.current.composition }}>
-              <View style={{ marginBottom: 12 }}>
-                <Text style={[styles.label, { marginBottom: 8, color: colors.secondaryText }]}>Portfolio Composition</Text>
+          {renderSectionCard('composition', {
+            icon: Layers3,
+            accent: '#6366F1',
+            title: 'Portfolio library',
+            subtitle: 'Review saved mixes and select which ones to chart.',
+            children: (
+              <View style={styles.cardContentGap}>
+                <View style={styles.inlineHelpRow}>
+                  <HelpTooltip
+                    title={pipelineTooltips.compositionSection.title}
+                    description={pipelineTooltips.compositionSection.description}
+                  />
+                  <HelpTooltip
+                    title={pipelineTooltips.deletePortfolio.title}
+                    description={pipelineTooltips.deletePortfolio.description}
+                  />
+                </View>
                 {userProfileError && <Text style={styles.error}>{userProfileError}</Text>}
                 {!userProfileError && tableError && <Text style={styles.error}>{tableError}</Text>}
                 {portfoliosLoading ? (
@@ -730,22 +978,26 @@ export default function PipelineScreen() {
                 ) : portfolios.length === 0 ? (
                   <Text style={styles.small}>No portfolios available</Text>
                 ) : (
-                  <ScrollView horizontal style={{ backgroundColor: colors.card, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}>
-                    <View style={{ padding: 8 }}>{renderPortfolioTable(portfolios)}</View>
+                  <ScrollView
+                    horizontal
+                    style={{ backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}
+                    contentContainerStyle={{ padding: 8 }}
+                    showsHorizontalScrollIndicator={false}
+                  >
+                    {renderPortfolioTable(portfolios)}
                   </ScrollView>
                 )}
               </View>
-            </Animated.View>
-          )}
+            ),
+          })}
 
-          {/* Create Portfolio Toggle */}
-          <Pressable style={[styles.toggleBtn, openSections.create && styles.toggleBtnActive]} onPress={() => toggleSection('create')}>
-            <Text style={styles.toggleBtnText}>{openSections.create ? 'Hide Create Portfolio' : 'Show Create Portfolio'}</Text>
-          </Pressable>
-          {openSections.create && (
-            <Animated.View style={{ opacity: sectionOpacity.current.create }}>
-              <View style={{ marginBottom: 16 }}>
-                <Text style={[styles.title, { color: colors.text, fontSize: 18 }]}>Create New Portfolio</Text>
+          {renderSectionCard('create', {
+            icon: FolderPlus,
+            accent: '#2563EB',
+            title: 'Create a portfolio',
+            subtitle: 'Name it, assign tickers, and save for future runs.',
+            children: (
+              <View style={styles.cardContentGap}>
                 {userProfileError && <Text style={styles.error}>{userProfileError}</Text>}
                 {!userProfileError && tableError && <Text style={styles.error}>{tableError}</Text>}
                 <View style={styles.field}>
@@ -768,95 +1020,207 @@ export default function PipelineScreen() {
                     placeholderTextColor={colors.secondaryText}
                   />
                 </View>
-                {/* Preferred Area selector removed as requested */}
                 <Text style={[styles.label, { marginTop: 8, color: colors.secondaryText }]}>Composition (must sum to 100)</Text>
-                {compItems.map(row => (
-                  <View key={row.key} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                    <View style={[styles.pickerWrapper, { flex: 0.9, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border }]}>  
-                      <Picker
-                        selectedValue={row.areaId ?? null}
-                        onValueChange={(v) => {
-                          const areaId = typeof v === 'number' ? v : undefined;
-                          updateCompRow(row.key, { areaId, ticker_id: undefined, symbol: undefined, name: undefined });
+                {compItems.map((row) => {
+                  const areaInfo = row.areaId != null ? geographies.find((g) => g.geography_id === row.areaId) ?? null : null;
+                  const tickerInfo = row.ticker_id != null ? tickerLookup[row.ticker_id] : undefined;
+                  const tickerPrimary = tickerInfo?.name || tickerInfo?.symbol || row.name || row.symbol || null;
+                  const tickerSecondary = tickerInfo
+                    ? [tickerInfo.symbol, tickerInfo.asset_class].filter(Boolean).join(' • ')
+                    : row.symbol
+                    ? [row.symbol, row.asset_class].filter(Boolean).join(' • ')
+                    : null;
+                  return (
+                    <View key={row.key} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                      {Platform.OS === 'ios' ? (
+                        <Pressable
+                          onPress={() => openSelectModal({ rowKey: row.key, type: 'area' })}
+                          style={[
+                            styles.iosSelectBtn,
+                            { flex: 0.9, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border },
+                          ]}
+                        >
+                          <View style={styles.iosSelectValue}>
+                            <Text
+                              style={[
+                                styles.iosSelectLabel,
+                                { color: areaInfo ? colors.text : colors.secondaryText },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {areaInfo ? areaInfo.geography_name : 'Select area'}
+                            </Text>
+                            {areaInfo && (areaInfo.country || areaInfo.continent) ? (
+                              <Text
+                                style={[styles.iosSelectSubtitle, { color: colors.secondaryText }]}
+                                numberOfLines={1}
+                              >
+                                {areaInfo.country || areaInfo.continent}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <ChevronDown size={16} color={colors.secondaryText} />
+                        </Pressable>
+                      ) : (
+                        <View
+                          style={[
+                            styles.pickerWrapper,
+                            { flex: 0.9, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border },
+                          ]}
+                        >
+                          <Picker
+                            selectedValue={row.areaId ?? null}
+                            onValueChange={(v) => {
+                              const areaId = typeof v === 'number' ? v : undefined;
+                              updateCompRow(row.key, {
+                                areaId,
+                                ticker_id: undefined,
+                                symbol: undefined,
+                                name: undefined,
+                                asset_class: undefined,
+                              });
+                            }}
+                          >
+                            <Picker.Item label="Area" value={null as any} />
+                            {geographies.map((g) => (
+                              <Picker.Item key={g.geography_id} label={g.geography_name} value={g.geography_id} />
+                            ))}
+                          </Picker>
+                        </View>
+                      )}
+
+                      {Platform.OS === 'ios' ? (
+                        <Pressable
+                          onPress={() => row.areaId && openSelectModal({ rowKey: row.key, type: 'ticker' })}
+                          disabled={!row.areaId}
+                          style={[
+                            styles.iosSelectBtn,
+                            {
+                              flex: 1.2,
+                              marginRight: 8,
+                              backgroundColor: colors.card,
+                              borderColor: colors.border,
+                            },
+                            !row.areaId && styles.iosSelectBtnDisabled,
+                          ]}
+                        >
+                          <View style={styles.iosSelectValue}>
+                            <Text
+                              style={[
+                                styles.iosSelectLabel,
+                                { color: tickerPrimary ? colors.text : colors.secondaryText },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {tickerPrimary || 'Select ETF'}
+                            </Text>
+                            {tickerSecondary ? (
+                              <Text
+                                style={[styles.iosSelectSubtitle, { color: colors.secondaryText }]}
+                                numberOfLines={1}
+                              >
+                                {tickerSecondary}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <ChevronDown size={16} color={colors.secondaryText} />
+                        </Pressable>
+                      ) : (
+                        <View
+                          style={[
+                            styles.pickerWrapper,
+                            {
+                              flex: 1.2,
+                              marginRight: 8,
+                              opacity: row.areaId ? 1 : 0.6,
+                              backgroundColor: colors.card,
+                              borderColor: colors.border,
+                            },
+                          ]}
+                        >
+                          <Picker
+                            enabled={!!row.areaId}
+                            selectedValue={row.ticker_id ?? null}
+                            onValueChange={(v) => {
+                              const id = typeof v === 'number' ? v : undefined;
+                              const list = row.areaId ? tickerOptionsByArea[row.areaId] || [] : [];
+                              const found = typeof id === 'number' ? list.find((t) => t.ticker_id === id) : undefined;
+                              updateCompRow(row.key, {
+                                ticker_id: id,
+                                symbol: found?.symbol,
+                                name: found?.name,
+                                asset_class: found?.asset_class,
+                              });
+                            }}
+                          >
+                            <Picker.Item label="Ticker" value={null as any} />
+                            {(row.areaId ? tickerOptionsByArea[row.areaId] || [] : []).map((t) => (
+                              <Picker.Item
+                                key={t.ticker_id}
+                                label={`${t.name || t.symbol} (${t.symbol})${t.asset_class ? ` • ${t.asset_class}` : ''}`}
+                                value={t.ticker_id}
+                              />
+                            ))}
+                          </Picker>
+                        </View>
+                      )}
+                      <TextInput
+                        style={[styles.input, { flex: 0.6, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
+                        value={row.percentuale != null ? String(row.percentuale) : ''}
+                        onChangeText={(v) => {
+                          if (!v.trim()) {
+                            updateCompRow(row.key, { percentuale: undefined });
+                            return;
+                          }
+                          const numeric = Number(v.replace(',', '.'));
+                          updateCompRow(row.key, { percentuale: Number.isFinite(numeric) ? numeric : undefined });
                         }}
-                      >
-                        <Picker.Item label="Area" value={null as any} />
-                        {geographies.map(g => (
-                          <Picker.Item key={g.geography_id} label={g.geography_name} value={g.geography_id} />
-                        ))}
-                      </Picker>
+                        placeholder="%"
+                        keyboardType="numeric"
+                        placeholderTextColor={colors.secondaryText}
+                      />
+                      <Pressable onPress={() => removeCompRow(row.key)} style={[styles.checkbox, { width: 28, height: 28 }]}>
+                        <Text style={styles.checkboxMark}>-</Text>
+                      </Pressable>
                     </View>
-                    <View style={[styles.pickerWrapper, { flex: 1.2, marginRight: 8, opacity: row.areaId ? 1 : 0.6, backgroundColor: colors.card, borderColor: colors.border }]}>  
-                      <Picker
-                        enabled={!!row.areaId}
-                        selectedValue={row.ticker_id ?? null}
-                        onValueChange={(v) => {
-                          const id = typeof v === 'number' ? v : undefined;
-                          const list = row.areaId ? tickerOptionsByArea[row.areaId] || [] : [];
-                          const found = typeof id === 'number' ? list.find(t => t.ticker_id === id) : undefined;
-                          updateCompRow(row.key, {
-                            ticker_id: id,
-                            symbol: found?.symbol,
-                            name: found?.name,
-                            asset_class: found?.asset_class,
-                          });
-                        }}
-                      >
-                        <Picker.Item label="Ticker" value={null as any} />
-                        {(row.areaId ? tickerOptionsByArea[row.areaId] || [] : []).map(t => (
-                          <Picker.Item
-                            key={t.ticker_id}
-                            label={`${t.name || t.symbol} (${t.symbol})${t.asset_class ? ` • ${t.asset_class}` : ''}`}
-                            value={t.ticker_id}
-                          />
-                        ))}
-                      </Picker>
-                    </View>
-                    <TextInput
-                      style={[styles.input, { flex: 0.6, marginRight: 8, backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
-                      value={row.percentuale != null ? String(row.percentuale) : ''}
-                      onChangeText={(v) => {
-                        if (!v.trim()) {
-                          updateCompRow(row.key, { percentuale: undefined });
-                          return;
-                        }
-                        const numeric = Number(v.replace(',', '.'));
-                        updateCompRow(row.key, { percentuale: Number.isFinite(numeric) ? numeric : undefined });
-                      }}
-                      placeholder="%"
-                      keyboardType="numeric"
-                      placeholderTextColor={colors.secondaryText}
-                    />
-                    <Pressable onPress={() => removeCompRow(row.key)} style={[styles.checkbox, { width: 28, height: 28 }]}>
-                      <Text style={styles.checkboxMark}>-</Text>
-                    </Pressable>
-                  </View>
-                ))}
+                  );
+                })}
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
                   <Pressable onPress={addCompRow} style={[styles.checkbox, { width: 28, height: 28, marginRight: 8 }]}>
                     <Text style={styles.checkboxMark}>+</Text>
                   </Pressable>
                   <Text style={styles.small}>Total: {totalPercent.toFixed(1)}%</Text>
                 </View>
-                <Pressable
-                  style={[styles.btn, (saving || !canManagePortfolios) && { opacity: 0.7 }]}
-                  onPress={createPortfolioAndSave}
-                  disabled={saving || !canManagePortfolios}
-                >
-                  <Text style={styles.btnText}>{saving ? 'Saving…' : 'Create & Save Composition'}</Text>
-                </Pressable>
+                <View style={[styles.inlineHelpRow, { marginTop: 8 }]}>
+                  <Pressable
+                    style={[styles.btn, { flex: 1, marginTop: 0 }, (saving || !canManagePortfolios) && { opacity: 0.7 }]}
+                    onPress={createPortfolioAndSave}
+                    disabled={saving || !canManagePortfolios}
+                  >
+                    <Text style={styles.btnText}>{saving ? 'Saving…' : 'Create & Save Composition'}</Text>
+                  </Pressable>
+                  <HelpTooltip
+                    title={pipelineTooltips.saveComposition.title}
+                    description={pipelineTooltips.saveComposition.description}
+                  />
+                </View>
               </View>
-            </Animated.View>
-          )}
+            ),
+          })}
 
-          {/* Run Pipeline Toggle */}
-          <Pressable style={[styles.toggleBtn, openSections.run && styles.toggleBtnActive]} onPress={() => toggleSection('run')}>
-            <Text style={styles.toggleBtnText}>{openSections.run ? 'Hide Run Pipeline' : 'Show Run Pipeline'}</Text>
-          </Pressable>
-          {openSections.run && (
-            <Animated.View style={{ opacity: sectionOpacity.current.run }}>
-              <View style={{ marginBottom: 16 }}>
-                <Text style={[styles.title, { color: colors.text, fontSize: 18 }]}>Run Pipeline</Text>
+          {renderSectionCard('run', {
+            icon: PlayCircle,
+            accent: '#F97316',
+            title: 'Run a simulation',
+            subtitle: 'Configure capital, strategy, and dates before launching.',
+            children: (
+              <View style={styles.cardContentGap}>
+                <View style={styles.inlineHelpRow}>
+                  <HelpTooltip
+                    title={pipelineTooltips.runSection.title}
+                    description={pipelineTooltips.runSection.description}
+                  />
+                </View>
                 <View style={styles.field}>
                   <Text style={[styles.label, { color: colors.secondaryText }]}>Portfolio ID</Text>
                   <TextInput
@@ -889,9 +1253,15 @@ export default function PipelineScreen() {
                   />
                 </View>
                 <View style={styles.field}>
-                  <Text style={[styles.label, { color: colors.secondaryText }]}>Strategy</Text>
+                  <View style={styles.labelRow}>
+                    <Text style={[styles.label, { color: colors.secondaryText, marginBottom: 0 }]}>Strategy</Text>
+                    <HelpTooltip
+                      title={pipelineTooltips.strategyPicker.title}
+                      description={pipelineTooltips.strategyPicker.description}
+                    />
+                  </View>
                   {strategiesLoading ? (
-                    <Text style={styles.small}>Caricamento strategie…</Text>
+                    <Text style={styles.small}>Loading strategies…</Text>
                   ) : strategies.length ? (
                     <View style={[styles.pickerWrapper, { backgroundColor: colors.card, borderColor: colors.border }]}>  
                       <Picker
@@ -911,11 +1281,11 @@ export default function PipelineScreen() {
                       </Picker>
                     </View>
                   ) : (
-                    <Text style={styles.small}>Nessuna strategia disponibile</Text>
+                    <Text style={styles.small}>No strategies available</Text>
                   )}
                   {strategiesError && <Text style={styles.error}>{strategiesError}</Text>}
                   {selectedStrategy?.strategy_description && (
-                    <Text style={[styles.small, { color: colors.secondaryText, marginTop: 4 }]}>
+                    <Text style={[styles.small, { color: colors.secondaryText, marginTop: 4 }]}> 
                       {selectedStrategy.strategy_description}
                     </Text>
                   )}
@@ -959,30 +1329,35 @@ export default function PipelineScreen() {
                 </Pressable>
                 <View style={[styles.statusCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <Text style={[styles.statusLabel, { color: colors.secondaryText }]}>Simulation Status</Text>
-                  <Text style={[styles.statusValue, { color: colors.text }]}>
-                    {simulationStatus ?? 'Nessuna simulazione avviata'}
+                  <Text style={[styles.statusValue, { color: colors.text }]}> 
+                    {simulationStatus ?? 'No simulation started yet'}
                   </Text>
                   {simulationResult?.message && (
                     <Text style={[styles.small, { color: colors.secondaryText }]}>{simulationResult.message}</Text>
                   )}
                   {simulationResult && (
-                    <Text style={[styles.small, { color: colors.secondaryText }]}>
+                    <Text style={[styles.small, { color: colors.secondaryText }]}> 
                       {`Asset rows: ${simulationResult.asset_rows?.length ?? 0} • Aggregate rows: ${simulationResult.aggregate_rows?.length ?? 0} • Transactions: ${simulationResult.transaction_rows?.length ?? 0}`}
                     </Text>
                   )}
                 </View>
               </View>
-            </Animated.View>
-          )}
+            ),
+          })}
 
-          {/* Chart Toggle */}
-          <Pressable style={[styles.toggleBtn, openSections.chart && styles.toggleBtnActive]} onPress={() => toggleSection('chart')}>
-            <Text style={styles.toggleBtnText}>{openSections.chart ? 'Hide Portfolio Chart' : 'Show Portfolio Chart'}</Text>
-          </Pressable>
-          {openSections.chart && (
-            <Animated.View style={{ opacity: sectionOpacity.current.chart }}>
-              <View style={{ marginTop: 8 }}>
-                <Text style={[styles.label, { color: colors.secondaryText }]}>Selected Portfolios Total Value Over Time</Text>
+          {renderSectionCard('chart', {
+            icon: BarChart3,
+            accent: '#0EA5E9',
+            title: 'Results & charts',
+            subtitle: 'Filter the timeline and inspect total value curves.',
+            children: (
+              <View style={styles.cardContentGap}>
+                <View style={styles.inlineHelpRow}>
+                  <HelpTooltip
+                    title={pipelineTooltips.chartSection.title}
+                    description={pipelineTooltips.chartSection.description}
+                  />
+                </View>
                 <View style={styles.row}>
                   <View style={[styles.field, { flex: 1, marginRight: 8 }]}>
                     <Text style={[styles.label, { color: colors.secondaryText }]}>Start (YYYYMMDD)</Text>
@@ -1005,14 +1380,27 @@ export default function PipelineScreen() {
                     />
                   </View>
                 </View>
-                {(chartStartDate || chartEndDate) && <Text style={styles.small}>Active filter {chartStartDate && `from ${chartStartDate}`} {chartEndDate && `to ${chartEndDate}`}</Text>}
+                {(chartStartDate || chartEndDate) && (
+                  <Text style={styles.small}>
+                    Active filter {chartStartDate && `from ${chartStartDate}`} {chartEndDate && `to ${chartEndDate}`}
+                  </Text>
+                )}
                 {resultsError && <Text style={styles.error}>{resultsError}</Text>}
-                {resultsLoading && !portfolioDatasets && <Text style={[styles.small, { color: colors.secondaryText }]}>Loading results…</Text>}
-                {!resultsLoading && (!portfolioDatasets || !portfolioDatasets.length) && <Text style={[styles.small, { color: colors.secondaryText }]}>Select one or more portfolios from the table above.</Text>}
+                {resultsLoading && !portfolioDatasets && (
+                  <Text style={[styles.small, { color: colors.secondaryText }]}>Loading results…</Text>
+                )}
+                {!resultsLoading && (!portfolioDatasets || !portfolioDatasets.length) && (
+                  <Text style={[styles.small, { color: colors.secondaryText }]}>Select one or more portfolios from the table above.</Text>
+                )}
                 {portfolioDatasets && portfolioDatasets.length > 0 && (
                   <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <ETFLineChart
-                      multi={portfolioDatasets.map(ds => ({ label: ds.label, data: ds.data, labels: ds.labels, colorHint: ds.colorHint as 'up' | 'down' }))}
+                      multi={portfolioDatasets.map((ds) => ({
+                        label: ds.label,
+                        data: ds.data,
+                        labels: ds.labels,
+                        colorHint: ds.colorHint as 'up' | 'down',
+                      }))}
                       data={[] as unknown as ChartDataPoint[]}
                       ticker="Portfolios"
                       height={220}
@@ -1020,9 +1408,80 @@ export default function PipelineScreen() {
                   </View>
                 )}
               </View>
-            </Animated.View>
-          )}
+            ),
+          })}
         </ScrollView>
+  {/* iOS selector modal */}
+  {Platform.OS === 'ios' && selectModal && modalRow && (
+          <Modal
+            transparent
+            visible
+            animationType="fade"
+            onRequestClose={() => setSelectModal(null)}
+          >
+            <View style={[styles.selectOverlay, { paddingBottom: Math.max(insets.bottom + 16, 32) }]}> 
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectModal(null)} />
+              <View style={[styles.selectCard, { backgroundColor: colors.card, borderColor: colors.border }]}> 
+                <View style={[styles.selectHandle, { backgroundColor: colors.border }]} />
+                <Text style={[styles.selectTitle, { color: colors.text }]}> 
+                  {selectModal.type === 'area' ? 'Select geographic area' : 'Select ETF'}
+                </Text>
+                {modalSelectedValue != null && (
+                  <Pressable
+                    style={[styles.clearBtn, { borderColor: colors.border }]}
+                    onPress={handleClearSelection}
+                  >
+                    <Text style={[styles.clearBtnText, { color: colors.secondaryText }]}>Clear selection</Text>
+                  </Pressable>
+                )}
+                <FlatList
+                  data={modalOptions}
+                  keyExtractor={(item) => String(item.value)}
+                  renderItem={({ item }) => {
+                    const isActive = modalSelectedValue === item.value;
+                    return (
+                      <Pressable
+                        onPress={() => handleSelectOption(item.value)}
+                        style={[
+                          styles.selectOption,
+                          { borderColor: colors.border, backgroundColor: colors.card },
+                          isActive && styles.selectOptionSelected,
+                        ]}
+                      >
+                        <Text style={[styles.selectOptionLabel, { color: colors.text }]} numberOfLines={1}>
+                          {item.label}
+                        </Text>
+                        {item.subtitle ? (
+                          <Text style={[styles.selectOptionSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>
+                            {item.subtitle}
+                          </Text>
+                        ) : null}
+                      </Pressable>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    <Text style={[styles.emptyModalText, { color: colors.secondaryText }]}>
+                      {selectModal.type === 'area'
+                        ? 'No areas available'
+                        : modalRow?.areaId
+                        ? 'No ETFs available for this area'
+                        : 'Select an area first'}
+                    </Text>
+                  }
+                  contentContainerStyle={modalOptions.length ? { paddingVertical: 12 } : { paddingVertical: 24 }}
+                  style={{ maxHeight: 360 }}
+                  keyboardShouldPersistTaps="handled"
+                />
+                <Pressable
+                  style={[styles.modalCloseBtn, { borderColor: colors.border }]}
+                  onPress={() => setSelectModal(null)}
+                >
+                  <Text style={[styles.modalCloseText, { color: colors.secondaryText }]}>Close</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Modal>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1031,8 +1490,162 @@ export default function PipelineScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F3F4F6' },
   title: { fontSize: 20, fontWeight: '700', color: '#111827', marginBottom: 12 },
+  heroCard: {
+    borderRadius: 22,
+    padding: 22,
+    shadowColor: '#000000',
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 16,
+    marginBottom: 18,
+  },
+  heroBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+    color: '#FFFFFF',
+  },
+  heroSubtitle: {
+    fontSize: 14,
+    marginTop: 6,
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.88)',
+  },
+  heroCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  heroCtaText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 12,
+    rowGap: 12,
+  },
+  heroStatCard: {
+    flex: 1,
+    minWidth: 120,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+  },
+  heroStatLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    color: 'rgba(255,255,255,0.75)',
+  },
+  heroStatValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 6,
+    color: '#FFFFFF',
+  },
+  sectionCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 18,
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: 12,
+  },
+  cardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 12,
+    flex: 1,
+  },
+  cardIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardHeaderText: {
+    flex: 1,
+  },
+  cardTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  cardSubtitle: {
+    fontSize: 13,
+    marginTop: 4,
+  },
+  cardBody: {
+    paddingTop: 16,
+  },
+  cardContentGap: {
+    gap: 14,
+  },
   field: { marginBottom: 10 },
   label: { fontSize: 12, color: '#6B7280', marginBottom: 6 },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: 8,
+    marginBottom: 10,
+  },
+  sectionHeaderText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  sectionTitleText: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 0,
+  },
+  inlineHelpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 8,
+    flexShrink: 0,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 8,
+    marginBottom: 6,
+  },
   input: {
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,
@@ -1041,6 +1654,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  iosSelectBtn: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  iosSelectBtnDisabled: { opacity: 0.5 },
+  iosSelectValue: { flex: 1, marginRight: 8 },
+  iosSelectLabel: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  iosSelectSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
   row: { flexDirection: 'row' },
   btn: {
     backgroundColor: '#2563EB',
@@ -1106,6 +1733,62 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
+  selectOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    paddingHorizontal: 16,
+  },
+  selectCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+    shadowColor: '#000000',
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+  },
+  selectHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 999,
+    marginBottom: 12,
+  },
+  selectTitle: { fontSize: 16, fontWeight: '700', textAlign: 'center', marginBottom: 8 },
+  clearBtn: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  clearBtnText: { fontSize: 13, fontWeight: '600' },
+  selectOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  selectOptionSelected: {
+    borderColor: '#2563EB',
+    backgroundColor: 'rgba(37, 99, 235, 0.12)',
+  },
+  selectOptionLabel: { fontSize: 15, fontWeight: '600' },
+  selectOptionSubtitle: { fontSize: 12, marginTop: 4 },
+  emptyModalText: { textAlign: 'center', fontSize: 13 },
+  modalCloseBtn: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  modalCloseText: { fontSize: 14, fontWeight: '600' },
   toggleBtn: { backgroundColor: '#1F2937', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, marginBottom: 8 },
   toggleBtnActive: { backgroundColor: '#2563EB' },
   toggleBtnText: { color: '#FFF', fontWeight: '600', fontSize: 14 },
