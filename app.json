@@ -1,9 +1,10 @@
 {
   "expo": {
-    "name": "bolt-expo-nativewind",
-    "slug": "bolt-expo-nativewind",
+    "name": "ETF Analysis",
+    "slug": "etf-analysis",
     "version": "1.0.0",
     "scheme": "etfanalysis",
+    "icon": "./assets/images/icon.png",
     "web": {
       "bundler": "metro",
       "output": "single",
