@@ -56,18 +56,6 @@ export const LEARNING_LEVELS: LearningLevelMeta[] = [
     description: 'Start from scratch and learn the ETF basics.',
     longDescription: 'Understand what an ETF is, how it trades, and how to research your first fund.',
   },
-  {
-    id: 'intermediate',
-    label: 'Intermediate',
-    description: 'Turn knowledge into a portfolio you can monitor.',
-    longDescription: 'Focus on allocation, factor exposure, and due diligence workflows.',
-  },
-  {
-    id: 'advanced',
-    label: 'Advanced',
-    description: 'Explore strategies, overlays, and cross-asset ETFs.',
-    longDescription: 'Learn about rotations, hedging, smart-beta factors, and scenario testing.',
-  },
 ];
 
 export const LEARNING_PATHS: Record<LearningLevelId, LearningTopic[]> = {
@@ -1506,6 +1494,9 @@ type LessonLookupResult = {
 const LESSON_LOOKUP: Record<string, LessonLookupResult> = {};
 
 (Object.entries(LEARNING_PATHS) as [LearningLevelId, LearningTopic[]]).forEach(([level, topics]) => {
+  if (level !== 'beginner') {
+    return;
+  }
   topics.forEach((topic) => {
     topic.lessons.forEach((lesson) => {
       LESSON_LOOKUP[lesson.id] = {

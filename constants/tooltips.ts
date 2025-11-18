@@ -6,7 +6,7 @@ export const TOOLTIP_COPY = {
     },
     levelTabs: {
       title: 'Choose difficulty',
-      description: 'Switch between beginner, intermediate, and advanced paths. The modules below update automatically.',
+      description: 'Follow the beginner path. The modules below update automatically as you complete lessons.',
     },
     exploreAnalytics: {
       title: 'Explore Analytics',
