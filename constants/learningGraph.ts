@@ -1,9 +1,13 @@
-export type LearningGraphNode = {
+export type LearningGraphBranchLesson = {
   lessonId: string;
   title: string;
   summary: string;
   duration: string;
+};
+
+export type LearningGraphNode = LearningGraphBranchLesson & {
   side?: 'left' | 'right';
+  nodes?: LearningGraphBranchLesson[];
 };
 
 export type LearningGraphStage = {
@@ -17,10 +21,26 @@ export type LearningGraphStage = {
 
 export const LEARNING_GRAPH: LearningGraphStage[] = [
   {
+    id: 'stage-start-here',
+    lessonId: 'lesson-start-here',
+    title: 'START HERE!',
+    summary: 'Fast kickoff before the ETF path.',
+    duration: '5 min',
+    branches: [
+      {
+        lessonId: 'lesson-pre-etf-basics',
+        title: 'Before ETFs — What are stocks, companies and markets?',
+        summary: 'Stocks, shares, markets, and diversification in plain language.',
+        duration: '7 min',
+        side: 'left',
+      },
+    ],
+  },
+  {
     id: 'stage-etf-basics',
     lessonId: 'lesson-etf-structure',
-    title: 'What is an ETF',
-    summary: 'How an ETF is built, why it tracks an index, and how it differs from a mutual fund.',
+    title: 'Lesson 1: What Is an ETF? (The Friendliest Introduction Ever)',
+    summary: 'A welcoming, plain-language intro to ETFs, why they exist, and how they fit your plan.',
     duration: '6 min',
     branches: [
       {
@@ -29,6 +49,26 @@ export const LEARNING_GRAPH: LearningGraphStage[] = [
         summary: 'When to prefer each, considering cost, flexibility, and transparency.',
         duration: '6 min',
         side: 'left',
+        nodes: [
+          {
+            lessonId: 'lesson-etf-vs-mutual-funds',
+            title: 'ETF vs active funds',
+            summary: 'When to prefer each, considering cost, flexibility, and transparency.',
+            duration: '6 min',
+          },
+          {
+            lessonId: 'lesson-etf-fee-layers',
+            title: 'Fee layers (placeholder)',
+            summary: 'Dummy lesson to stretch the side branch with another dot.',
+            duration: '4 min',
+          },
+          {
+            lessonId: 'lesson-etf-liquidity-buckets',
+            title: 'Liquidity buckets (placeholder)',
+            summary: 'Dummy lesson to visualize a third dot; replace or remove later.',
+            duration: '4 min',
+          },
+        ],
       },
       {
         lessonId: 'lesson-etf-types',

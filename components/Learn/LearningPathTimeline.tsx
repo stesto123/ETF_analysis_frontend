@@ -36,10 +36,13 @@ type NodeDotProps = {
 const TIMELINE_WIDTH = 140;
 const MAIN_CARD_HEIGHT = 72;
 const BRANCH_CARD_HEIGHT = 60;
+const BRANCH_EXTRA_NODE_HEIGHT = 32;
 const BASE_SPACING = 20;
 const BRANCH_OFFSET = 48;
 const BRANCH_DROP = 28;
 const BRANCH_END_GAP = 12;
+const BRANCH_NODE_GAP = 0;
+const BRANCH_NODE_VERTICAL_GAP = BRANCH_EXTRA_NODE_HEIGHT;
 const BRANCH_NODE_EXTRA_OFFSET = 16; // extra vertical offset to place branch dots lower
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -94,26 +97,34 @@ function TimelineRow({
   onToggleLessonCompletion,
 }: TimelineRowProps) {
   const branches = stage.branches ?? [];
-  const branchCount = branches.length;
-  const containerHeight =
-    BASE_SPACING +
-    MAIN_CARD_HEIGHT +
-    branchCount * (BRANCH_CARD_HEIGHT + BASE_SPACING) +
-    BASE_SPACING;
+  const branchLayouts = branches.map((branch) => {
+    const nodeList = branch.nodes?.length ? branch.nodes : [branch];
+    const extraRows = Math.max(0, nodeList.length - 1);
+    const height = BRANCH_CARD_HEIGHT + extraRows * BRANCH_EXTRA_NODE_HEIGHT;
+    return { branch, nodeList, height };
+  });
+
+  const branchesHeight = branchLayouts.reduce((sum, { height }) => sum + height + BASE_SPACING, 0);
+  const containerHeight = BASE_SPACING + MAIN_CARD_HEIGHT + BASE_SPACING + branchesHeight;
 
   const mainY = BASE_SPACING + MAIN_CARD_HEIGHT / 2;
-  const branchPositions = branches.map((branch, idx) => {
-    const baseY =
-      BASE_SPACING + MAIN_CARD_HEIGHT + BASE_SPACING * (idx + 1) + BRANCH_CARD_HEIGHT * idx + BRANCH_CARD_HEIGHT / 2;
+  let branchCursorY = BASE_SPACING + MAIN_CARD_HEIGHT + BASE_SPACING;
+  const branchPositions = branchLayouts.map(({ branch, nodeList, height }) => {
+    const baseY = branchCursorY + BRANCH_CARD_HEIGHT / 2;
+    branchCursorY += height + BASE_SPACING;
+    const nodeYBase = baseY + BRANCH_DROP + BRANCH_NODE_EXTRA_OFFSET;
+    const nodeYs = nodeList.map((_, idx) => nodeYBase + idx * BRANCH_NODE_VERTICAL_GAP);
     return {
       branch,
-      y: baseY + BRANCH_DROP + BRANCH_NODE_EXTRA_OFFSET,
+      nodes: nodeList,
+      nodeYs,
       baseY,
     };
   });
 
   const centerX = TIMELINE_WIDTH / 2;
-  const lineStart = 0;
+  // On the first row start the vertical line at the main node, so the track begins at the dot.
+  const lineStart = index === 0 ? mainY : 0;
   const lineEnd = containerHeight;
   const mainCompleted = completedLessons.has(stage.lessonId);
   const isActive = activeStageId === stage.id && !mainCompleted;
@@ -144,34 +155,30 @@ function TimelineRow({
           strokeLinecap="round"
         />
 
-        {branchPositions.map(({ branch, y, baseY }) => {
+        {branchPositions.map(({ branch, nodes, nodeYs, baseY }) => {
           const branchX = branch.side === 'left'
             ? centerX - BRANCH_OFFSET
             : centerX + BRANCH_OFFSET;
           const sign = branch.side === 'left' ? -1 : 1;
 
+          const nodePositions = nodeYs.map(() => branchX);
+          const branchEndX = branchX;
+          const firstNodeY = nodeYs[0];
+
           const startY = baseY;
-          // Aumentiamo la lunghezza della sezione retta orizzontale
-          const straightLength = BRANCH_END_GAP * 2; // prima era 1×, ora 2×
+          const straightLength = BRANCH_END_GAP * 2;
 
           const midX = centerX + sign * straightLength;
           const midY = startY;
-          
-          
-          // sezione verticale più lunga
-          const verticalLength = BRANCH_DROP * 1.5;  // ad esempio 1.5×
-          const vertX = midX;
-          const vertY = startY + verticalLength;
 
-          // Aumentiamo la “tuffata” verticale prima della curva, rendendo il drop più lungo
-          const drop = BRANCH_DROP * 0.0; // 1.5× rispetto a prima
+          const drop = BRANCH_DROP * 0.0;
 
-          const c1x = midX + sign * (BRANCH_OFFSET * 0.7);   // leggermente più spinto verso il ramo
-          const c1y = startY + drop * 0.4;                   // più in basso
-          const c2x = branchX - sign * (BRANCH_END_GAP * 0.2);
-          const c2y = y - drop * 0.3;
+          const c1x = midX + sign * (BRANCH_OFFSET * 0.7);
+          const c1y = startY + drop * 0.4;
+          const c2x = branchEndX - sign * (BRANCH_END_GAP * 0.2);
+          const c2y = firstNodeY - drop * 0.3;
 
-          const completed = completedLessons.has(branch.lessonId);
+          const branchAnyCompleted = nodes.some((node) => completedLessons.has(node.lessonId));
 
           return (
             <React.Fragment key={branch.lessonId}>
@@ -179,14 +186,29 @@ function TimelineRow({
                 d={`
                   M ${centerX} ${startY}
                   L ${midX} ${midY}
-                  C ${c1x} ${c1y} ${c2x} ${c2y} ${branchX} ${y}
+                  C ${c1x} ${c1y} ${c2x} ${c2y} ${branchEndX} ${firstNodeY}
+                  ${nodeYs.slice(1).map((nodeY) => `L ${branchEndX} ${nodeY}`).join(' ')}
                 `}
-                stroke={completed || mainCompleted ? colors.accent : branchLineColor}
+                stroke={branchAnyCompleted || mainCompleted ? colors.accent : branchLineColor}
                 strokeWidth={3}
                 fill="none"
                 strokeLinecap="round"
               />
-              <NodeDot x={branchX} y={y} completed={completed} active={false} colors={colors} />
+              {nodePositions.map((nodeX, nodeIdx) => {
+                const node = nodes[nodeIdx];
+                const nodeY = nodeYs[nodeIdx];
+                const completed = completedLessons.has(node.lessonId);
+                return (
+                  <NodeDot
+                    key={node.lessonId}
+                    x={nodeX}
+                    y={nodeY}
+                    completed={completed}
+                    active={false}
+                    colors={colors}
+                  />
+                );
+              })}
             </React.Fragment>
           );
         })}
@@ -221,32 +243,70 @@ function TimelineRow({
           </TouchableOpacity>
         </View>
 
-        {branchPositions.map(({ branch }) => {
-          const completed = completedLessons.has(branch.lessonId);
+        {branchPositions.map(({ branch, nodes }) => {
+          const primaryNode = nodes[0];
+          const extraNodes = nodes.slice(1);
+          const primaryCompleted = completedLessons.has(primaryNode.lessonId);
           return (
             <View key={branch.lessonId} style={styles.branchRowWrap}>
-              <TouchableOpacity
-                style={styles.branchRow}
-                activeOpacity={0.85}
-                onPress={() => onOpenLesson(branch.lessonId)}
-              >
-                <Text style={[styles.branchSide, { color: colors.secondaryText }]}>
-                  {branch.side === 'left' ? 'Side branch' : 'Quick focus'}
-                </Text>
-                <Text style={[styles.branchTitle, { color: colors.text }]}>{branch.title}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => onToggleLessonCompletion(branch.lessonId)}
-                hitSlop={12}
-                activeOpacity={0.85}
-                style={[styles.toggleButton, { borderColor: completed ? colors.accent : colors.border }]}
-              >
-                {completed ? (
-                  <CheckCircle2 size={17} color={colors.accent} />
-                ) : (
-                  <CircleIcon size={17} color={colors.secondaryText} />
-                )}
-              </TouchableOpacity>
+              <View style={styles.branchRowTop}>
+                <TouchableOpacity
+                  style={styles.branchRow}
+                  activeOpacity={0.85}
+                  onPress={() => onOpenLesson(primaryNode.lessonId)}
+                >
+                  <Text style={[styles.branchSide, { color: colors.secondaryText }]}>
+                    {branch.side === 'left' ? 'Side branch' : 'Quick focus'}
+                  </Text>
+                  <Text style={[styles.branchTitle, { color: colors.text }]}>{primaryNode.title}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => onToggleLessonCompletion(primaryNode.lessonId)}
+                  hitSlop={12}
+                  activeOpacity={0.85}
+                  style={[styles.toggleButton, { borderColor: primaryCompleted ? colors.accent : colors.border }]}
+                >
+                  {primaryCompleted ? (
+                    <CheckCircle2 size={17} color={colors.accent} />
+                  ) : (
+                    <CircleIcon size={17} color={colors.secondaryText} />
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {extraNodes.length > 0 && (
+                <View style={styles.extraNodesList}>
+                  {extraNodes.map((node) => {
+                    const completed = completedLessons.has(node.lessonId);
+                    return (
+                      <View key={node.lessonId} style={styles.extraNodeRow}>
+                        <TouchableOpacity
+                          style={styles.extraNodeText}
+                          activeOpacity={0.85}
+                          onPress={() => onOpenLesson(node.lessonId)}
+                        >
+                          <Text style={[styles.extraNodeLabel, { color: colors.secondaryText }]}>Extra step</Text>
+                          <Text style={[styles.extraNodeTitle, { color: colors.text }]} numberOfLines={1}>
+                            {node.title}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => onToggleLessonCompletion(node.lessonId)}
+                          hitSlop={10}
+                          activeOpacity={0.85}
+                          style={[styles.smallToggleButton, { borderColor: completed ? colors.accent : colors.border }]}
+                        >
+                          {completed ? (
+                            <CheckCircle2 size={15} color={colors.accent} />
+                          ) : (
+                            <CircleIcon size={15} color={colors.secondaryText} />
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
             </View>
           );
         })}
@@ -366,11 +426,14 @@ const styles = StyleSheet.create({
   },
   branchRowWrap: {
     minHeight: BRANCH_CARD_HEIGHT,
+    gap: 10,
+    paddingVertical: 8,
+    marginTop: BASE_SPACING,
+  },
+  branchRowTop: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 8,
-    marginTop: BASE_SPACING,
   },
   branchRow: {
     flex: 1,
@@ -384,5 +447,36 @@ const styles = StyleSheet.create({
   branchTitle: {
     fontSize: 16,
     fontWeight: '700',
+  },
+  extraNodesList: {
+    gap: 8,
+    marginLeft: 6,
+  },
+  extraNodeRow: {
+    minHeight: BRANCH_EXTRA_NODE_HEIGHT,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  extraNodeText: {
+    flex: 1,
+    gap: 2,
+  },
+  extraNodeLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  extraNodeTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  smallToggleButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

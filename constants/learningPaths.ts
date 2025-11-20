@@ -61,6 +61,91 @@ export const LEARNING_LEVELS: LearningLevelMeta[] = [
 export const LEARNING_PATHS: Record<LearningLevelId, LearningTopic[]> = {
   beginner: [
     {
+      id: 'topic-start-here',
+      track: 'foundations',
+      title: 'Start here',
+      summary: 'Orientation, mindset, and why ETFs (fast).',
+      lessons: [
+        {
+          id: 'lesson-pre-etf-basics',
+          title: 'Lesson 0: Before ETFs — What Are Stocks, Companies, and Markets?',
+          duration: '8 cards',
+          content: [
+            'What you need to know before ETFs: companies, shares, stocks, markets, and the core idea of diversification.',
+            'Companies make products/services; some go public to raise money.',
+            'Going public = slicing the company into shares investors can buy.',
+            'Stocks represent those shares; owners benefit if the business grows or pays dividends.',
+            'Stock markets are digital marketplaces (e.g., NYSE, NASDAQ) where buyers and sellers trade via brokers/apps.',
+            'Picking single stocks is hard: high risk, research-heavy, and unpredictable.',
+            'Diversification (many holdings instead of one) is the key bridge to understanding ETFs.',
+            'Key terms: asset, portfolio, risk, return, index, broker, exchange.',
+          ],
+          takeaways: [
+            'Shares slice a company so investors can buy tiny pieces.',
+            'Markets connect buyers and sellers; prices move all day.',
+            'Diversification reduces single-stock risk and sets up why ETFs matter.',
+          ],
+          ctas: [
+            {
+              id: 'cta-pre-etf-analytics',
+              label: 'See a live stock page',
+              route: '/(tabs)',
+              description: 'Open analytics to view an example single stock vs. an ETF.',
+            },
+            {
+              id: 'cta-pre-etf-chat',
+              label: 'Ask the AI',
+              route: '/(tabs)/chat',
+              prompt: 'Explain the difference between a stock, a share, and an ETF in 4 bullets.',
+            },
+          ],
+          aiPrompts: [
+            'Give me a one-minute script to explain shares and stocks to a friend.',
+            'List 3 reasons diversification matters before buying single stocks.',
+            'Show one example index and 3 stocks inside it.',
+          ],
+        },
+        {
+          id: 'lesson-start-here',
+          title: 'START HERE!',
+          duration: '7 cards',
+          content: [
+            'Why this app exists and how it keeps incentives clean.',
+            'What you actually need to know before placing a first ETF order.',
+            'Why banks push expensive products and how to avoid them.',
+            'Why starting now (even imperfectly) beats waiting for the perfect moment.',
+            'ETFs and indexing as the default: low cost, diversified, repeatable.',
+            'A calm, drama-free way to invest without doomscrolling.',
+          ],
+          takeaways: [
+            'You can start without mastering everything—learn just enough, then iterate.',
+            'Low-cost, diversified ETFs usually beat expensive, complex products over time.',
+            'Start today and improve later; time in market matters more than timing.',
+          ],
+          ctas: [
+            {
+              id: 'cta-open-analytics',
+              label: 'Open analytics',
+              route: '/(tabs)',
+              description: 'See the data tools you will use during the path.',
+            },
+            {
+              id: 'cta-ask-ai',
+              label: 'Ask the AI about ETFs',
+              route: '/(tabs)/chat',
+              prompt: 'Give me a 3-step checklist to evaluate a broad-market ETF.',
+            },
+          ],
+          aiPrompts: [
+            'Explain ETFs like I am 15, in 4 bullets.',
+            'List 3 reasons low-cost index ETFs beat most active funds over 10 years.',
+            'Write a script I can use to place a basic ETF order with my broker.',
+          ],
+        },
+      ],
+      practice: [],
+    },
+    {
       id: 'topic-foundations-basics',
       track: 'foundations',
       title: 'ETF Foundations',
@@ -68,36 +153,38 @@ export const LEARNING_PATHS: Record<LearningLevelId, LearningTopic[]> = {
       lessons: [
         {
           id: 'lesson-etf-structure',
-          title: 'How ETFs are built',
-          duration: '6 min',
+          title: 'Lesson 1: What Is an ETF? (The Friendliest Introduction Ever)',
+          duration: '7 cards',
           content: [
-            'An exchange-traded fund (ETF) sits between a mutual fund and a stock. Issuers create ETF “shares” backed by a basket of securities that mirrors an index or strategy.',
-            'Authorized participants swap baskets of securities for ETF shares in the primary market. You, the investor, buy and sell those shares on the exchange just like a normal stock.',
-            'This creation/redemption process keeps the market price close to the fund’s net asset value (NAV) and allows ETFs to stay diversified without constant portfolio churn.',
+            'Think “fruit basket”: one stock = one fruit. An ETF = a basket of many fruits—diversification by default.',
+            'ETFs exist to make investing easier, safer via diversification, cheaper, and accessible to small amounts.',
+            'ETFs trade all day on exchanges, reduce single-name risk, and fit long-term planning from robo-advisors to retirement.',
+            'Flavors of ETFs: stock, bond, commodity, index trackers, thematic slices.',
+            'Money flow: price growth of the basket + dividends passed through from holdings.',
+            'Beginner-friendly: low maintenance, low fees, tiny minimums, and lower single-stock risk.',
+            'Key terms: index, portfolio, diversification, expense ratio, passive investing.',
           ],
           takeaways: [
-            'ETFs hold a transparent basket that targets a defined index or objective.',
-            'Creation/redemption keeps the fund aligned to its holdings and limits big premiums or discounts.',
-            'You trade ETF shares on an exchange even though the fund owns dozens or hundreds of positions.',
+            'ETFs are baskets: diversification without stock-picking stress.',
+            'Built to be low-cost and tradable like a stock, while holding many positions.',
+            'Two payoffs: price appreciation and dividends from the basket.',
           ],
           ctas: [
             {
               id: 'cta-etf-structure-analytics',
               label: 'Open analytics',
-              description: 'Inspect the holdings list of a broad ETF.',
+              description: 'Inspect the holdings and dividends of a broad ETF.',
               route: '/(tabs)',
             },
             {
               id: 'cta-etf-structure-chat',
-              label: 'Ask the AI',
-              description: 'Have the assistant compare an ETF basket to a single stock.',
+              label: 'Ask the AI about the basket',
+              description: 'Compare an ETF basket to picking one stock.',
               route: '/(tabs)/chat',
-              prompt: 'Explain how the holdings list of VWCE differs from owning Apple directly.',
+              prompt: 'Explain ETFs with the fruit basket analogy in 4 bullets.',
             },
           ],
           aiPrompts: [
-            'Summarize how ETF creation and redemption works using simple language.',
-            'Why do ETF issuers rely on authorized participants?',
           ],
         },
         {
