@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, Animated } from 'react-native';
-import { Svg, Line, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
-import { CheckCircle2, Circle as CircleIcon, Sparkles } from 'lucide-react-native';
+import { Svg, Line, Path, Circle, G } from 'react-native-svg';
+import { Sparkles } from 'lucide-react-native';
 import { useTheme, type ThemeColors } from '@/components/common/ThemeProvider';
 import type { LearningGraphStage } from '@/constants/learningGraph';
 
@@ -9,7 +9,7 @@ type TimelineProps = {
   stages: LearningGraphStage[];
   completedLessons: Set<string>;
   onOpenLesson: (lessonId: string) => void;
-  onToggleLessonCompletion: (lessonId: string) => void;
+  onToggleLessonCompletion?: (lessonId: string) => void;
   ListHeaderComponent?: React.ReactElement | null;
   ListFooterComponent?: React.ReactElement | null;
 };
@@ -22,7 +22,6 @@ type TimelineRowProps = {
   completedLessons: Set<string>;
   activeStageId?: string;
   onOpenLesson: (lessonId: string) => void;
-  onToggleLessonCompletion: (lessonId: string) => void;
 };
 
 type NodeDotProps = {
@@ -31,19 +30,22 @@ type NodeDotProps = {
   completed: boolean;
   active?: boolean;
   colors: ThemeColors;
+  onPress?: () => void;
+  color?: string;
 };
 
 const TIMELINE_WIDTH = 140;
-const MAIN_CARD_HEIGHT = 72;
+const MAIN_CARD_HEIGHT = 90;
 const BRANCH_CARD_HEIGHT = 60;
 const BRANCH_EXTRA_NODE_HEIGHT = 32;
-const BASE_SPACING = 20;
+const BASE_SPACING = 50;
 const BRANCH_OFFSET = 48;
 const BRANCH_DROP = 28;
 const BRANCH_END_GAP = 12;
 const BRANCH_NODE_GAP = 0;
 const BRANCH_NODE_VERTICAL_GAP = BRANCH_EXTRA_NODE_HEIGHT;
-const BRANCH_NODE_EXTRA_OFFSET = 16; // extra vertical offset to place branch dots lower
+const BRANCH_NODE_EXTRA_OFFSET = 0;
+const CONNECTOR_COLOR = '#42f55aff'; // yellow for main-to-branch connectors
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -51,7 +53,6 @@ export default function LearningPathTimeline({
   stages,
   completedLessons,
   onOpenLesson,
-  onToggleLessonCompletion,
   ListHeaderComponent,
   ListFooterComponent,
 }: TimelineProps) {
@@ -75,7 +76,6 @@ export default function LearningPathTimeline({
           completedLessons={completedLessons}
           activeStageId={activeStageId}
           onOpenLesson={onOpenLesson}
-          onToggleLessonCompletion={onToggleLessonCompletion}
         />
       )}
       contentContainerStyle={[styles.listContent, { paddingBottom: 36 }]}
@@ -94,7 +94,6 @@ function TimelineRow({
   completedLessons,
   activeStageId,
   onOpenLesson,
-  onToggleLessonCompletion,
 }: TimelineRowProps) {
   const branches = stage.branches ?? [];
   const branchLayouts = branches.map((branch) => {
@@ -128,8 +127,8 @@ function TimelineRow({
   const lineEnd = containerHeight;
   const mainCompleted = completedLessons.has(stage.lessonId);
   const isActive = activeStageId === stage.id && !mainCompleted;
-  const lineColor = mainCompleted ? colors.accent : isActive ? '#5B8DF6' : colors.border;
-  const branchLineColor = isActive ? '#5B8DF6' : colors.border;
+  const lineColor = colors.accent;
+  const branchLineColor = CONNECTOR_COLOR;
 
   return (
     <View style={[styles.rowContainer, { height: containerHeight }]}>
@@ -137,20 +136,14 @@ function TimelineRow({
         height={containerHeight}
         width={TIMELINE_WIDTH}
         style={styles.timelineCanvas}
-        pointerEvents="none"
+        pointerEvents="box-none"
       >
-        <Defs>
-          <LinearGradient id={`main-line-${stage.id}`} x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor={lineColor} stopOpacity="0.9" />
-            <Stop offset="100%" stopColor={lineColor} stopOpacity="0.4" />
-          </LinearGradient>
-        </Defs>
         <Line
           x1={centerX}
           y1={lineStart}
           x2={centerX}
           y2={lineEnd}
-          stroke={`url(#main-line-${stage.id})`}
+          stroke={lineColor}
           strokeWidth={4}
           strokeLinecap="round"
         />
@@ -167,29 +160,62 @@ function TimelineRow({
 
           const startY = baseY;
           const straightLength = BRANCH_END_GAP * 2;
-
-          const midX = centerX + sign * straightLength;
-          const midY = startY;
-
           const drop = BRANCH_DROP * 0.0;
 
-          const c1x = midX + sign * (BRANCH_OFFSET * 0.7);
-          const c1y = startY + drop * 0.4;
-          const c2x = branchEndX - sign * (BRANCH_END_GAP * 0.2);
-          const c2y = firstNodeY - drop * 0.3;
+          const buildOutgoingCurve = (
+            startX: number,
+            startYValue: number,
+            endX: number,
+            endY: number,
+            direction: number,
+          ) => {
+            const midX = startX + direction * straightLength;
+            const midY = startYValue;
+            const c1x = midX + direction * (BRANCH_OFFSET * 0.7);
+            const c1y = startYValue + drop * 0.4;
+            const c2x = endX - direction * (BRANCH_END_GAP * 0.2);
+            const c2y = endY - drop * 0.3;
+            return `
+              M ${startX} ${startYValue}
+              L ${midX} ${midY}
+              C ${c1x} ${c1y} ${c2x} ${c2y} ${endX} ${endY}
+            `;
+          };
 
-          const branchAnyCompleted = nodes.some((node) => completedLessons.has(node.lessonId));
+          const returnStartY = nodeYs[nodeYs.length - 1];
+          const returnVerticalGap = BRANCH_END_GAP;
+          const returnRadius = BRANCH_END_GAP + 6;
+          const returnDownY = returnStartY + returnVerticalGap;
+
+          const buildReturnPath = () => {
+            const direction = -sign;
+            const curveEndX = branchEndX + direction * returnRadius;
+            const curveEndY = returnDownY + returnRadius;
+            const c1x = branchEndX;
+            const c1y = returnDownY + returnRadius * 0.6;
+            const c2x = branchEndX + direction * returnRadius * 0.6;
+            const c2y = curveEndY;
+            return `
+              M ${branchEndX} ${returnStartY}
+              L ${branchEndX} ${returnDownY}
+              C ${c1x} ${c1y} ${c2x} ${c2y} ${curveEndX} ${curveEndY}
+              L ${centerX} ${curveEndY}
+            `;
+          };
 
           return (
             <React.Fragment key={branch.lessonId}>
               <Path
-                d={`
-                  M ${centerX} ${startY}
-                  L ${midX} ${midY}
-                  C ${c1x} ${c1y} ${c2x} ${c2y} ${branchEndX} ${firstNodeY}
-                  ${nodeYs.slice(1).map((nodeY) => `L ${branchEndX} ${nodeY}`).join(' ')}
-                `}
-                stroke={branchAnyCompleted || mainCompleted ? colors.accent : branchLineColor}
+                d={`${buildOutgoingCurve(centerX, startY, branchEndX, firstNodeY, sign)}
+                  ${nodeYs.slice(1).map((nodeY) => `L ${branchEndX} ${nodeY}`).join(' ')}`}
+                stroke={branchLineColor}
+                strokeWidth={3}
+                fill="none"
+                strokeLinecap="round"
+              />
+              <Path
+                d={buildReturnPath()}
+                stroke={branchLineColor}
                 strokeWidth={3}
                 fill="none"
                 strokeLinecap="round"
@@ -206,6 +232,8 @@ function TimelineRow({
                     completed={completed}
                     active={false}
                     colors={colors}
+                    color={CONNECTOR_COLOR}
+                    onPress={() => onOpenLesson(node.lessonId)}
                   />
                 );
               })}
@@ -213,7 +241,14 @@ function TimelineRow({
           );
         })}
 
-        <NodeDot x={centerX} y={mainY} completed={mainCompleted} active={isActive} colors={colors} />
+        <NodeDot
+          x={centerX}
+          y={mainY}
+          completed={mainCompleted}
+          active={isActive}
+          colors={colors}
+          onPress={() => onOpenLesson(stage.lessonId)}
+        />
       </Svg>
 
       <View style={[styles.cardsColumn, { paddingLeft: TIMELINE_WIDTH + 12 }]}>
@@ -229,24 +264,11 @@ function TimelineRow({
               <Text style={[styles.stageTitle, { color: colors.text }]}>{stage.title}</Text>
             </View>
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => onToggleLessonCompletion(stage.lessonId)}
-            hitSlop={12}
-            style={[styles.toggleButton, { borderColor: mainCompleted ? colors.accent : colors.border }]}
-            activeOpacity={0.85}
-          >
-            {mainCompleted ? (
-              <CheckCircle2 size={18} color={colors.accent} />
-            ) : (
-              <CircleIcon size={18} color={colors.secondaryText} />
-            )}
-          </TouchableOpacity>
         </View>
 
         {branchPositions.map(({ branch, nodes }) => {
           const primaryNode = nodes[0];
           const extraNodes = nodes.slice(1);
-          const primaryCompleted = completedLessons.has(primaryNode.lessonId);
           return (
             <View key={branch.lessonId} style={styles.branchRowWrap}>
               <View style={styles.branchRowTop}>
@@ -260,24 +282,11 @@ function TimelineRow({
                   </Text>
                   <Text style={[styles.branchTitle, { color: colors.text }]}>{primaryNode.title}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => onToggleLessonCompletion(primaryNode.lessonId)}
-                  hitSlop={12}
-                  activeOpacity={0.85}
-                  style={[styles.toggleButton, { borderColor: primaryCompleted ? colors.accent : colors.border }]}
-                >
-                  {primaryCompleted ? (
-                    <CheckCircle2 size={17} color={colors.accent} />
-                  ) : (
-                    <CircleIcon size={17} color={colors.secondaryText} />
-                  )}
-                </TouchableOpacity>
               </View>
 
               {extraNodes.length > 0 && (
                 <View style={styles.extraNodesList}>
                   {extraNodes.map((node) => {
-                    const completed = completedLessons.has(node.lessonId);
                     return (
                       <View key={node.lessonId} style={styles.extraNodeRow}>
                         <TouchableOpacity
@@ -289,18 +298,6 @@ function TimelineRow({
                           <Text style={[styles.extraNodeTitle, { color: colors.text }]} numberOfLines={1}>
                             {node.title}
                           </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => onToggleLessonCompletion(node.lessonId)}
-                          hitSlop={10}
-                          activeOpacity={0.85}
-                          style={[styles.smallToggleButton, { borderColor: completed ? colors.accent : colors.border }]}
-                        >
-                          {completed ? (
-                            <CheckCircle2 size={15} color={colors.accent} />
-                          ) : (
-                            <CircleIcon size={15} color={colors.secondaryText} />
-                          )}
                         </TouchableOpacity>
                       </View>
                     );
@@ -315,7 +312,7 @@ function TimelineRow({
   );
 }
 
-function NodeDot({ x, y, completed, active, colors }: NodeDotProps) {
+function NodeDot({ x, y, completed, active, colors, onPress, color }: NodeDotProps) {
   const progress = useRef(new Animated.Value(completed ? 1 : 0)).current;
 
   useEffect(() => {
@@ -333,17 +330,21 @@ function NodeDot({ x, y, completed, active, colors }: NodeDotProps) {
 
   const glowOpacity = progress.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.1, 0.45],
+    outputRange: [0, 0.45],
   }) as unknown as number;
 
+  const accentColor = color ?? colors.accent;
+
   return (
-    <>
+    <G onPress={onPress}>
+      {/* invisible hit area to make tap easier */}
+      <Circle cx={x} cy={y} r={18} fill="transparent" />
       {active && (
         <Circle
           cx={x}
           cy={y}
           r={14}
-          fill={colors.accent}
+          fill={accentColor}
           opacity={0.12}
         />
       )}
@@ -351,27 +352,26 @@ function NodeDot({ x, y, completed, active, colors }: NodeDotProps) {
         cx={x}
         cy={y}
         r={11}
-        stroke={completed ? colors.accent : colors.border}
+        stroke={accentColor}
         strokeWidth={2.5}
-        fill={completed ? colors.accent : colors.card}
-        opacity={completed ? 1 : 0.15}
+        fill={completed ? accentColor : colors.background}
       />
       <AnimatedCircle
         cx={x}
         cy={y}
         r={innerRadius}
-        fill={colors.accent}
+        fill={accentColor}
         opacity={glowOpacity}
       />
-      <Circle
-        cx={x}
-        cy={y}
-        r={6}
-        fill={completed ? '#0B1220' : colors.background}
-        stroke={completed ? colors.accent : colors.border}
-        strokeWidth={completed ? 0 : 2}
-      />
-    </>
+      {completed && (
+        <Circle
+          cx={x}
+          cy={y}
+          r={6}
+          fill={accentColor}
+        />
+      )}
+    </G>
   );
 }
 
@@ -410,14 +410,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
     textTransform: 'uppercase',
-  },
-  toggleButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   stageTitle: {
     fontSize: 18,
@@ -470,13 +462,5 @@ const styles = StyleSheet.create({
   extraNodeTitle: {
     fontSize: 14,
     fontWeight: '600',
-  },
-  smallToggleButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
