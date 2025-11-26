@@ -42,6 +42,79 @@ export type PriceHistoryResponsePoint = {
   volume?: number | string | null;
 };
 
+export type SnapshotReturnField =
+  | 'return_1w'
+  | 'return_1m'
+  | 'return_3m'
+  | 'return_6m'
+  | 'return_ytd'
+  | 'return_1y'
+  | 'return_2y'
+  | 'return_3y'
+  | 'return_5y'
+  | 'return_10y'
+  | 'return_20y';
+
+export type SnapshotMetrics = {
+  ticker_id: number;
+  snapshot_calendar_id: number | null;
+  close_price: number | null;
+} & Partial<
+  Record<
+    | SnapshotReturnField
+    | 'volatility_1m'
+    | 'volatility_3m'
+    | 'volatility_6m'
+    | 'volatility_1y'
+    | 'volatility_2y'
+    | 'volatility_3y'
+    | 'volatility_5y'
+    | 'volatility_10y'
+    | 'volatility_20y'
+    | 'sharpe_3m'
+    | 'sharpe_6m'
+    | 'sharpe_1y'
+    | 'sharpe_2y'
+    | 'sharpe_3y'
+    | 'sharpe_5y'
+    | 'sharpe_10y'
+    | 'sharpe_20y'
+    | 'sortino_3m'
+    | 'sortino_6m'
+    | 'sortino_1y'
+    | 'sortino_2y'
+    | 'sortino_3y'
+    | 'sortino_5y'
+    | 'sortino_10y'
+    | 'sortino_20y'
+    | 'max_drawdown_1y'
+    | 'max_drawdown_3y'
+    | 'max_drawdown_5y'
+    | 'max_drawdown_10y'
+    | 'max_drawdown_20y'
+    | 'beta_world_1y'
+    | 'beta_world_2y'
+    | 'beta_world_3y'
+    | 'beta_world_5y'
+    | 'beta_world_10y'
+    | 'beta_world_20y'
+    | 'beta_sp500_1y'
+    | 'beta_sp500_2y'
+    | 'beta_sp500_3y'
+    | 'beta_sp500_5y'
+    | 'beta_sp500_10y'
+    | 'beta_sp500_20y',
+    number | null
+  >
+> & {
+  corr_world_by_year?: Record<string, number | null>;
+  corr_sp500_by_year?: Record<string, number | null>;
+};
+
+export type SnapshotResponse = {
+  items: SnapshotMetrics[];
+};
+
 export type TickerSummary = {
   ticker_id: number;
   symbol: string;

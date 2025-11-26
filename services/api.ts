@@ -24,6 +24,7 @@ import {
   SimulationAggregatePoint,
   SimulationAggregateSeries,
   SimulationAggregateResultsResponse,
+  SnapshotMetrics,
 } from '@/types';
 import { getClerkToken } from '@/utils/clerkToken';
 
@@ -381,6 +382,171 @@ class APIService {
 
     await this.setCache(cacheKey, items);
     return items;
+  }
+
+  private buildSnapshotCacheKey(tickerIds: number[], calendarId?: string | number, latestOnly?: boolean): string {
+    const idsKey = tickerIds.length ? tickerIds.slice().sort((a, b) => a - b).join(',') : 'all';
+    const calKey = calendarId != null ? String(calendarId) : 'latest';
+    const latestKey = calendarId != null ? 'ignored' : latestOnly === false ? 'all' : 'latest';
+    return `snapshots_${idsKey}_${calKey}_${latestKey}`;
+  }
+
+  async getSnapshots(options?: {
+    tickerIds?: number[];
+    calendarId?: number | string;
+    latestOnly?: boolean;
+    useCache?: boolean;
+  }): Promise<SnapshotMetrics[]> {
+    const idsSource = Array.isArray(options?.tickerIds) ? options.tickerIds : [];
+    const ids = Array.from(
+      new Set(
+        idsSource
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+
+    const calendarIdRaw = options?.calendarId;
+    const calendarId =
+      calendarIdRaw != null && Number.isFinite(Number(calendarIdRaw))
+        ? Number(calendarIdRaw)
+        : undefined;
+    const latestOnly = options?.latestOnly ?? true;
+    const useCache = options?.useCache ?? true;
+    const cacheKey = this.buildSnapshotCacheKey(ids, calendarId, latestOnly);
+
+    if (useCache) {
+      const cached = await this.getCache<SnapshotMetrics[]>(cacheKey, 30 * 60 * 1000);
+      if (cached) return cached;
+    }
+
+    const url = new URL('/api/data/snapshots', API_BASE_URL);
+    ids.forEach((id) => url.searchParams.append('ticker_id', String(id)));
+    if (calendarId != null) url.searchParams.append('calendar_id', String(calendarId));
+    if (calendarId == null && latestOnly === false) url.searchParams.append('latest_only', 'false');
+
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: await this.withAuth({ Accept: 'application/json' }),
+    });
+
+    const textBody = await res.text().catch(() => '');
+    if (!res.ok) {
+      throw new HTTPError(`Failed to fetch snapshots (${res.status})`, res.status, textBody);
+    }
+
+    let parsed: any = null;
+    if (textBody) {
+      try {
+        parsed = JSON.parse(textBody);
+      } catch {
+        throw new HTTPError('Invalid snapshot response JSON', res.status, textBody);
+      }
+    }
+
+    const itemsSource: any[] = Array.isArray(parsed?.items)
+      ? parsed.items
+      : Array.isArray(parsed)
+        ? parsed
+        : [];
+
+    if (!Array.isArray(itemsSource)) {
+      return [];
+    }
+
+    const toNumberOrNull = (value: any): number | null => {
+      if (value == null) return null;
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
+    };
+
+    const normalizeCorr = (obj: any): Record<string, number | null> | undefined => {
+      if (!obj || typeof obj !== 'object') return undefined;
+      const entries = Object.entries(obj).map(([k, v]) => [k, toNumberOrNull(v)]);
+      return Object.fromEntries(entries);
+    };
+
+    const normalized = itemsSource
+      .map((item: any): SnapshotMetrics | null => {
+        if (!item || typeof item !== 'object') return null;
+        const ticker_id = Number((item as any).ticker_id);
+        if (!Number.isFinite(ticker_id)) return null;
+
+        const snapshot_calendar_id =
+          item.snapshot_calendar_id != null && Number.isFinite(Number(item.snapshot_calendar_id))
+            ? Number(item.snapshot_calendar_id)
+            : null;
+
+        const payload: SnapshotMetrics = {
+          ticker_id,
+          snapshot_calendar_id,
+          close_price: toNumberOrNull(item.close_price),
+          return_1w: toNumberOrNull(item.return_1w),
+          return_1m: toNumberOrNull(item.return_1m),
+          return_3m: toNumberOrNull(item.return_3m),
+          return_6m: toNumberOrNull(item.return_6m),
+          return_ytd: toNumberOrNull(item.return_ytd),
+          return_1y: toNumberOrNull(item.return_1y),
+          return_2y: toNumberOrNull(item.return_2y),
+          return_3y: toNumberOrNull(item.return_3y),
+          return_5y: toNumberOrNull(item.return_5y),
+          return_10y: toNumberOrNull(item.return_10y),
+          return_20y: toNumberOrNull(item.return_20y),
+          volatility_1m: toNumberOrNull(item.volatility_1m),
+          volatility_3m: toNumberOrNull(item.volatility_3m),
+          volatility_6m: toNumberOrNull(item.volatility_6m),
+          volatility_1y: toNumberOrNull(item.volatility_1y),
+          volatility_2y: toNumberOrNull(item.volatility_2y),
+          volatility_3y: toNumberOrNull(item.volatility_3y),
+          volatility_5y: toNumberOrNull(item.volatility_5y),
+          volatility_10y: toNumberOrNull(item.volatility_10y),
+          volatility_20y: toNumberOrNull(item.volatility_20y),
+          sharpe_3m: toNumberOrNull(item.sharpe_3m),
+          sharpe_6m: toNumberOrNull(item.sharpe_6m),
+          sharpe_1y: toNumberOrNull(item.sharpe_1y),
+          sharpe_2y: toNumberOrNull(item.sharpe_2y),
+          sharpe_3y: toNumberOrNull(item.sharpe_3y),
+          sharpe_5y: toNumberOrNull(item.sharpe_5y),
+          sharpe_10y: toNumberOrNull(item.sharpe_10y),
+          sharpe_20y: toNumberOrNull(item.sharpe_20y),
+          sortino_3m: toNumberOrNull(item.sortino_3m),
+          sortino_6m: toNumberOrNull(item.sortino_6m),
+          sortino_1y: toNumberOrNull(item.sortino_1y),
+          sortino_2y: toNumberOrNull(item.sortino_2y),
+          sortino_3y: toNumberOrNull(item.sortino_3y),
+          sortino_5y: toNumberOrNull(item.sortino_5y),
+          sortino_10y: toNumberOrNull(item.sortino_10y),
+          sortino_20y: toNumberOrNull(item.sortino_20y),
+          max_drawdown_1y: toNumberOrNull(item.max_drawdown_1y),
+          max_drawdown_3y: toNumberOrNull(item.max_drawdown_3y),
+          max_drawdown_5y: toNumberOrNull(item.max_drawdown_5y),
+          max_drawdown_10y: toNumberOrNull(item.max_drawdown_10y),
+          max_drawdown_20y: toNumberOrNull(item.max_drawdown_20y),
+          beta_world_1y: toNumberOrNull(item.beta_world_1y),
+          beta_world_2y: toNumberOrNull(item.beta_world_2y),
+          beta_world_3y: toNumberOrNull(item.beta_world_3y),
+          beta_world_5y: toNumberOrNull(item.beta_world_5y),
+          beta_world_10y: toNumberOrNull(item.beta_world_10y),
+          beta_world_20y: toNumberOrNull(item.beta_world_20y),
+          beta_sp500_1y: toNumberOrNull(item.beta_sp500_1y),
+          beta_sp500_2y: toNumberOrNull(item.beta_sp500_2y),
+          beta_sp500_3y: toNumberOrNull(item.beta_sp500_3y),
+          beta_sp500_5y: toNumberOrNull(item.beta_sp500_5y),
+          beta_sp500_10y: toNumberOrNull(item.beta_sp500_10y),
+          beta_sp500_20y: toNumberOrNull(item.beta_sp500_20y),
+          corr_world_by_year: normalizeCorr(item.corr_world_by_year),
+          corr_sp500_by_year: normalizeCorr(item.corr_sp500_by_year),
+        };
+
+        return payload;
+      })
+      .filter((entry): entry is SnapshotMetrics => entry != null);
+
+    if (useCache) {
+      await this.setCache(cacheKey, normalized);
+    }
+
+    return normalized;
   }
 
   // ------- Geografie & tickers (nuovo endpoint) -------
@@ -1025,4 +1191,12 @@ class APIService {
 }
 
 export const apiService = new APIService();
-export type { GeographyGroup, TickerSummary, SimulationAggregateSeries, SimulationAggregatePoint, CreatePortfolioResponse, ChatCompletionMessage };
+export type {
+  GeographyGroup,
+  TickerSummary,
+  SimulationAggregateSeries,
+  SimulationAggregatePoint,
+  SnapshotMetrics,
+  CreatePortfolioResponse,
+  ChatCompletionMessage,
+};

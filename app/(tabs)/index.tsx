@@ -14,7 +14,15 @@ import EmptyState from '@/components/common/EmptyState';
 import AreaChips, { GeographyOption as AreaChipGeographyOption } from '@/components/Filter/AreaChips';
 
 import { apiService } from '@/services/api';
-import { PricePoint, QueryParams, ChartDataPoint, GeographyGroup, TickerSummary } from '@/types';
+import {
+  PricePoint,
+  QueryParams,
+  ChartDataPoint,
+  GeographyGroup,
+  TickerSummary,
+  SnapshotMetrics,
+  SnapshotReturnField,
+} from '@/types';
 import { useChartSettings } from '@/components/common/ChartSettingsProvider';
 import HelpTooltip from '@/components/common/HelpTooltip';
 import { TOOLTIP_COPY } from '@/constants/tooltips';
@@ -145,6 +153,19 @@ const formatDisplayDate = (iso: string | undefined | null) => {
   return date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
 };
 
+const RETURN_FIELDS: Array<{ key: SnapshotReturnField; label: string }> = [
+  { key: 'return_1m', label: '1m' },
+  { key: 'return_3m', label: '3m' },
+  { key: 'return_6m', label: '6m' },
+  { key: 'return_ytd', label: 'YTD' },
+  { key: 'return_1y', label: '1y' },
+  { key: 'return_2y', label: '2y' },
+  { key: 'return_3y', label: '3y' },
+  { key: 'return_5y', label: '5y' },
+  { key: 'return_10y', label: '10y' },
+  { key: 'return_20y', label: '20y' },
+];
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
@@ -169,6 +190,9 @@ export default function HomeScreen() {
   const [selectedArea, setSelectedArea] = useState<number | null>(null);
   const [tickers, setTickers] = useState<TickerSummary[]>([]);
   const [tickersLoading, setTickersLoading] = useState(false);
+  const [snapshots, setSnapshots] = useState<Record<number, SnapshotMetrics>>({});
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false);
+  const [snapshotsError, setSnapshotsError] = useState<string | null>(null);
   // Pagination & expandable panel state
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(0);
@@ -275,11 +299,46 @@ export default function HomeScreen() {
     return `Last range: ${lastRangeLabel}`;
   }, [lastRange, lastRangeLabel]);
   const performanceSubtitle = useMemo(() => {
-    if (loading) return 'Crunching the latest numbers…';
+    if (loading) return 'Crunching the latest numbers...';
     if (error) return 'We hit a snag fetching the data';
     if (!multiDatasets || multiDatasets.length === 0) return 'Run a query to populate the charts';
     return `Comparing ${multiDatasets.length} dataset${multiDatasets.length > 1 ? 's' : ''}`;
   }, [loading, error, multiDatasets]);
+
+  const formatReturnValue = useCallback((value?: number | null) => {
+    if (value == null || !Number.isFinite(Number(value))) return '—';
+    const pct = Number(value) * 100;
+    const sign = pct > 0 ? '+' : '';
+    const abs = Math.abs(pct);
+    const decimals = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+    return `${sign}${pct.toFixed(decimals)}%`;
+  }, []);
+
+  const resolveReturnColors = useCallback(
+    (value?: number | null) => {
+      if (value == null || !Number.isFinite(Number(value))) {
+        return {
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+          textColor: colors.secondaryText,
+        };
+      }
+      const numeric = Number(value);
+      const positive = numeric >= 0;
+      return positive
+        ? {
+            backgroundColor: 'rgba(34,197,94,0.12)',
+            borderColor: 'rgba(34,197,94,0.36)',
+            textColor: '#16A34A',
+          }
+        : {
+            backgroundColor: 'rgba(239,68,68,0.12)',
+            borderColor: 'rgba(239,68,68,0.36)',
+            textColor: '#DC2626',
+          };
+    },
+    [colors.card, colors.border, colors.secondaryText]
+  );
 
   const renderSectionCard = ({
     icon: Icon,
@@ -362,6 +421,46 @@ export default function HomeScreen() {
       setTickers(list);
     }
   }, [geographies, selectedArea]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ids = tickers.map((t) => t.ticker_id).filter((id) => Number.isFinite(id));
+
+    if (ids.length === 0) {
+      setSnapshots({});
+      setSnapshotsError(null);
+      setSnapshotsLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setSnapshotsLoading(true);
+    setSnapshotsError(null);
+
+    apiService
+      .getSnapshots({ tickerIds: ids })
+      .then((items) => {
+        if (cancelled) return;
+        const map: Record<number, SnapshotMetrics> = {};
+        items.forEach((item) => {
+          map[item.ticker_id] = item;
+        });
+        setSnapshots(map);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setSnapshots({});
+        setSnapshotsError(e instanceof Error ? e.message : 'Unable to load snapshot metrics');
+      })
+      .finally(() => {
+        if (!cancelled) setSnapshotsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tickers]);
 
   // ===== Selezione ETF (toggle) =====
   const toggleSelect = (t: TickerSummary) => {
@@ -672,13 +771,22 @@ export default function HomeScreen() {
           children: (
             <View style={styles.cardContentGap}>
               {tickersLoading ? (
-                <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Loading ETFs…</Text>
+                <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>Loading ETFs...</Text>
               ) : tickers.length === 0 ? (
                 <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>
                   {selectedArea == null ? 'No active tickers assigned to geographies.' : 'No active tickers for this area.'}
                 </Text>
               ) : (
                 <>
+                  {snapshotsLoading ? (
+                    <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>
+                      Updating snapshot metrics...
+                    </Text>
+                  ) : snapshotsError ? (
+                    <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>
+                      Snapshot metrics unavailable: {snapshotsError}
+                    </Text>
+                  ) : null}
                   <View style={styles.bulkRow}>
                     <View style={styles.inlineHelpRow}>
                       <Pressable
@@ -739,6 +847,29 @@ export default function HomeScreen() {
                                     {item.symbol}
                                     {item.asset_class ? ` • ${item.asset_class}` : ''}
                                   </Text>
+                                  <View style={styles.returnRow}>
+                                    {RETURN_FIELDS.map(({ key, label }) => {
+                                      const snap = snapshots[item.ticker_id];
+                                      const val = snap ? snap[key] : null;
+                                      const { backgroundColor, borderColor, textColor } = resolveReturnColors(val);
+                                      return (
+                                        <View
+                                          key={key}
+                                          style={[
+                                            styles.returnBadge,
+                                            { backgroundColor, borderColor },
+                                          ]}
+                                        >
+                                          <Text style={[styles.returnLabel, { color: colors.secondaryText }]}>
+                                            {label}
+                                          </Text>
+                                          <Text style={[styles.returnValue, { color: textColor }]}>
+                                            {formatReturnValue(val)}
+                                          </Text>
+                                        </View>
+                                      );
+                                    })}
+                                  </View>
                                 </View>
                               </Pressable>
                               {index < pagedTickers.length - 1 && (
@@ -1029,6 +1160,30 @@ const styles = StyleSheet.create({
   tickerSubtitle: {
     fontSize: 12,
     marginTop: 2,
+  },
+  returnRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 8,
+    rowGap: 6,
+    marginTop: 6,
+  },
+  returnBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 6,
+  },
+  returnLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  returnValue: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   separator: {
     height: StyleSheet.hairlineWidth,
