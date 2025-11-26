@@ -21,6 +21,8 @@ function getCtaIcon(route: string) {
 const START_HERE_LESSON_ID = 'lesson-start-here';
 const ETF_INTRO_LESSON_ID = 'lesson-etf-structure';
 const PRE_ETF_LESSON_ID = 'lesson-pre-etf-basics';
+const PORTFOLIO_COMPOSE_LESSON_ID = 'lesson-portfolio-compose';
+const FIRST_ETF_LESSON_ID = 'lesson-first-etf';
 
 type StartHereScreen = {
   id: string;
@@ -61,8 +63,20 @@ const START_HERE_SCREENS: StartHereScreen[] = [
     highlight: 'We want you to learn, invest, and keep more of your own returns.',
   },
   {
-    id: 'not-everything',
+    id: 'managed-fees',
     label: 'Screen 3',
+    title: 'Managed portfolios: comfy, but not free.',
+    body: 'Platforms that “invest for you” (e.g., norminvest in DK, Moneyfarm in IT) bundle ETFs, but take a yearly cut.',
+    bullets: [
+      'They charge TERs/fees on your whole pot—fair for the service, but it stacks over time.',
+      'Great convenience, zero homework… and a steady slice of your returns.',
+      'Over long periods, that slice can add up to a big bite (even ~half your gains).',
+    ],
+    highlight: 'Comfort is a feature. Cost is the trade-off. Know what you pay. 🧾💸',
+  },
+  {
+    id: 'not-everything',
+    label: 'Screen 4',
     title: 'You don’t need to know everything to start.',
     body: 'Skip the “I must be a finance guru” mindset.',
     bullets: [
@@ -75,7 +89,7 @@ const START_HERE_SCREENS: StartHereScreen[] = [
   },
   {
     id: 'fomo',
-    label: 'Screen 4',
+    label: 'Screen 5',
     title: 'Not investing is also a decision. Often the worst one.',
     body: 'Time in the market beats hunting for perfection.',
     bullets: [
@@ -87,7 +101,7 @@ const START_HERE_SCREENS: StartHereScreen[] = [
   },
   {
     id: 'why-etfs',
-    label: 'Screen 5',
+    label: 'Screen 6',
     title: 'Think you can beat the market? Statistically, probably not.',
     body: 'Most pros lag simple index funds over long periods. Why gamble?',
     bullets: [
@@ -99,7 +113,7 @@ const START_HERE_SCREENS: StartHereScreen[] = [
   },
   {
     id: 'real-progress',
-    label: 'Screen 6',
+    label: 'Screen 7',
     title: 'Not a game. Not a lifetime course.',
     body: 'No confetti for tapping—just enough learning to act and improve.',
     bullets: [
@@ -111,7 +125,7 @@ const START_HERE_SCREENS: StartHereScreen[] = [
   },
   {
     id: 'calm',
-    label: 'Screen 7',
+    label: 'Screen 8',
     title: 'Simple, calm, and drama-free.',
     body: 'Invest without doomscrolling or hot takes.',
     bullets: [
@@ -293,6 +307,220 @@ const PRE_ETF_SCREENS: StartHereScreen[] = [
   },
 ];
 
+const PORTFOLIO_SCREENS: StartHereScreen[] = [
+  {
+    id: 'portfolio-hero',
+    label: 'Section 1',
+    title: 'How to compose the right Portfolio for You',
+    subtitle: 'It’s not “the best ETF.” It’s the right mix for your time horizon, nerves, and goals.',
+    bullets: [
+      '⏳ Horizon: how long the money stays invested.',
+      '🎢 Risk & volatility: how much drawdown you can stomach.',
+      '🧩 Asset types: equity, bonds, commodities, gold.',
+      '🧬 Sectors: tech, staples, etc.',
+      '🌍 Geography: global, US, Europe, emerging.',
+      '✅ Rules of thumb to keep it simple.',
+    ],
+  },
+  {
+    id: 'portfolio-horizon',
+    label: 'Section 2',
+    title: '⏳ Investment Horizon',
+    bullets: [
+      '0–3y (short-term): protect capital; mostly bonds/cash, minimal equities.',
+      '3–10y (medium): mix equities + bonds; maybe small gold/commodities.',
+      '10y+ (long): equities as main engine; bonds/gold optional for smoother ride.',
+      'If you need the money soon, prioritize stability over maximum growth.',
+    ],
+  },
+  {
+    id: 'portfolio-risk',
+    label: 'Section 3',
+    title: '🎢 Risk & Volatility',
+    body: 'How much can you emotionally handle if markets drop?',
+    bullets: [
+      'More equities → higher potential return + higher swings.',
+      'More bonds/cash → calmer ride, lower long-term return.',
+      'Gold can help in some crises, but not a magic hedge.',
+      'Ask: “If my portfolio dropped -30% in a year, what would I do?”',
+    ],
+  },
+  {
+    id: 'portfolio-assets',
+    label: 'Section 4',
+    title: '🧩 Asset Types',
+    bullets: [
+      '🟦 Equities: ownership, growth engine, volatile.',
+      '🟩 Bonds: loans, more stable, pay coupons, lower return.',
+      '🟧 Commodities: raw materials; complex/volatile; optional.',
+      '🟨 Gold: sometimes holds value in crises; no cash flow; optional hedge.',
+    ],
+  },
+  {
+    id: 'portfolio-sectors',
+    label: 'Section 5',
+    title: '🧬 Sectors',
+    bullets: [
+      'Tech: high growth, high volatility.',
+      'Staples: essentials, usually steadier.',
+      'Discretionary: economy-sensitive.',
+      'Healthcare: resilient across cycles.',
+      'Financials: interest-rate sensitive.',
+      'Energy: cyclical, commodity-linked.',
+      'Broad market ETFs already include many sectors; sector ETFs are focused tilts.',
+    ],
+    footnote: 'Use sector tilts only if you intentionally want extra exposure.',
+  },
+  {
+    id: 'portfolio-geo',
+    label: 'Section 6',
+    title: '🌍 Geography',
+    bullets: [
+      'Global/all-world: strong base layer; diversified across regions.',
+      'USA: large, innovation-heavy; already a big chunk of global indices.',
+      'Europe: broad regional exposure; more traditional sector mix.',
+      'Emerging: higher growth potential + higher risk/volatility.',
+    ],
+  },
+  {
+    id: 'portfolio-rules',
+    label: 'Section 7',
+    title: '✅ Simple Rules of Thumb',
+    bullets: [
+      'By horizon: 0–3y mostly bonds/cash; 3–10y mix; 10y+ equity-led with optional bonds/gold.',
+      'By risk tolerance: risk-averse = more bonds + bit of global equity; balanced = global equity + bonds; risk-tolerant = high global equity + optional tilts.',
+      'Simplicity: 1 global equity ETF + 1 bond ETF can be plenty; add tilts only if intentional.',
+    ],
+  },
+  {
+    id: 'portfolio-big-idea',
+    label: 'Section 8',
+    title: 'The Big Idea: Start Simple, Adjust Later',
+    body: 'You won’t pick the “perfect” combo. What matters: match horizon, match risk tolerance, keep costs low, stay invested.',
+    bullets: [
+      'Stay invested through ups and downs.',
+      'Adjust only when your horizon or stomach changes.',
+      'Use the app to test mixes and keep it calm.',
+    ],
+  },
+];
+
+const FIRST_ETF_SCREENS: StartHereScreen[] = [
+  {
+    id: 'first-etf-journey',
+    label: 'Part 1',
+    title: 'Buying Your First ETF (Beginner-Proof)',
+    subtitle: 'Three big steps: pick a broker, pick an ETF, place the order.',
+    bullets: [
+      'Choose a broker (the app/platform).',
+      'Choose an ETF (what you want to own).',
+      'Place your order (how you buy).',
+    ],
+  },
+  {
+    id: 'first-etf-broker',
+    label: 'Part 2',
+    title: 'Choosing a Broker',
+    bullets: [
+      'Low/zero fees; simple app.',
+      'Good ETF lineup: index + UCITS + big providers.',
+      'Fractional shares (nice to have).',
+      'Safety: regulated; assets in your name.',
+    ],
+  },
+  {
+    id: 'first-etf-pick',
+    label: 'Part 3',
+    title: 'Choosing Your First ETF',
+    bullets: [
+      'What it tracks: S&P 500, world, emerging, etc.',
+      'Beginners often pick a broad, diversified index ETF.',
+      'Check provider and availability in your region.',
+    ],
+  },
+  {
+    id: 'first-etf-ter',
+    label: 'Part 4',
+    title: 'TER (Total Expense Ratio)',
+    body: 'Yearly fee taken inside the fund; you don’t pay manually.',
+    bullets: [
+      '0.07% ≈ $0.70 per $1,000 per year.',
+      'Lower is usually better for index ETFs.',
+    ],
+  },
+  {
+    id: 'first-etf-divs',
+    label: 'Part 5',
+    title: 'Accumulating vs Distributing',
+    bullets: [
+      'ACC: reinvests dividends automatically (growth; common for beginners).',
+      'DIST: pays out cash (income).',
+    ],
+  },
+  {
+    id: 'first-etf-ucits',
+    label: 'Part 6',
+    title: 'UCITS (for Europe/regions)',
+    bullets: [
+      'European standard for investor protection.',
+      'Regulated, transparent, diversified.',
+      'Look for “UCITS” on the fund if it applies to you.',
+    ],
+  },
+  {
+    id: 'first-etf-orders',
+    label: 'Part 7',
+    title: 'Technical Terms, Made Calm',
+    bullets: [
+      'Market order: buy now at current price.',
+      'Limit order: buy at price X; optional for beginners.',
+      'GTC: limit stays active until filled/canceled.',
+      'Stop-loss: mostly not needed for long-term ETF investing.',
+    ],
+  },
+  {
+    id: 'first-etf-steps',
+    label: 'Part 8',
+    title: 'How to Actually Buy',
+    bullets: [
+      'Open broker, deposit.',
+      'Search name/ticker (e.g., “Vanguard FTSE All-World”, “VWCE”).',
+      'Press buy; market order is fine for first purchase.',
+      'Confirm → you now own a slice of many companies.',
+    ],
+  },
+  {
+    id: 'first-etf-timing',
+    label: 'Part 9',
+    title: 'What If I Buy at the Wrong Time?',
+    bullets: [
+      'No one knows the perfect moment.',
+      'For ETFs, long-term > perfect timing.',
+      'Regular investing smooths bumps (monthly, paycheck).',
+    ],
+  },
+  {
+    id: 'first-etf-fears',
+    label: 'Part 10',
+    title: 'Common Fears (and Reassurance)',
+    bullets: [
+      'Global ETF doesn’t go to zero unless the world ends.',
+      'Order mishaps are usually small (price wiggles).',
+      'Assets stay yours even if the app crashes.',
+    ],
+  },
+  {
+    id: 'first-etf-after',
+    label: 'Part 11',
+    title: 'After You Buy',
+    bullets: [
+      'Don’t stare at price daily.',
+      'Set a regular schedule to invest.',
+      'Keep learning; consistency beats complexity.',
+    ],
+  },
+];
+
 function LessonCarousel({ colors, slides }: { colors: ReturnType<typeof useTheme>['colors']; slides: StartHereScreen[] }) {
   const { width } = useWindowDimensions();
   const cardWidth = Math.max(320, width - 40);
@@ -462,6 +690,12 @@ export default function LessonDetailScreen() {
           }
           if (lessonId === ETF_INTRO_LESSON_ID) {
             return <LessonCarousel colors={colors} slides={ETF_INTRO_SCREENS} />;
+          }
+          if (lessonId === PORTFOLIO_COMPOSE_LESSON_ID) {
+            return <LessonCarousel colors={colors} slides={PORTFOLIO_SCREENS} />;
+          }
+          if (lessonId === FIRST_ETF_LESSON_ID) {
+            return <LessonCarousel colors={colors} slides={FIRST_ETF_SCREENS} />;
           }
           return null;
         })()}

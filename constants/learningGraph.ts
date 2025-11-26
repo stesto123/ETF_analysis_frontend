@@ -80,6 +80,20 @@ export const LEARNING_GRAPH: LearningGraphStage[] = [
     ],
   },
   {
+    id: 'stage-portfolio-fit',
+    lessonId: 'lesson-portfolio-compose',
+    title: 'How to compose the right Portfolio for You',
+    summary: 'Match your horizon, risk tolerance, and asset mix with simple rules of thumb.',
+    duration: '8 min',
+  },
+  {
+    id: 'stage-first-etf',
+    lessonId: 'lesson-first-etf',
+    title: 'Lesson 3: Buying Your First ETF (A Beginner-Proof Guide)',
+    summary: 'From broker choice to order type: calm, step-by-step first purchase.',
+    duration: '9 min',
+  },
+  {
     id: 'stage-market-mechanics',
     lessonId: 'lesson-etf-trading',
     title: 'Market mechanics',
