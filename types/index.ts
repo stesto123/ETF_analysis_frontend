@@ -119,6 +119,7 @@ export type TickerSummary = {
   ticker_id: number;
   symbol: string;
   name?: string;
+  isin?: string | null;
   asset_class?: string;
 };
 
@@ -220,6 +221,16 @@ export type GeographyGroup = {
   country?: string | null;
   iso_code?: string | null;
   tickers: TickerSummary[];
+};
+
+export type TickerWithSnapshot = TickerSummary & { snapshot?: SnapshotMetrics | null };
+
+export type GeographyGroupWithSnapshots = Omit<GeographyGroup, 'tickers'> & {
+  tickers: TickerWithSnapshot[];
+};
+
+export type GeographySnapshotsResponse = {
+  items: GeographyGroupWithSnapshots[];
 };
 
 export type GeographyResponse = {

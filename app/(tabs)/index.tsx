@@ -18,7 +18,7 @@ import {
   PricePoint,
   QueryParams,
   ChartDataPoint,
-  GeographyGroup,
+  GeographyGroupWithSnapshots,
   TickerSummary,
   SnapshotMetrics,
   SnapshotReturnField,
@@ -175,7 +175,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [geographies, setGeographies] = useState<GeographyGroup[]>([]);
+  const [geographies, setGeographies] = useState<GeographyGroupWithSnapshots[]>([]);
   const geographyOptions = useMemo<GeographyOption[]>(
     () =>
       geographies.map(({ geography_id, geography_name, continent, country, iso_code }) => ({
@@ -381,16 +381,36 @@ export default function HomeScreen() {
   useEffect(() => {
     let cancelled = false;
     setTickersLoading(true);
+    setSnapshotsLoading(true);
+    setSnapshotsError(null);
+    setSnapshots({});
     apiService
-      .getGeographies(true)
+      .getGeographiesWithSnapshots(true)
       .then((items) => {
-        if (!cancelled) setGeographies(items);
+        if (cancelled) return;
+        setGeographies(items);
+        const map: Record<number, SnapshotMetrics> = {};
+        items.forEach((group) => {
+          group.tickers.forEach((ticker) => {
+            if (ticker.snapshot) {
+              map[ticker.ticker_id] = ticker.snapshot;
+            }
+          });
+        });
+        setSnapshots(map);
+        setSnapshotsError(null);
       })
-      .catch(() => {
-        if (!cancelled) setGeographies([]);
+      .catch((err) => {
+        if (cancelled) return;
+        setGeographies([]);
+        setSnapshots({});
+        setSnapshotsError(err instanceof Error ? err.message : 'Unable to load tickers and snapshots');
       })
       .finally(() => {
-        if (!cancelled) setTickersLoading(false);
+        if (!cancelled) {
+          setTickersLoading(false);
+          setSnapshotsLoading(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -421,46 +441,6 @@ export default function HomeScreen() {
       setTickers(list);
     }
   }, [geographies, selectedArea]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const ids = tickers.map((t) => t.ticker_id).filter((id) => Number.isFinite(id));
-
-    if (ids.length === 0) {
-      setSnapshots({});
-      setSnapshotsError(null);
-      setSnapshotsLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setSnapshotsLoading(true);
-    setSnapshotsError(null);
-
-    apiService
-      .getSnapshots({ tickerIds: ids })
-      .then((items) => {
-        if (cancelled) return;
-        const map: Record<number, SnapshotMetrics> = {};
-        items.forEach((item) => {
-          map[item.ticker_id] = item;
-        });
-        setSnapshots(map);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setSnapshots({});
-        setSnapshotsError(e instanceof Error ? e.message : 'Unable to load snapshot metrics');
-      })
-      .finally(() => {
-        if (!cancelled) setSnapshotsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [tickers]);
 
   // ===== Selezione ETF (toggle) =====
   const toggleSelect = (t: TickerSummary) => {

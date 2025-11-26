@@ -25,6 +25,9 @@ import {
   SimulationAggregateSeries,
   SimulationAggregateResultsResponse,
   SnapshotMetrics,
+  GeographyGroupWithSnapshots,
+  GeographySnapshotsResponse,
+  TickerWithSnapshot,
 } from '@/types';
 import { getClerkToken } from '@/utils/clerkToken';
 
@@ -120,6 +123,92 @@ class APIService {
       console.error('[auth] Error getting token:', error);
     }
     return headers;
+  }
+
+  private toNumberOrNull(value: any): number | null {
+    if (value == null) return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  private normalizeCorr(obj: any): Record<string, number | null> | undefined {
+    if (!obj || typeof obj !== 'object') return undefined;
+    const entries = Object.entries(obj).map(([k, v]) => [k, this.toNumberOrNull(v)]);
+    return Object.fromEntries(entries);
+  }
+
+  private parseSnapshot(item: any): SnapshotMetrics | null {
+    if (!item || typeof item !== 'object') return null;
+    const ticker_id = Number((item as any).ticker_id);
+    if (!Number.isFinite(ticker_id)) return null;
+
+    const snapshot_calendar_id =
+      item.snapshot_calendar_id != null && Number.isFinite(Number(item.snapshot_calendar_id))
+        ? Number(item.snapshot_calendar_id)
+        : null;
+
+    const payload: SnapshotMetrics = {
+      ticker_id,
+      snapshot_calendar_id,
+      close_price: this.toNumberOrNull(item.close_price),
+      return_1w: this.toNumberOrNull(item.return_1w),
+      return_1m: this.toNumberOrNull(item.return_1m),
+      return_3m: this.toNumberOrNull(item.return_3m),
+      return_6m: this.toNumberOrNull(item.return_6m),
+      return_ytd: this.toNumberOrNull(item.return_ytd),
+      return_1y: this.toNumberOrNull(item.return_1y),
+      return_2y: this.toNumberOrNull(item.return_2y),
+      return_3y: this.toNumberOrNull(item.return_3y),
+      return_5y: this.toNumberOrNull(item.return_5y),
+      return_10y: this.toNumberOrNull(item.return_10y),
+      return_20y: this.toNumberOrNull(item.return_20y),
+      volatility_1m: this.toNumberOrNull(item.volatility_1m),
+      volatility_3m: this.toNumberOrNull(item.volatility_3m),
+      volatility_6m: this.toNumberOrNull(item.volatility_6m),
+      volatility_1y: this.toNumberOrNull(item.volatility_1y),
+      volatility_2y: this.toNumberOrNull(item.volatility_2y),
+      volatility_3y: this.toNumberOrNull(item.volatility_3y),
+      volatility_5y: this.toNumberOrNull(item.volatility_5y),
+      volatility_10y: this.toNumberOrNull(item.volatility_10y),
+      volatility_20y: this.toNumberOrNull(item.volatility_20y),
+      sharpe_3m: this.toNumberOrNull(item.sharpe_3m),
+      sharpe_6m: this.toNumberOrNull(item.sharpe_6m),
+      sharpe_1y: this.toNumberOrNull(item.sharpe_1y),
+      sharpe_2y: this.toNumberOrNull(item.sharpe_2y),
+      sharpe_3y: this.toNumberOrNull(item.sharpe_3y),
+      sharpe_5y: this.toNumberOrNull(item.sharpe_5y),
+      sharpe_10y: this.toNumberOrNull(item.sharpe_10y),
+      sharpe_20y: this.toNumberOrNull(item.sharpe_20y),
+      sortino_3m: this.toNumberOrNull(item.sortino_3m),
+      sortino_6m: this.toNumberOrNull(item.sortino_6m),
+      sortino_1y: this.toNumberOrNull(item.sortino_1y),
+      sortino_2y: this.toNumberOrNull(item.sortino_2y),
+      sortino_3y: this.toNumberOrNull(item.sortino_3y),
+      sortino_5y: this.toNumberOrNull(item.sortino_5y),
+      sortino_10y: this.toNumberOrNull(item.sortino_10y),
+      sortino_20y: this.toNumberOrNull(item.sortino_20y),
+      max_drawdown_1y: this.toNumberOrNull(item.max_drawdown_1y),
+      max_drawdown_3y: this.toNumberOrNull(item.max_drawdown_3y),
+      max_drawdown_5y: this.toNumberOrNull(item.max_drawdown_5y),
+      max_drawdown_10y: this.toNumberOrNull(item.max_drawdown_10y),
+      max_drawdown_20y: this.toNumberOrNull(item.max_drawdown_20y),
+      beta_world_1y: this.toNumberOrNull(item.beta_world_1y),
+      beta_world_2y: this.toNumberOrNull(item.beta_world_2y),
+      beta_world_3y: this.toNumberOrNull(item.beta_world_3y),
+      beta_world_5y: this.toNumberOrNull(item.beta_world_5y),
+      beta_world_10y: this.toNumberOrNull(item.beta_world_10y),
+      beta_world_20y: this.toNumberOrNull(item.beta_world_20y),
+      beta_sp500_1y: this.toNumberOrNull(item.beta_sp500_1y),
+      beta_sp500_2y: this.toNumberOrNull(item.beta_sp500_2y),
+      beta_sp500_3y: this.toNumberOrNull(item.beta_sp500_3y),
+      beta_sp500_5y: this.toNumberOrNull(item.beta_sp500_5y),
+      beta_sp500_10y: this.toNumberOrNull(item.beta_sp500_10y),
+      beta_sp500_20y: this.toNumberOrNull(item.beta_sp500_20y),
+      corr_world_by_year: this.normalizeCorr(item.corr_world_by_year),
+      corr_sp500_by_year: this.normalizeCorr(item.corr_sp500_by_year),
+    };
+
+    return payload;
   }
 
   // ------- User profile sync -------
@@ -454,92 +543,8 @@ class APIService {
       return [];
     }
 
-    const toNumberOrNull = (value: any): number | null => {
-      if (value == null) return null;
-      const num = Number(value);
-      return Number.isFinite(num) ? num : null;
-    };
-
-    const normalizeCorr = (obj: any): Record<string, number | null> | undefined => {
-      if (!obj || typeof obj !== 'object') return undefined;
-      const entries = Object.entries(obj).map(([k, v]) => [k, toNumberOrNull(v)]);
-      return Object.fromEntries(entries);
-    };
-
     const normalized = itemsSource
-      .map((item: any): SnapshotMetrics | null => {
-        if (!item || typeof item !== 'object') return null;
-        const ticker_id = Number((item as any).ticker_id);
-        if (!Number.isFinite(ticker_id)) return null;
-
-        const snapshot_calendar_id =
-          item.snapshot_calendar_id != null && Number.isFinite(Number(item.snapshot_calendar_id))
-            ? Number(item.snapshot_calendar_id)
-            : null;
-
-        const payload: SnapshotMetrics = {
-          ticker_id,
-          snapshot_calendar_id,
-          close_price: toNumberOrNull(item.close_price),
-          return_1w: toNumberOrNull(item.return_1w),
-          return_1m: toNumberOrNull(item.return_1m),
-          return_3m: toNumberOrNull(item.return_3m),
-          return_6m: toNumberOrNull(item.return_6m),
-          return_ytd: toNumberOrNull(item.return_ytd),
-          return_1y: toNumberOrNull(item.return_1y),
-          return_2y: toNumberOrNull(item.return_2y),
-          return_3y: toNumberOrNull(item.return_3y),
-          return_5y: toNumberOrNull(item.return_5y),
-          return_10y: toNumberOrNull(item.return_10y),
-          return_20y: toNumberOrNull(item.return_20y),
-          volatility_1m: toNumberOrNull(item.volatility_1m),
-          volatility_3m: toNumberOrNull(item.volatility_3m),
-          volatility_6m: toNumberOrNull(item.volatility_6m),
-          volatility_1y: toNumberOrNull(item.volatility_1y),
-          volatility_2y: toNumberOrNull(item.volatility_2y),
-          volatility_3y: toNumberOrNull(item.volatility_3y),
-          volatility_5y: toNumberOrNull(item.volatility_5y),
-          volatility_10y: toNumberOrNull(item.volatility_10y),
-          volatility_20y: toNumberOrNull(item.volatility_20y),
-          sharpe_3m: toNumberOrNull(item.sharpe_3m),
-          sharpe_6m: toNumberOrNull(item.sharpe_6m),
-          sharpe_1y: toNumberOrNull(item.sharpe_1y),
-          sharpe_2y: toNumberOrNull(item.sharpe_2y),
-          sharpe_3y: toNumberOrNull(item.sharpe_3y),
-          sharpe_5y: toNumberOrNull(item.sharpe_5y),
-          sharpe_10y: toNumberOrNull(item.sharpe_10y),
-          sharpe_20y: toNumberOrNull(item.sharpe_20y),
-          sortino_3m: toNumberOrNull(item.sortino_3m),
-          sortino_6m: toNumberOrNull(item.sortino_6m),
-          sortino_1y: toNumberOrNull(item.sortino_1y),
-          sortino_2y: toNumberOrNull(item.sortino_2y),
-          sortino_3y: toNumberOrNull(item.sortino_3y),
-          sortino_5y: toNumberOrNull(item.sortino_5y),
-          sortino_10y: toNumberOrNull(item.sortino_10y),
-          sortino_20y: toNumberOrNull(item.sortino_20y),
-          max_drawdown_1y: toNumberOrNull(item.max_drawdown_1y),
-          max_drawdown_3y: toNumberOrNull(item.max_drawdown_3y),
-          max_drawdown_5y: toNumberOrNull(item.max_drawdown_5y),
-          max_drawdown_10y: toNumberOrNull(item.max_drawdown_10y),
-          max_drawdown_20y: toNumberOrNull(item.max_drawdown_20y),
-          beta_world_1y: toNumberOrNull(item.beta_world_1y),
-          beta_world_2y: toNumberOrNull(item.beta_world_2y),
-          beta_world_3y: toNumberOrNull(item.beta_world_3y),
-          beta_world_5y: toNumberOrNull(item.beta_world_5y),
-          beta_world_10y: toNumberOrNull(item.beta_world_10y),
-          beta_world_20y: toNumberOrNull(item.beta_world_20y),
-          beta_sp500_1y: toNumberOrNull(item.beta_sp500_1y),
-          beta_sp500_2y: toNumberOrNull(item.beta_sp500_2y),
-          beta_sp500_3y: toNumberOrNull(item.beta_sp500_3y),
-          beta_sp500_5y: toNumberOrNull(item.beta_sp500_5y),
-          beta_sp500_10y: toNumberOrNull(item.beta_sp500_10y),
-          beta_sp500_20y: toNumberOrNull(item.beta_sp500_20y),
-          corr_world_by_year: normalizeCorr(item.corr_world_by_year),
-          corr_sp500_by_year: normalizeCorr(item.corr_sp500_by_year),
-        };
-
-        return payload;
-      })
+      .map((item: any): SnapshotMetrics | null => this.parseSnapshot(item))
       .filter((entry): entry is SnapshotMetrics => entry != null);
 
     if (useCache) {
@@ -550,6 +555,72 @@ class APIService {
   }
 
   // ------- Geografie & tickers (nuovo endpoint) -------
+  async getGeographiesWithSnapshots(useCache: boolean = true): Promise<GeographyGroupWithSnapshots[]> {
+    const cacheKey = 'geographies_with_snapshots_v1';
+    if (useCache) {
+      const cached = await this.getCache<GeographyGroupWithSnapshots[]>(cacheKey, 6 * 60 * 60 * 1000);
+      if (cached) return cached;
+    }
+
+    const url = new URL('/api/data/geographies-with-snapshots', API_BASE_URL);
+    const res = await fetch(url.toString(), {
+      headers: await this.withAuth({ Accept: 'application/json' }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Failed to fetch geographies with snapshots (${res.status}): ${txt}`);
+    }
+
+    const raw: GeographySnapshotsResponse | GeographySnapshotsResponse['items'] | null = await res
+      .json()
+      .catch(() => null);
+
+    const itemsSource: unknown = Array.isArray((raw as any)?.items)
+      ? (raw as any).items
+      : Array.isArray(raw)
+        ? raw
+        : Array.isArray((raw as any)?.data)
+          ? (raw as any).data
+          : null;
+
+    if (!Array.isArray(itemsSource)) {
+      throw new Error('Invalid geographies-with-snapshots response format');
+    }
+
+    const items: GeographyGroupWithSnapshots[] = (itemsSource as unknown[]).map((groupLike) => {
+      const group = groupLike as any;
+      const rawId = Number((group as any)?.geography_id);
+      const geography_id = Number.isFinite(rawId) ? rawId : -1;
+      const geography_name = typeof group.geography_name === 'string' ? group.geography_name : '';
+      const continent = typeof group.continent === 'string' ? group.continent.trim() : null;
+      const country = typeof group.country === 'string' ? group.country.trim() : null;
+      const isoRaw = typeof group.iso_code === 'string' ? group.iso_code.trim() : null;
+      const iso_code = isoRaw ? isoRaw.toUpperCase() : null;
+
+      const tickerItems: any[] = Array.isArray(group.tickers) ? group.tickers : [];
+
+      const tickers: TickerWithSnapshot[] = tickerItems
+        .map((tickerLike: any) => {
+          if (!tickerLike || typeof tickerLike !== 'object') return null;
+          const ticker_id = Number((tickerLike as any).ticker_id);
+          if (!Number.isFinite(ticker_id)) return null;
+          const symbol = typeof tickerLike.symbol === 'string' ? tickerLike.symbol : '';
+          const name = typeof tickerLike.name === 'string' ? tickerLike.name : undefined;
+          const asset_class = typeof tickerLike.asset_class === 'string' ? tickerLike.asset_class : undefined;
+          const isin = typeof tickerLike.isin === 'string' ? tickerLike.isin : null;
+          const snapshotRaw = this.parseSnapshot((tickerLike as any).snapshot ?? null);
+          const snapshot = snapshotRaw && snapshotRaw.snapshot_calendar_id != null ? snapshotRaw : null;
+          return { ticker_id, symbol, name, asset_class, isin, snapshot } as TickerWithSnapshot;
+        })
+        .filter((entry): entry is TickerWithSnapshot => entry != null);
+
+      return { geography_id, geography_name, continent, country, iso_code, tickers };
+    });
+
+    await this.setCache(cacheKey, items);
+    return items;
+  }
+
   async getGeographies(useCache: boolean = true): Promise<GeographyGroup[]> {
     const cacheKey = 'geographies_all_v2';
     if (useCache) {
@@ -683,8 +754,10 @@ class APIService {
       const keys = await AsyncStorage.getAllKeys();
       const keysToRemove = keys.filter((k) =>
         k.startsWith('etf_data_') ||
-  k === 'areas_all' ||
-  k === 'geographies_all_v1' ||
+        k === 'areas_all' ||
+        k === 'geographies_all_v1' ||
+        k === 'geographies_all_v2' ||
+        k === 'geographies_with_snapshots_v1' ||
         k.startsWith('tickers_area_') ||
         k.startsWith('cum_returns_') ||
         k === 'portfolios_all' ||
