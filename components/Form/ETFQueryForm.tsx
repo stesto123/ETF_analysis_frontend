@@ -24,26 +24,26 @@ interface Props {
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 22,
-    marginHorizontal: 20,
-    marginTop: 12,
-    padding: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 4,
+    borderRadius: 12,
+    marginHorizontal: 0,
+    marginTop: 0,
+    padding: 0,
+    borderWidth: 0,
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   title: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
-    marginBottom: 18,
+    marginBottom: 12,
   },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 14,
     columnGap: 14,
   },
   col: {
@@ -72,7 +72,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     columnGap: 12,
     rowGap: 12,
-    marginBottom: 20,
+    marginBottom: 14,
   },
   presetChip: {
     borderWidth: StyleSheet.hairlineWidth,

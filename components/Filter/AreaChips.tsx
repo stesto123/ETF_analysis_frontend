@@ -90,11 +90,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 0,
   },
   listContent: {
-    paddingHorizontal: 20,
-    paddingRight: 16,
+    paddingHorizontal: 0,
+    paddingRight: 8,
   },
   chipWrapper: {
     marginRight: 12,

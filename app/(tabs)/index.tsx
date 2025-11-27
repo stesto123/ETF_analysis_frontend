@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Dimensions, PanResponder, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Dimensions, PanResponder, Animated, TextInput } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Sparkles, Target, MapPin, Globe2, ListChecks, SlidersHorizontal, LineChart } from 'lucide-react-native';
@@ -155,15 +155,9 @@ const formatDisplayDate = (iso: string | undefined | null) => {
 
 const RETURN_FIELDS: Array<{ key: SnapshotReturnField; label: string }> = [
   { key: 'return_1m', label: '1m' },
-  { key: 'return_3m', label: '3m' },
-  { key: 'return_6m', label: '6m' },
   { key: 'return_ytd', label: 'YTD' },
   { key: 'return_1y', label: '1y' },
-  { key: 'return_2y', label: '2y' },
-  { key: 'return_3y', label: '3y' },
   { key: 'return_5y', label: '5y' },
-  { key: 'return_10y', label: '10y' },
-  { key: 'return_20y', label: '20y' },
 ];
 
 export default function HomeScreen() {
@@ -189,56 +183,50 @@ export default function HomeScreen() {
   );
   const [selectedArea, setSelectedArea] = useState<number | null>(null);
   const [tickers, setTickers] = useState<TickerSummary[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [tickersLoading, setTickersLoading] = useState(false);
   const [snapshots, setSnapshots] = useState<Record<number, SnapshotMetrics>>({});
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
   const [snapshotsError, setSnapshotsError] = useState<string | null>(null);
-  // Pagination & expandable panel state
-  const PAGE_SIZE = 50;
+  // Pagination state (ticker panel uses the maximum height by default)
+  const PAGE_SIZE = 30;
   const [page, setPage] = useState(0);
-  const [expandedTickers, setExpandedTickers] = useState(false);
   const screenH = Dimensions.get('window').height;
-  const collapsedMaxHeight = Math.round(screenH * 0.5);
-  const expandedMaxHeight = Math.round(screenH * 0.88);
-  const animatedHeight = React.useRef(new Animated.Value(collapsedMaxHeight)).current;
+  const tickerListHeight = Math.round(screenH * 0.88);
+  const scrollRef = useRef<ScrollView>(null);
+  const [searchOffset, setSearchOffset] = useState(0);
+  const searchInputRef = useRef<TextInput>(null);
 
-  useEffect(() => {
-    Animated.timing(animatedHeight, {
-      toValue: expandedTickers ? expandedMaxHeight : collapsedMaxHeight,
-      duration: 220,
-      useNativeDriver: false,
-    }).start();
-  }, [expandedTickers, collapsedMaxHeight, expandedMaxHeight, animatedHeight]);
+  const filteredTickers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return tickers;
+    return tickers.filter((t) => {
+      const name = (t.name || '').toString().toLowerCase();
+      const symbol = (t.symbol || '').toString().toLowerCase();
+      const asset = (t.asset_class || '').toString().toLowerCase();
+      return name.includes(q) || symbol.includes(q) || asset.includes(q);
+    });
+  }, [tickers, searchQuery]);
+
 
   // Derived paginated slice
   const pagedTickers = useMemo(() => {
     const start = page * PAGE_SIZE;
-    return tickers.slice(start, start + PAGE_SIZE);
-  }, [tickers, page]);
+    return filteredTickers.slice(start, start + PAGE_SIZE);
+  }, [filteredTickers, page]);
 
-  // Clamp page when tickers length changes
+  // Clamp page when filtered length changes
   useEffect(() => {
-    const maxPage = Math.max(0, Math.floor((tickers.length - 1) / PAGE_SIZE));
+    const maxPage = Math.max(0, Math.floor((filteredTickers.length - 1) / PAGE_SIZE));
     if (page > maxPage) setPage(0);
-  }, [tickers.length, page]);
+  }, [filteredTickers.length, page]);
 
-  useEffect(() => { setPage(0); }, [selectedArea]);
+  useEffect(() => { setPage(0); }, [selectedArea, searchQuery]);
 
   const canPrev = page > 0;
-  const maxPage = Math.max(0, Math.floor((tickers.length - 1) / PAGE_SIZE));
+  const maxPage = Math.max(0, Math.floor((filteredTickers.length - 1) / PAGE_SIZE));
   const canNext = page < maxPage;
 
-  // Gesture (drag handle) to expand / collapse
-  const panResponder = React.useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy < -40 && !expandedTickers) setExpandedTickers(true);
-        else if (gesture.dy > 40 && expandedTickers) setExpandedTickers(false);
-      },
-    })
-  ).current;
 
   const [selectedTickers, setSelectedTickers] = useState<SelectedMap>({});
 
@@ -246,6 +234,7 @@ export default function HomeScreen() {
   const [multiDatasets, setMultiDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
 
   const [lastRange, setLastRange] = useState<DateRange | null>(null);
+  const [chartMode, setChartMode] = useState<'price' | 'cumulative'>('price');
 
   // Stable selection order: sort by display name (nome || ticker)
   const selectedArray = useMemo(() => {
@@ -264,6 +253,7 @@ export default function HomeScreen() {
   }, [selectedArray]);
 
   const selectedCount = useMemo(() => Object.keys(selectedTickers).length, [selectedTickers]);
+  const filteredCount = filteredTickers.length;
   const totalTickers = tickers.length;
   const totalAreas = geographies.length;
   const currentAreaName = useMemo(() => {
@@ -292,8 +282,13 @@ export default function HomeScreen() {
   }, [selectedCount, currentAreaName, totalTickers]);
   const tickersSubtitle = useMemo(() => {
     if (tickers.length === 0) return selectedArea == null ? 'No ETFs mapped yet' : 'No ETFs for this geography';
-    return `${tickers.length} ETFs available · ${selectedCount} selected`;
-  }, [tickers.length, selectedCount, selectedArea]);
+    if (searchQuery.trim()) {
+      return filteredCount === 0
+        ? `No results for "${searchQuery.trim()}"`
+        : `${filteredCount} match${filteredCount > 1 ? 'es' : ''} · ${selectedCount} selected`;
+    }
+    return `${filteredCount} ETFs available · ${selectedCount} selected`;
+  }, [tickers.length, filteredCount, selectedCount, selectedArea, searchQuery]);
   const querySubtitle = useMemo(() => {
     if (!lastRange) return 'Pick a date window and run your query';
     return `Last range: ${lastRangeLabel}`;
@@ -453,17 +448,17 @@ export default function HomeScreen() {
   };
 
   const allCurrentSelected = useMemo(() => {
-    if (tickers.length === 0) return false;
-    return tickers.every((t) => !!selectedTickers[t.ticker_id]);
-  }, [tickers, selectedTickers]);
+    if (filteredTickers.length === 0) return false;
+    return filteredTickers.every((t) => !!selectedTickers[t.ticker_id]);
+  }, [filteredTickers, selectedTickers]);
 
   const toggleSelectAllInArea = () => {
     setSelectedTickers((prev) => {
       const next: SelectedMap = { ...prev };
       if (allCurrentSelected) {
-        tickers.forEach((t) => delete next[t.ticker_id]);
+        filteredTickers.forEach((t) => delete next[t.ticker_id]);
       } else {
-        tickers.forEach((t) => {
+        filteredTickers.forEach((t) => {
           next[t.ticker_id] = t;
         });
       }
@@ -622,6 +617,31 @@ export default function HomeScreen() {
     fetchSelected(lastRange, true);
   }, [maxPoints, lastRange, fetchSelected, selectedTickers]);
 
+  const handleSearchFocus = useCallback(() => {
+    const scrollView = scrollRef.current as unknown as { measure?: (...args: any[]) => void; scrollTo?: (...args: any[]) => void } | null;
+    const input = searchInputRef.current as unknown as { measure?: (...args: any[]) => void } | null;
+    if (!scrollView || !input || !scrollView.measure || !input.measure) {
+      const fallbackY = Math.max(0, searchOffset - 12);
+      scrollRef.current?.scrollTo?.({ y: fallbackY, animated: true });
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      input.measure((_ix, _iy, _iw, _ih, _ipx, pageYInput) => {
+        if (typeof pageYInput !== 'number') {
+          const fallbackY = Math.max(0, searchOffset - 12);
+          scrollView.scrollTo?.({ y: fallbackY, animated: true });
+          return;
+        }
+        scrollView.measure((_sx, _sy, _sw, _sh, _spx, pageYScroll) => {
+          const baseY = typeof pageYScroll === 'number' ? pageYScroll : 0;
+          const relativeY = Math.max(0, pageYInput - baseY - 12);
+          scrollView.scrollTo?.({ y: relativeY, animated: true });
+        });
+      });
+    });
+  }, [searchOffset]);
+
   
 
   // ===== RENDER HELPERS =====
@@ -644,42 +664,41 @@ export default function HomeScreen() {
       );
     }
 
-    return (
-      <View style={styles.chartStack}>
-        <ETFLineChart
-          multi={multiDatasets.map((ds) => ({
-            label: ds.label,
-            data: ds.data,
-            colorHint: ds.colorHint,
-            labels: ds.labels,
-          }))}
-          data={[] as unknown as ChartDataPoint[]}
-          ticker="Selected ETFs"
-          height={220}
-          yAxisFormat="currency"
-          currencySymbol="$"
+    if (chartMode === 'cumulative' && (!cumDatasets || cumDatasets.length === 0)) {
+      return (
+        <EmptyState
+          title="No cumulative data"
+          message="Run a query to compute cumulative returns for the selected ETFs."
         />
-        {cumDatasets && cumDatasets.length > 0 && (
-          <ETFLineChart
-            multi={cumDatasets.map((ds) => ({
-              label: ds.label,
-              data: ds.data,
-              colorHint: ds.colorHint,
-              labels: ds.labels,
-            }))}
-            data={[] as unknown as ChartDataPoint[]}
-            ticker="Cumulative Returns"
-            height={180}
-            yAxisFormat="percent"
-          />
-        )}
-      </View>
+      );
+    }
+
+    const showCumulative = chartMode === 'cumulative';
+    const activeMulti = showCumulative ? (cumDatasets ?? []) : multiDatasets;
+    const chartHeight = showCumulative ? 220 : 230;
+    const tickerLabel = showCumulative ? 'Cumulative Returns' : 'Selected ETFs';
+
+    return (
+      <ETFLineChart
+        multi={activeMulti.map((ds) => ({
+          label: ds.label,
+          data: ds.data,
+          colorHint: ds.colorHint,
+          labels: ds.labels,
+        }))}
+        data={[] as unknown as ChartDataPoint[]}
+        ticker={tickerLabel}
+        height={chartHeight}
+        yAxisFormat={showCumulative ? 'percent' : 'currency'}
+        {...(!showCumulative ? { currencySymbol: '$' } : {})}
+      />
     );
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
+        ref={scrollRef}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -688,6 +707,7 @@ export default function HomeScreen() {
             tintColor={colors.accent}
           />
         }
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={[
           styles.scrollContent,
           { paddingBottom: contentBottomPadding, paddingTop: contentTopPadding },
@@ -745,7 +765,7 @@ export default function HomeScreen() {
           subtitle: tickersSubtitle,
           rightAccessory: (
             <View style={[styles.cardBadge, { backgroundColor: colors.background }]}> 
-              <Text style={[styles.cardBadgeText, { color: colors.text }]}>{tickers.length}</Text>
+              <Text style={[styles.cardBadgeText, { color: colors.text }]}>{filteredCount}</Text>
             </View>
           ),
           children: (
@@ -767,124 +787,138 @@ export default function HomeScreen() {
                       Snapshot metrics unavailable: {snapshotsError}
                     </Text>
                   ) : null}
-                  <View style={styles.bulkRow}>
-                    <View style={styles.inlineHelpRow}>
-                      <Pressable
-                        onPress={toggleSelectAllInArea}
-                        style={[styles.bulkBtn, { borderColor: colors.border, backgroundColor: colors.background }]}
-                      >
-                        <Text style={[styles.bulkBtnText, { color: colors.text }]}>
-                          {allCurrentSelected ? 'Deselect all' : 'Select all'}
-                        </Text>
-                      </Pressable>
-                      <HelpTooltip
-                        title={TOOLTIP_COPY.analytics.bulkSelect.title}
-                        description={TOOLTIP_COPY.analytics.bulkSelect.description}
-                      />
-                    </View>
-                    <Text style={[styles.selectedCounter, { color: colors.secondaryText }]}>
-                      Selected: {selectedCount}
-                    </Text>
+                  <View
+                    style={[styles.searchRow, { backgroundColor: colors.background, borderColor: colors.border }]}
+                    onLayout={(e) => setSearchOffset(e.nativeEvent.layout.y)}
+                  >
+                    <TextInput
+                      ref={searchInputRef}
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                      placeholder="Search ETF by name or symbol"
+                      placeholderTextColor={colors.secondaryText}
+                      style={[styles.searchInput, { color: colors.text }]}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="search"
+                      onFocus={handleSearchFocus}
+                    />
                   </View>
-                  <Animated.View style={[styles.tickerScrollableContainer, { height: animatedHeight }]}> 
-                    <View style={styles.dragHandleWrapper} {...panResponder.panHandlers}>
-                      <Pressable onPress={() => setExpandedTickers((e) => !e)} style={styles.dragHandlePress} hitSlop={8}>
-                        <View style={[styles.dragHandleBar, { backgroundColor: colors.border }]} />
-                        <Text style={[styles.handleLabel, { color: colors.secondaryText }]}>
-                          {expandedTickers ? 'Collapse list' : 'Expand list'}
+                  {filteredCount === 0 ? (
+                    <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>
+                      {searchQuery.trim()
+                        ? `No ETFs match "${searchQuery.trim()}".`
+                        : 'No ETFs available.'}
+                    </Text>
+                  ) : (
+                    <>
+                      <View style={styles.bulkRow}>
+                        <View style={styles.inlineHelpRow}>
+                          <Pressable
+                            onPress={toggleSelectAllInArea}
+                            style={[styles.bulkBtn, { borderColor: colors.border, backgroundColor: colors.background }]}
+                          >
+                            <Text style={[styles.bulkBtnText, { color: colors.text }]}>
+                              {allCurrentSelected ? 'Deselect all' : 'Select all'}
+                            </Text>
+                          </Pressable>
+                          <HelpTooltip
+                            title={TOOLTIP_COPY.analytics.bulkSelect.title}
+                            description={TOOLTIP_COPY.analytics.bulkSelect.description}
+                          />
+                        </View>
+                        <Text style={[styles.selectedCounter, { color: colors.secondaryText }]}>
+                          Selected: {selectedCount}
                         </Text>
-                      </Pressable>
-                    </View>
-                    <View style={styles.innerScrollWrapper}> 
-                      <ScrollView
-                        nestedScrollEnabled
-                        keyboardShouldPersistTaps="handled"
-                        showsVerticalScrollIndicator
-                        contentContainerStyle={{ paddingBottom: 8 }}
-                      >
-                        {pagedTickers.map((item, index) => {
-                          const isSel = !!selectedTickers[item.ticker_id];
-                          const selIdx = selectedIndexById.get(item.ticker_id);
-                          const dotColor = isSel && selIdx !== undefined ? getLineColor(selIdx) : '#D1D5DB';
-                          return (
-                            <View key={item.ticker_id}>
-                              <Pressable onPress={() => toggleSelect(item)} style={styles.tickerRow}>
-                                <View
-                                  style={[
-                                    styles.checkbox,
-                                    { borderColor: colors.border, backgroundColor: colors.card },
-                                    isSel && { backgroundColor: colors.accent, borderColor: colors.accent },
-                                  ]}
-                                >
-                                  <Text style={styles.checkboxMark}>{isSel ? '✓' : ''}</Text>
-                                </View>
-                                <View style={[styles.tickerDot, { backgroundColor: dotColor }]} />
-                                <View style={{ flex: 1 }}>
-                                  <Text style={[styles.tickerName, { color: colors.text }]} numberOfLines={1}>
-                                    {item.name || item.symbol}
-                                  </Text>
-                                  <Text style={[styles.tickerSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>
-                                    {item.symbol}
-                                    {item.asset_class ? ` • ${item.asset_class}` : ''}
-                                  </Text>
-                                  <View style={styles.returnRow}>
-                                    {RETURN_FIELDS.map(({ key, label }) => {
-                                      const snap = snapshots[item.ticker_id];
-                                      const val = snap ? snap[key] : null;
-                                      const { backgroundColor, borderColor, textColor } = resolveReturnColors(val);
-                                      return (
-                                        <View
-                                          key={key}
-                                          style={[
-                                            styles.returnBadge,
-                                            { backgroundColor, borderColor },
-                                          ]}
-                                        >
-                                          <Text style={[styles.returnLabel, { color: colors.secondaryText }]}>
-                                            {label}
-                                          </Text>
-                                          <Text style={[styles.returnValue, { color: textColor }]}>
-                                            {formatReturnValue(val)}
-                                          </Text>
+                      </View>
+                      <View style={[styles.tickerScrollableContainer, { height: tickerListHeight, borderColor: colors.border, backgroundColor: colors.card }]}> 
+                        <View style={styles.innerScrollWrapper}>
+                          <ScrollView
+                            nestedScrollEnabled
+                            keyboardShouldPersistTaps="handled"
+                            showsVerticalScrollIndicator
+                            contentContainerStyle={{ paddingBottom: filteredTickers.length > PAGE_SIZE ? 72 : 16 }}
+                          >
+                            {pagedTickers.map((item, index) => {
+                              const isSel = !!selectedTickers[item.ticker_id];
+                              const selIdx = selectedIndexById.get(item.ticker_id);
+                              const dotColor = isSel && selIdx !== undefined ? getLineColor(selIdx) : '#D1D5DB';
+                              return (
+                                <View key={item.ticker_id}>
+                                  <Pressable onPress={() => toggleSelect(item)} style={[styles.tickerRow, isSel && { backgroundColor: friendlyAccent(colors.accent, 0.12), borderColor: colors.border }]}>
+                                    <View style={styles.tickerHeader}>
+                                      <View style={[styles.tickerDot, { backgroundColor: dotColor }]} />
+                                      <View style={{ flex: 1 }}>
+                                        <Text style={[styles.tickerName, { color: colors.text }]} numberOfLines={1}>
+                                          {item.name || item.symbol}
+                                        </Text>
+                                        <Text style={[styles.tickerSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>
+                                          {item.symbol}
+                                          {item.asset_class ? ` • ${item.asset_class}` : ''}
+                                        </Text>
+                                      </View>
+                                      {isSel ? (
+                                        <View style={[styles.selectionTag, { backgroundColor: friendlyAccent(colors.accent, 0.24), borderColor: colors.accent }]}>
+                                          <Text style={[styles.selectionTagText, { color: colors.accent }]}>✓</Text>
                                         </View>
-                                      );
-                                    })}
-                                  </View>
+                                      ) : null}
+                                    </View>
+                                    <View style={styles.returnRow}>
+                                      {RETURN_FIELDS.map(({ key, label }) => {
+                                        const snap = snapshots[item.ticker_id];
+                                        const val = snap ? snap[key] : null;
+                                        const { backgroundColor, borderColor, textColor } = resolveReturnColors(val);
+                                        return (
+                                          <View
+                                            key={key}
+                                            style={[
+                                              styles.returnBadge,
+                                              { backgroundColor, borderColor },
+                                            ]}
+                                          >
+                                            <Text style={[styles.returnLabel, { color: colors.secondaryText }]}>
+                                              {label}
+                                            </Text>
+                                            <Text style={[styles.returnValue, { color: textColor }]}>
+                                              {formatReturnValue(val)}
+                                            </Text>
+                                          </View>
+                                        );
+                                      })}
+                                    </View>
+                                  </Pressable>
+                                  {index < pagedTickers.length - 1 && (
+                                    <View style={[styles.separator, { backgroundColor: colors.border }]} />
+                                  )}
                                 </View>
+                              );
+                            })}
+                          </ScrollView>
+
+                          {filteredTickers.length > PAGE_SIZE && (
+                            <View style={[styles.paginationSticky, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+                              <Pressable
+                                disabled={!canPrev}
+                                onPress={() => canPrev && setPage((p) => p - 1)}
+                                style={[styles.pageBtn, { backgroundColor: colors.background, borderColor: colors.border }, !canPrev && styles.pageBtnDisabled]}
+                              >
+                                <Text style={[styles.pageBtnText, { color: colors.text }]}>{'<'}</Text>
                               </Pressable>
-                              {index < pagedTickers.length - 1 && (
-                                <View style={[styles.separator, { backgroundColor: colors.border }]} />
-                              )}
+                              <Text style={[styles.pageIndicator, { color: colors.text }]}>
+                                Page {page + 1} / {maxPage + 1}
+                              </Text>
+                              <Pressable
+                                disabled={!canNext}
+                                onPress={() => canNext && setPage((p) => p + 1)}
+                                style={[styles.pageBtn, { backgroundColor: colors.background, borderColor: colors.border }, !canNext && styles.pageBtnDisabled]}
+                              >
+                                <Text style={[styles.pageBtnText, { color: colors.text }]}>{'>'}</Text>
+                              </Pressable>
                             </View>
-                          );
-                        })}
-                        <View style={{ height: 4 }} />
-                      </ScrollView>
-                      {!expandedTickers && canNext && (
-                        <View pointerEvents="none" style={[styles.fadeBottom, { backgroundColor: colors.card }]} />
-                      )}
-                    </View>
-                  </Animated.View>
-                  {tickers.length > PAGE_SIZE && (
-                    <View style={styles.paginationRow}>
-                      <Pressable
-                        disabled={!canPrev}
-                        onPress={() => canPrev && setPage((p) => p - 1)}
-                        style={[styles.pageBtn, !canPrev && styles.pageBtnDisabled]}
-                      >
-                        <Text style={styles.pageBtnText}>{'<'}</Text>
-                      </Pressable>
-                      <Text style={[styles.pageIndicator, { color: colors.text }]}>
-                        Page {page + 1} / {maxPage + 1}
-                      </Text>
-                      <Pressable
-                        disabled={!canNext}
-                        onPress={() => canNext && setPage((p) => p + 1)}
-                        style={[styles.pageBtn, !canNext && styles.pageBtnDisabled]}
-                      >
-                        <Text style={styles.pageBtnText}>{'>'}</Text>
-                      </Pressable>
-                    </View>
+                          )}
+                        </View>
+                      </View>
+                    </>
                   )}
                 </>
               )}
@@ -921,6 +955,26 @@ export default function HomeScreen() {
           ),
           children: (
             <View style={styles.cardContentGap}>
+              <View style={[styles.chartToggleRow, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                {(['price', 'cumulative'] as const).map((mode) => {
+                  const active = chartMode === mode;
+                  const label = mode === 'price' ? 'Price' : 'Cumulative';
+                  return (
+                    <Pressable
+                      key={mode}
+                      onPress={() => setChartMode(mode)}
+                      style={[
+                        styles.chartToggleBtn,
+                        active && { backgroundColor: friendlyAccent(colors.accent, 0.24), borderColor: colors.accent },
+                      ]}
+                    >
+                      <Text style={[styles.chartToggleText, { color: active ? colors.accent : colors.text }]}>
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
               {renderChart()}
             </View>
           ),
@@ -937,12 +991,12 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    rowGap: 20,
+    rowGap: 14,
   },
   sectionCard: {
-    borderRadius: 20,
+    borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 18,
+    padding: 14,
     shadowColor: '#0F172A',
     shadowOpacity: 0.08,
     shadowRadius: 14,
@@ -972,18 +1026,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
   },
   cardSubtitle: {
-    marginTop: 4,
+    marginTop: 2,
     fontSize: 13,
   },
   cardContent: {
-    marginTop: 16,
+    marginTop: 12,
   },
   cardContentGap: {
-    rowGap: 16,
+    rowGap: 12,
   },
   cardBadge: {
     minWidth: 34,
@@ -999,10 +1053,10 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     borderRadius: 22,
-    padding: 20,
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    columnGap: 16,
+    columnGap: 12,
     shadowColor: '#000000',
     shadowOpacity: 0.16,
     shadowRadius: 18,
@@ -1010,25 +1064,25 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   heroIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.2)',
   },
   heroTitle: {
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: '700',
     color: '#FFFFFF',
     letterSpacing: 0.2,
   },
   heroSubtitle: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 20,
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
     color: 'rgba(255,255,255,0.9)',
-    marginBottom: 14,
+    marginBottom: 10,
   },
   heroStatsRow: {
     flexDirection: 'row',
@@ -1042,8 +1096,8 @@ const styles = StyleSheet.create({
     columnGap: 8,
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   heroStatText: {
     color: '#FFFFFF',
@@ -1058,10 +1112,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     columnGap: 8,
   },
+  searchRow: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 6,
+  },
+  searchInput: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
   bulkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
     columnGap: 12,
   },
   bulkBtn: {
@@ -1082,56 +1147,32 @@ const styles = StyleSheet.create({
   tickerScrollableContainer: {
     overflow: 'hidden',
     width: '100%',
-  },
-  dragHandleWrapper: {
-    alignItems: 'center',
-    paddingTop: 4,
-    paddingBottom: 6,
-  },
-  dragHandlePress: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
-  },
-  dragHandleBar: {
-    width: 44,
-    height: 5,
-    borderRadius: 3,
-    marginBottom: 6,
-    opacity: 0.75,
-  },
-  handleLabel: {
-    fontSize: 12,
-    fontWeight: '500',
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   innerScrollWrapper: {
     flex: 1,
     position: 'relative',
   },
   tickerRow: {
+    flexDirection: 'column',
+    rowGap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'transparent',
+  },
+  tickerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    columnGap: 14,
-    paddingVertical: 10,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxMark: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
+    columnGap: 10,
   },
   tickerDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 2,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    marginRight: 6,
   },
   tickerName: {
     fontSize: 15,
@@ -1141,21 +1182,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
+  selectionTag: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  selectionTagText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
   returnRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    columnGap: 8,
+    columnGap: 6,
     rowGap: 6,
-    marginTop: 6,
+    marginTop: 2,
   },
   returnBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'center',
-    columnGap: 6,
+    columnGap: 4,
   },
   returnLabel: {
     fontSize: 11,
@@ -1170,27 +1221,23 @@ const styles = StyleSheet.create({
     opacity: 0.5,
     marginVertical: 8,
   },
-  fadeBottom: {
+  paginationSticky: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: 56,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(0,0,0,0.06)',
-  },
-  paginationRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     columnGap: 12,
-    marginTop: 12,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   pageBtn: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#E5E7EB',
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   pageBtnDisabled: {
     opacity: 0.4,
@@ -1205,5 +1252,23 @@ const styles = StyleSheet.create({
   },
   chartStack: {
     rowGap: 16,
+  },
+  chartToggleRow: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  chartToggleBtn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'transparent',
+  },
+  chartToggleText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
