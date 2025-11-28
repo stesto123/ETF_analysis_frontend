@@ -21,7 +21,6 @@ import {
   GeographyGroupWithSnapshots,
   TickerSummary,
   SnapshotMetrics,
-  SnapshotReturnField,
 } from '@/types';
 import { useChartSettings } from '@/components/common/ChartSettingsProvider';
 import HelpTooltip from '@/components/common/HelpTooltip';
@@ -153,12 +152,31 @@ const formatDisplayDate = (iso: string | undefined | null) => {
   return date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
 };
 
-const RETURN_FIELDS: Array<{ key: SnapshotReturnField; label: string }> = [
-  { key: 'return_1m', label: '1m' },
-  { key: 'return_ytd', label: 'YTD' },
-  { key: 'return_1y', label: '1y' },
-  { key: 'return_5y', label: '5y' },
+type MetricOption = {
+  key: keyof SnapshotMetrics;
+  label: string;
+  format: 'percent' | 'number';
+  decimals?: number;
+  colorMode?: 'signed' | 'neutral';
+};
+
+const METRIC_OPTIONS: MetricOption[] = [
+  { key: 'return_1m', label: '1m return', format: 'percent', colorMode: 'signed' },
+  { key: 'return_ytd', label: 'YTD return', format: 'percent', colorMode: 'signed' },
+  { key: 'return_1y', label: '1y return', format: 'percent', colorMode: 'signed' },
+  { key: 'return_5y', label: '5y return', format: 'percent', colorMode: 'signed' },
+  { key: 'return_3m', label: '3m return', format: 'percent', colorMode: 'signed' },
+  { key: 'volatility_1y', label: 'Vol 1y', format: 'percent', colorMode: 'neutral' },
+  { key: 'volatility_3y', label: 'Vol 3y', format: 'percent', colorMode: 'neutral' },
+  { key: 'sharpe_1y', label: 'Sharpe 1y', format: 'number', decimals: 2, colorMode: 'signed' },
+  { key: 'sortino_1y', label: 'Sortino 1y', format: 'number', decimals: 2, colorMode: 'signed' },
+  { key: 'max_drawdown_3y', label: 'DD 3y', format: 'percent', colorMode: 'signed' },
+  { key: 'beta_sp500_3y', label: 'Beta S&P', format: 'number', decimals: 2, colorMode: 'neutral' },
 ];
+
+type MetricKey = (typeof METRIC_OPTIONS)[number]['key'];
+const DEFAULT_METRIC_KEYS: MetricKey[] = ['return_1m', 'return_ytd', 'return_1y', 'return_5y'];
+const MAX_SELECTED_METRICS = 6;
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -229,6 +247,7 @@ export default function HomeScreen() {
 
 
   const [selectedTickers, setSelectedTickers] = useState<SelectedMap>({});
+  const [selectedMetricKeys, setSelectedMetricKeys] = useState<MetricKey[]>(DEFAULT_METRIC_KEYS);
 
   // per grafico unico
   const [multiDatasets, setMultiDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
@@ -299,23 +318,42 @@ export default function HomeScreen() {
     if (!multiDatasets || multiDatasets.length === 0) return 'Run a query to populate the charts';
     return `Comparing ${multiDatasets.length} dataset${multiDatasets.length > 1 ? 's' : ''}`;
   }, [loading, error, multiDatasets]);
+  const selectedMetricOptions = useMemo(() => {
+    const picked = METRIC_OPTIONS.filter((opt) => selectedMetricKeys.includes(opt.key));
+    if (picked.length > 0) return picked;
+    const fallback = METRIC_OPTIONS.filter((opt) => DEFAULT_METRIC_KEYS.includes(opt.key));
+    return fallback.length ? fallback : METRIC_OPTIONS.slice(0, 4);
+  }, [selectedMetricKeys]);
 
-  const formatReturnValue = useCallback((value?: number | null) => {
+  const formatMetricValue = useCallback((value: number | null | undefined, option: MetricOption) => {
     if (value == null || !Number.isFinite(Number(value))) return '—';
-    const pct = Number(value) * 100;
-    const sign = pct > 0 ? '+' : '';
-    const abs = Math.abs(pct);
-    const decimals = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
-    return `${sign}${pct.toFixed(decimals)}%`;
+    const numeric = Number(value);
+    if (option.format === 'percent') {
+      const pct = numeric * 100;
+      const abs = Math.abs(pct);
+      const decimals = option.decimals ?? (abs >= 100 ? 0 : abs >= 10 ? 1 : 2);
+      const sign = pct > 0 ? '+' : '';
+      return `${sign}${pct.toFixed(decimals)}%`;
+    }
+    const decimals = option.decimals ?? 2;
+    return numeric.toFixed(decimals);
   }, []);
 
-  const resolveReturnColors = useCallback(
-    (value?: number | null) => {
+  const resolveMetricColors = useCallback(
+    (value: number | null | undefined, option: MetricOption) => {
+      const mode = option.colorMode ?? 'signed';
       if (value == null || !Number.isFinite(Number(value))) {
         return {
           backgroundColor: colors.card,
           borderColor: colors.border,
           textColor: colors.secondaryText,
+        };
+      }
+      if (mode === 'neutral') {
+        return {
+          backgroundColor: colors.background,
+          borderColor: colors.border,
+          textColor: colors.text,
         };
       }
       const numeric = Number(value);
@@ -332,7 +370,7 @@ export default function HomeScreen() {
             textColor: '#DC2626',
           };
     },
-    [colors.card, colors.border, colors.secondaryText]
+    [colors.background, colors.border, colors.card, colors.secondaryText, colors.text]
   );
 
   const renderSectionCard = ({
@@ -465,6 +503,25 @@ export default function HomeScreen() {
       return next;
     });
   };
+
+  const toggleMetric = useCallback((key: MetricKey) => {
+    setSelectedMetricKeys((prev) => {
+      const exists = prev.includes(key);
+      if (exists) {
+        if (prev.length === 1) return prev;
+        return prev.filter((k) => k !== key);
+      }
+      const next = [...prev, key];
+      if (next.length > MAX_SELECTED_METRICS) {
+        return next.slice(next.length - MAX_SELECTED_METRICS);
+      }
+      return next;
+    });
+  }, []);
+
+  const resetMetrics = useCallback(() => {
+    setSelectedMetricKeys(DEFAULT_METRIC_KEYS);
+  }, []);
 
   const [cumDatasets, setCumDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
 
@@ -788,6 +845,51 @@ export default function HomeScreen() {
                     </Text>
                   ) : null}
                   <View
+                    style={[styles.metricPicker, { backgroundColor: colors.background, borderColor: colors.border }]}
+                  >
+                    <View style={styles.metricPickerHeader}>
+                      <View style={styles.inlineHelpRow}>
+                        <Text style={[styles.metricPickerTitle, { color: colors.text }]}>
+                          Metrics shown
+                        </Text>
+                        <HelpTooltip
+                          title={TOOLTIP_COPY.analytics.metricPicker.title}
+                          description={TOOLTIP_COPY.analytics.metricPicker.description}
+                        />
+                      </View>
+                      <Pressable
+                        onPress={resetMetrics}
+                        style={[styles.resetMetricsBtn, { borderColor: colors.border }]}
+                      >
+                        <Text style={[styles.resetMetricsText, { color: colors.secondaryText }]}>Reset</Text>
+                      </Pressable>
+                    </View>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.metricChipsRow}
+                    >
+                      {METRIC_OPTIONS.map((opt) => {
+                        const active = selectedMetricKeys.includes(opt.key);
+                        return (
+                          <Pressable
+                            key={opt.key}
+                            onPress={() => toggleMetric(opt.key)}
+                            style={[
+                              styles.metricChip,
+                              { borderColor: colors.border, backgroundColor: colors.card },
+                              active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
+                            ]}
+                          >
+                            <Text style={[styles.metricChipText, { color: active ? colors.accent : colors.text }]}>
+                              {opt.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                  <View
                     style={[styles.searchRow, { backgroundColor: colors.background, borderColor: colors.border }]}
                     onLayout={(e) => setSearchOffset(e.nativeEvent.layout.y)}
                   >
@@ -864,23 +966,26 @@ export default function HomeScreen() {
                                       ) : null}
                                     </View>
                                     <View style={styles.returnRow}>
-                                      {RETURN_FIELDS.map(({ key, label }) => {
+                                      {selectedMetricOptions.map((metric) => {
                                         const snap = snapshots[item.ticker_id];
-                                        const val = snap ? snap[key] : null;
-                                        const { backgroundColor, borderColor, textColor } = resolveReturnColors(val);
+                                        const rawVal = snap ? (snap as any)[metric.key] : null;
+                                        const { backgroundColor, borderColor, textColor } = resolveMetricColors(
+                                          rawVal as number | null | undefined,
+                                          metric
+                                        );
                                         return (
                                           <View
-                                            key={key}
+                                            key={metric.key}
                                             style={[
                                               styles.returnBadge,
                                               { backgroundColor, borderColor },
                                             ]}
                                           >
                                             <Text style={[styles.returnLabel, { color: colors.secondaryText }]}>
-                                              {label}
+                                              {metric.label}
                                             </Text>
                                             <Text style={[styles.returnValue, { color: textColor }]}>
-                                              {formatReturnValue(val)}
+                                              {formatMetricValue(rawVal as number | null | undefined, metric)}
                                             </Text>
                                           </View>
                                         );
@@ -1111,6 +1216,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     columnGap: 8,
+  },
+  metricPicker: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  metricPickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: 12,
+    marginBottom: 8,
+  },
+  metricPickerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  metricChipsRow: {
+    columnGap: 8,
+    paddingRight: 4,
+  },
+  metricChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  metricChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  resetMetricsBtn: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  resetMetricsText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   searchRow: {
     borderWidth: StyleSheet.hairlineWidth,

@@ -50,6 +50,11 @@ export const TOOLTIP_COPY = {
       description:
         'Adds every ETF in the current list to your comparison. Tap again to clear the selection.',
     },
+    metricPicker: {
+      title: 'Choose metrics',
+      description:
+        'Toggle which snapshot metrics appear under each ETF row: returns, volatility, drawdown, ratios.',
+    },
     queryForm: {
       title: 'Fetch Data',
       description:
