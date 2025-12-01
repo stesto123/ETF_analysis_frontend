@@ -6,6 +6,7 @@ import { Sparkles, Target, MapPin, Globe2, ListChecks, SlidersHorizontal, LineCh
 
 import ETFQueryForm from '@/components/Form/ETFQueryForm';
 import ETFLineChart from '@/components/Chart/LineChart';
+import VerticalBarChart from '@/components/Chart/VerticalBarChart';
 import { getLineColor } from '@/utils/linePalette';
 import { useTheme } from '@/components/common/ThemeProvider';
 import LoadingSpinner from '@/components/common/LoadingSpinner';
@@ -341,6 +342,7 @@ export default function HomeScreen() {
   const [metricModalVisible, setMetricModalVisible] = useState(false);
   const [selectedMetricKeys, setSelectedMetricKeys] = useState<MetricKey[]>(DEFAULT_METRIC_KEYS);
   const [correlationYears, setCorrelationYears] = useState<number[]>([]);
+  const [hiddenBars, setHiddenBars] = useState<Set<number>>(new Set());
 
   // per grafico unico
   const [multiDatasets, setMultiDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
@@ -563,37 +565,41 @@ export default function HomeScreen() {
     });
   }, [selectedMetricOptions, selectedArray, snapshots, getMetricValue]);
 
-  const [barMetricKey, setBarMetricKey] = useState<string | null>(null);
-  useEffect(() => {
-    if (barMetricKey && selectedMetricOptions.some((m) => m.key === barMetricKey)) return;
-    const first = selectedMetricOptions.find(
-      (m) => m.category !== 'metadata'
-    );
-    setBarMetricKey(first?.key ?? null);
-  }, [selectedMetricOptions, barMetricKey]);
-
-  const barMetric = useMemo(
-    () => (barMetricKey ? metricOptionByKey.get(barMetricKey) ?? null : null),
-    [barMetricKey, metricOptionByKey]
+  const barableMetrics = useMemo(
+    () => selectedMetricOptions.filter((m) => m.category !== 'metadata'),
+    [selectedMetricOptions]
   );
-  const barValues = useMemo(() => {
-    if (!barMetric) return null;
-    const vals = selectedArray.map((t) => {
-      const snap = snapshots[t.ticker_id];
-      return getMetricValue(snap, barMetric);
-    });
-    const numeric = vals.map((v) => Number(v)).filter((v) => Number.isFinite(v));
-    const min = numeric.length ? Math.min(...numeric) : NaN;
-    const max = numeric.length ? Math.max(...numeric) : NaN;
-    return { vals, min, max };
-  }, [barMetric, selectedArray, snapshots, getMetricValue]);
+  const [barMetricKeys, setBarMetricKeys] = useState<MetricKey[]>([]);
+  useEffect(() => {
+    if (barMetricKeys.length > 0 && barMetricKeys.every((k) => barableMetrics.some((m) => m.key === k))) return;
+    const defaults = barableMetrics.slice(0, 6).map((m) => m.key);
+    setBarMetricKeys(defaults);
+  }, [barableMetrics, barMetricKeys]);
+
+  const barSeries = useMemo(() => {
+    return barMetricKeys
+      .map((key) => barableMetrics.find((m) => m.key === key))
+      .filter(Boolean)
+      .map((metric) => {
+        const values = selectedArray.map((t) => ({
+          id: t.ticker_id,
+          label: t.name || t.symbol || String(t.ticker_id),
+          value: getMetricValue(snapshots[t.ticker_id], metric!),
+          colorIndex: selectedIndexById.get(t.ticker_id) ?? 0,
+        }));
+        const numeric = values.map((v) => Number(v.value)).filter((v) => Number.isFinite(v));
+        const min = numeric.length ? Math.min(...numeric) : NaN;
+        const max = numeric.length ? Math.max(...numeric) : NaN;
+        return { metric: metric!, values, min, max, format: (v: unknown) => formatMetricValue(v, metric!) };
+      });
+  }, [barMetricKeys, barableMetrics, selectedArray, snapshots, getMetricValue, selectedIndexById, formatMetricValue]);
 
   const formatMetricValue = useCallback((value: unknown, option: MetricOption) => {
-    if (value == null) return '—';
+    if (value == null) return '�?"';
 
     if (option.format === 'calendar') {
       const num = Number(value);
-      if (!Number.isFinite(num)) return '—';
+      if (!Number.isFinite(num)) return '�?"';
       const y = Math.floor(num / 10000);
       const m = Math.floor((num % 10000) / 100);
       const d = num % 100;
@@ -604,7 +610,7 @@ export default function HomeScreen() {
 
     if (option.format === 'datetime') {
       const date = new Date(value as any);
-      if (Number.isNaN(+date)) return '—';
+      if (Number.isNaN(+date)) return '�?"';
       return date.toLocaleString();
     }
 
@@ -622,18 +628,18 @@ export default function HomeScreen() {
       } catch {
         /* ignore */
       }
-      return '—';
+      return '�?"';
     }
 
     if (option.format === 'currency') {
       const num = Number(value);
-      if (!Number.isFinite(num)) return '—';
+      if (!Number.isFinite(num)) return '�?"';
       const decimals = option.decimals ?? 2;
       return `$${num.toFixed(decimals)}`;
     }
 
     const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return '—';
+    if (!Number.isFinite(numeric)) return '�?"';
 
     if (option.format === 'percent') {
       const pct = numeric * 100;
@@ -853,6 +859,15 @@ export default function HomeScreen() {
 
   const resetMetrics = useCallback(() => {
     setSelectedMetricKeys(DEFAULT_METRIC_KEYS);
+  }, []);
+
+  const toggleBarVisibility = useCallback((id: number) => {
+    setHiddenBars((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }, []);
 
   const [cumDatasets, setCumDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
@@ -1467,6 +1482,38 @@ export default function HomeScreen() {
                       ))}
                     </View>
                   </ScrollView>
+                </View>
+              )}
+              {barSeries.length > 0 && selectedArray.length > 0 && (
+                <View>
+                  <VerticalBarChart
+                    series={barSeries.map(({ metric, values, min, max }) => ({
+                      label: getShortLabel(metric),
+                      values,
+                      min,
+                      max,
+                      format: (v: unknown) => {
+                        const num = Number(v);
+                        if (!Number.isFinite(num)) return '�?"';
+                        return `${(num * 100).toFixed(1)}%`;
+                      },
+                    }))}
+                    title="Metric bars"
+                    colors={{
+                      text: colors.text,
+                      secondaryText: colors.secondaryText,
+                      border: colors.border,
+                      background: colors.background,
+                    }}
+                    legend={selectedArray.map((t) => ({
+                      label: t.name || t.symbol || String(t.ticker_id),
+                      colorIndex: selectedIndexById.get(t.ticker_id) ?? 0,
+                      id: t.ticker_id,
+                      hidden: hiddenBars.has(t.ticker_id),
+                    }))}
+                    hiddenIds={hiddenBars}
+                    onToggleLegend={toggleBarVisibility}
+                  />
                 </View>
               )}
             </View>
