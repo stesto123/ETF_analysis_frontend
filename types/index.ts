@@ -59,6 +59,7 @@ export type SnapshotMetrics = {
   ticker_id: number;
   snapshot_calendar_id: number | null;
   close_price: number | null;
+  data_freshness?: string | null;
 } & Partial<
   Record<
     | SnapshotReturnField

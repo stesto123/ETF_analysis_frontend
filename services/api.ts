@@ -206,6 +206,7 @@ class APIService {
       beta_sp500_20y: this.toNumberOrNull(item.beta_sp500_20y),
       corr_world_by_year: this.normalizeCorr(item.corr_world_by_year),
       corr_sp500_by_year: this.normalizeCorr(item.corr_sp500_by_year),
+      data_freshness: typeof item.data_freshness === 'string' ? item.data_freshness : null,
     };
 
     return payload;

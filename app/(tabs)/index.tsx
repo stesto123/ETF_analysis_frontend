@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Dimensions, PanResponder, Animated, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Dimensions, PanResponder, Animated, TextInput, Modal } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Sparkles, Target, MapPin, Globe2, ListChecks, SlidersHorizontal, LineChart } from 'lucide-react-native';
@@ -116,6 +116,25 @@ const clampIndex = (idx: number, length: number) => {
   return idx;
 };
 
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+const mixChannel = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
+const mixColor = (fromHex: string, toHex: string, t: number) => {
+  const parse = (hex: string) => {
+    const cleaned = hex.replace('#', '');
+    if (cleaned.length === 3) {
+      return cleaned.split('').map((c) => parseInt(c + c, 16));
+    }
+    return [cleaned.slice(0, 2), cleaned.slice(2, 4), cleaned.slice(4, 6)].map((p) => parseInt(p, 16));
+  };
+  const [r1, g1, b1] = parse(fromHex);
+  const [r2, g2, b2] = parse(toHex);
+  const r = mixChannel(r1, r2, t);
+  const g = mixChannel(g1, g2, t);
+  const b = mixChannel(b1, b2, t);
+  return `rgb(${r}, ${g}, ${b})`;
+};
+
 const buildDownsampleIndices = (length: number, target: number) => {
   if (!Number.isFinite(length) || length <= 0) return [];
   if (!Number.isFinite(target) || target <= 0) {
@@ -153,30 +172,102 @@ const formatDisplayDate = (iso: string | undefined | null) => {
 };
 
 type MetricOption = {
-  key: keyof SnapshotMetrics;
+  key: string;
+  rawKey?: keyof SnapshotMetrics;
   label: string;
-  format: 'percent' | 'number';
+  format: 'percent' | 'number' | 'currency' | 'calendar' | 'datetime' | 'json';
   decimals?: number;
   colorMode?: 'signed' | 'neutral';
+  category: 'metadata' | 'return' | 'volatility' | 'performance' | 'drawdown' | 'beta' | 'correlation';
+  resolve?: (snap?: SnapshotMetrics | null) => unknown;
 };
 
-const METRIC_OPTIONS: MetricOption[] = [
-  { key: 'return_1m', label: '1m return', format: 'percent', colorMode: 'signed' },
-  { key: 'return_ytd', label: 'YTD return', format: 'percent', colorMode: 'signed' },
-  { key: 'return_1y', label: '1y return', format: 'percent', colorMode: 'signed' },
-  { key: 'return_5y', label: '5y return', format: 'percent', colorMode: 'signed' },
-  { key: 'return_3m', label: '3m return', format: 'percent', colorMode: 'signed' },
-  { key: 'volatility_1y', label: 'Vol 1y', format: 'percent', colorMode: 'neutral' },
-  { key: 'volatility_3y', label: 'Vol 3y', format: 'percent', colorMode: 'neutral' },
-  { key: 'sharpe_1y', label: 'Sharpe 1y', format: 'number', decimals: 2, colorMode: 'signed' },
-  { key: 'sortino_1y', label: 'Sortino 1y', format: 'number', decimals: 2, colorMode: 'signed' },
-  { key: 'max_drawdown_3y', label: 'DD 3y', format: 'percent', colorMode: 'signed' },
-  { key: 'beta_sp500_3y', label: 'Beta S&P', format: 'number', decimals: 2, colorMode: 'neutral' },
+const BASE_METRIC_OPTIONS: MetricOption[] = [
+  { key: 'snapshot_calendar_id', rawKey: 'snapshot_calendar_id', label: 'Snapshot date', format: 'calendar', colorMode: 'neutral', category: 'metadata' },
+  { key: 'data_freshness', rawKey: 'data_freshness', label: 'Data freshness', format: 'datetime', colorMode: 'neutral', category: 'metadata' },
+  { key: 'close_price', rawKey: 'close_price', label: 'Close', format: 'currency', decimals: 2, colorMode: 'neutral', category: 'metadata' },
+  // Returns
+  { key: 'return_1w', rawKey: 'return_1w', label: '1w return', format: 'percent', colorMode: 'signed', category: 'return' },
+  { key: 'return_1m', rawKey: 'return_1m', label: '1m return', format: 'percent', colorMode: 'signed', category: 'return' },
+  { key: 'return_3m', rawKey: 'return_3m', label: '3m return', format: 'percent', colorMode: 'signed', category: 'return' },
+  { key: 'return_6m', rawKey: 'return_6m', label: '6m return', format: 'percent', colorMode: 'signed', category: 'return' },
+  { key: 'return_ytd', rawKey: 'return_ytd', label: 'YTD return', format: 'percent', colorMode: 'signed', category: 'return' },
+  { key: 'return_1y', rawKey: 'return_1y', label: '1y return', format: 'percent', colorMode: 'signed', category: 'return' },
+  { key: 'return_2y', rawKey: 'return_2y', label: '2y return', format: 'percent', colorMode: 'signed', category: 'return' },
+  { key: 'return_3y', rawKey: 'return_3y', label: '3y return', format: 'percent', colorMode: 'signed', category: 'return' },
+  { key: 'return_5y', rawKey: 'return_5y', label: '5y return', format: 'percent', colorMode: 'signed', category: 'return' },
+  { key: 'return_10y', rawKey: 'return_10y', label: '10y return', format: 'percent', colorMode: 'signed', category: 'return' },
+  { key: 'return_20y', rawKey: 'return_20y', label: '20y return', format: 'percent', colorMode: 'signed', category: 'return' },
+  // Volatility
+  { key: 'volatility_1m', rawKey: 'volatility_1m', label: 'Vol 1m', format: 'percent', colorMode: 'neutral', category: 'volatility' },
+  { key: 'volatility_3m', rawKey: 'volatility_3m', label: 'Vol 3m', format: 'percent', colorMode: 'neutral', category: 'volatility' },
+  { key: 'volatility_6m', rawKey: 'volatility_6m', label: 'Vol 6m', format: 'percent', colorMode: 'neutral', category: 'volatility' },
+  { key: 'volatility_1y', rawKey: 'volatility_1y', label: 'Vol 1y', format: 'percent', colorMode: 'neutral', category: 'volatility' },
+  { key: 'volatility_2y', rawKey: 'volatility_2y', label: 'Vol 2y', format: 'percent', colorMode: 'neutral', category: 'volatility' },
+  { key: 'volatility_3y', rawKey: 'volatility_3y', label: 'Vol 3y', format: 'percent', colorMode: 'neutral', category: 'volatility' },
+  { key: 'volatility_5y', rawKey: 'volatility_5y', label: 'Vol 5y', format: 'percent', colorMode: 'neutral', category: 'volatility' },
+  { key: 'volatility_10y', rawKey: 'volatility_10y', label: 'Vol 10y', format: 'percent', colorMode: 'neutral', category: 'volatility' },
+  { key: 'volatility_20y', rawKey: 'volatility_20y', label: 'Vol 20y', format: 'percent', colorMode: 'neutral', category: 'volatility' },
+  // Performance ratios (Sharpe + Sortino)
+  { key: 'sharpe_3m', rawKey: 'sharpe_3m', label: 'Sharpe 3m', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sharpe_6m', rawKey: 'sharpe_6m', label: 'Sharpe 6m', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sharpe_1y', rawKey: 'sharpe_1y', label: 'Sharpe 1y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sharpe_2y', rawKey: 'sharpe_2y', label: 'Sharpe 2y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sharpe_3y', rawKey: 'sharpe_3y', label: 'Sharpe 3y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sharpe_5y', rawKey: 'sharpe_5y', label: 'Sharpe 5y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sharpe_10y', rawKey: 'sharpe_10y', label: 'Sharpe 10y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sharpe_20y', rawKey: 'sharpe_20y', label: 'Sharpe 20y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sortino_3m', rawKey: 'sortino_3m', label: 'Sortino 3m', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sortino_6m', rawKey: 'sortino_6m', label: 'Sortino 6m', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sortino_1y', rawKey: 'sortino_1y', label: 'Sortino 1y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sortino_2y', rawKey: 'sortino_2y', label: 'Sortino 2y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sortino_3y', rawKey: 'sortino_3y', label: 'Sortino 3y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sortino_5y', rawKey: 'sortino_5y', label: 'Sortino 5y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sortino_10y', rawKey: 'sortino_10y', label: 'Sortino 10y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  { key: 'sortino_20y', rawKey: 'sortino_20y', label: 'Sortino 20y', format: 'number', decimals: 2, colorMode: 'signed', category: 'performance' },
+  // Drawdown
+  { key: 'max_drawdown_1y', rawKey: 'max_drawdown_1y', label: 'Max DD 1y', format: 'percent', colorMode: 'signed', category: 'drawdown' },
+  { key: 'max_drawdown_3y', rawKey: 'max_drawdown_3y', label: 'Max DD 3y', format: 'percent', colorMode: 'signed', category: 'drawdown' },
+  { key: 'max_drawdown_5y', rawKey: 'max_drawdown_5y', label: 'Max DD 5y', format: 'percent', colorMode: 'signed', category: 'drawdown' },
+  { key: 'max_drawdown_10y', rawKey: 'max_drawdown_10y', label: 'Max DD 10y', format: 'percent', colorMode: 'signed', category: 'drawdown' },
+  { key: 'max_drawdown_20y', rawKey: 'max_drawdown_20y', label: 'Max DD 20y', format: 'percent', colorMode: 'signed', category: 'drawdown' },
+  // Betas (world + S&P 500)
+  { key: 'beta_world_1y', rawKey: 'beta_world_1y', label: 'Beta world 1y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
+  { key: 'beta_world_2y', rawKey: 'beta_world_2y', label: 'Beta world 2y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
+  { key: 'beta_world_3y', rawKey: 'beta_world_3y', label: 'Beta world 3y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
+  { key: 'beta_world_5y', rawKey: 'beta_world_5y', label: 'Beta world 5y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
+  { key: 'beta_world_10y', rawKey: 'beta_world_10y', label: 'Beta world 10y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
+  { key: 'beta_world_20y', rawKey: 'beta_world_20y', label: 'Beta world 20y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
+  { key: 'beta_sp500_1y', rawKey: 'beta_sp500_1y', label: 'Beta S&P 1y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
+  { key: 'beta_sp500_2y', rawKey: 'beta_sp500_2y', label: 'Beta S&P 2y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
+  { key: 'beta_sp500_3y', rawKey: 'beta_sp500_3y', label: 'Beta S&P 3y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
+  { key: 'beta_sp500_5y', rawKey: 'beta_sp500_5y', label: 'Beta S&P 5y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
+  { key: 'beta_sp500_10y', rawKey: 'beta_sp500_10y', label: 'Beta S&P 10y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
+  { key: 'beta_sp500_20y', rawKey: 'beta_sp500_20y', label: 'Beta S&P 20y', format: 'number', decimals: 2, colorMode: 'neutral', category: 'beta' },
 ];
 
-type MetricKey = (typeof METRIC_OPTIONS)[number]['key'];
-const DEFAULT_METRIC_KEYS: MetricKey[] = ['return_1m', 'return_ytd', 'return_1y', 'return_5y'];
-const MAX_SELECTED_METRICS = 6;
+type MetricCategoryId = MetricOption['category'];
+type MetricCategory = { id: MetricCategoryId; label: string; description?: string; metrics: string[] };
+
+const CATEGORY_DEFS: Array<Omit<MetricCategory, 'metrics'>> = [
+  { id: 'return', label: 'Returns', description: 'Performance across horizons' },
+  { id: 'volatility', label: 'Volatility', description: 'Rolling volatility windows' },
+  { id: 'performance', label: 'Performance ratios', description: 'Sharpe and Sortino ratios' },
+  { id: 'drawdown', label: 'Drawdown', description: 'Maximum drawdown windows' },
+  { id: 'beta', label: 'Beta', description: 'Betas vs World and S&P 500' },
+  { id: 'correlation', label: 'Correlations', description: 'Historical correlations by year' },
+  { id: 'metadata', label: 'Snapshot info', description: 'Calendar, freshness, latest close' },
+];
+
+type MetricKey = string;
+const DEFAULT_METRIC_KEYS: MetricKey[] = [
+  'return_3m',
+  'return_6m',
+  'return_1y',
+  'return_3y',
+  'return_5y',
+  'return_10y',
+];
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -247,7 +338,9 @@ export default function HomeScreen() {
 
 
   const [selectedTickers, setSelectedTickers] = useState<SelectedMap>({});
+  const [metricModalVisible, setMetricModalVisible] = useState(false);
   const [selectedMetricKeys, setSelectedMetricKeys] = useState<MetricKey[]>(DEFAULT_METRIC_KEYS);
+  const [correlationYears, setCorrelationYears] = useState<number[]>([]);
 
   // per grafico unico
   const [multiDatasets, setMultiDatasets] = useState<MultiDatasetWithLabels[] | null>(null);
@@ -318,16 +411,230 @@ export default function HomeScreen() {
     if (!multiDatasets || multiDatasets.length === 0) return 'Run a query to populate the charts';
     return `Comparing ${multiDatasets.length} dataset${multiDatasets.length > 1 ? 's' : ''}`;
   }, [loading, error, multiDatasets]);
-  const selectedMetricOptions = useMemo(() => {
-    const picked = METRIC_OPTIONS.filter((opt) => selectedMetricKeys.includes(opt.key));
-    if (picked.length > 0) return picked;
-    const fallback = METRIC_OPTIONS.filter((opt) => DEFAULT_METRIC_KEYS.includes(opt.key));
-    return fallback.length ? fallback : METRIC_OPTIONS.slice(0, 4);
-  }, [selectedMetricKeys]);
+  const metricOptions = useMemo(() => {
+    const corrOpts = correlationYears.flatMap<MetricOption>((year) => [
+      {
+        key: `corr_world_${year}`,
+        label: `Corr world ${year}`,
+        format: 'number',
+        decimals: 3,
+        colorMode: 'neutral',
+        category: 'correlation',
+        resolve: (snap?: SnapshotMetrics | null) => snap?.corr_world_by_year?.[String(year)] ?? null,
+      },
+      {
+        key: `corr_sp500_${year}`,
+        label: `Corr S&P ${year}`,
+        format: 'number',
+        decimals: 3,
+        colorMode: 'neutral',
+        category: 'correlation',
+        resolve: (snap?: SnapshotMetrics | null) => snap?.corr_sp500_by_year?.[String(year)] ?? null,
+      },
+    ]);
+    return [...BASE_METRIC_OPTIONS, ...corrOpts];
+  }, [correlationYears]);
 
-  const formatMetricValue = useCallback((value: number | null | undefined, option: MetricOption) => {
-    if (value == null || !Number.isFinite(Number(value))) return '—';
+  const metricCategories = useMemo<MetricCategory[]>(() => {
+    return CATEGORY_DEFS.map((cat) => ({
+      ...cat,
+      metrics: metricOptions.filter((opt) => opt.category === cat.id).map((opt) => opt.key),
+    })).filter((cat) => cat.metrics.length > 0);
+  }, [metricOptions]);
+
+  const selectedMetricOptions = useMemo(() => {
+    const picked = metricOptions.filter((opt) => selectedMetricKeys.includes(opt.key));
+    if (picked.length > 0) return picked;
+    const fallback = metricOptions.filter((opt) => DEFAULT_METRIC_KEYS.includes(opt.key));
+    return fallback.length ? fallback : metricOptions.slice(0, 4);
+  }, [selectedMetricKeys, metricOptions]);
+  const metricOptionByKey = useMemo(() => {
+    const map = new Map<MetricKey, MetricOption>();
+    metricOptions.forEach((opt) => map.set(opt.key, opt));
+    return map;
+  }, [metricOptions]);
+  const metricsByCategory = useMemo(() => {
+    const map = new Map<MetricCategoryId, MetricKey[]>();
+    metricCategories.forEach((cat) => map.set(cat.id, cat.metrics));
+    return map;
+  }, [metricCategories]);
+  const selectedMetricSummary = useMemo(() => {
+    const labels = selectedMetricOptions.map((m) => m.label);
+    if (labels.length <= 3) return labels.join(', ') || 'None selected';
+    return `${labels.slice(0, 3).join(', ')} +${labels.length - 3} more`;
+  }, [selectedMetricOptions]);
+
+  const getShortLabel = useCallback((metric: MetricOption) => {
+    const k = metric.key.toLowerCase();
+    if (k.startsWith('return_')) {
+      const suffix = k.replace('return_', '');
+      if (suffix === 'ytd') return 'YTD';
+      return suffix.toUpperCase();
+    }
+    if (k.startsWith('corr_world_')) {
+      return `W ${k.replace('corr_world_', '')}`;
+    }
+    if (k.startsWith('corr_sp500_')) {
+      return `S ${k.replace('corr_sp500_', '')}`;
+    }
+    if (k.startsWith('beta_world_')) {
+      return `βW ${k.replace('beta_world_', '')}`;
+    }
+    if (k.startsWith('beta_sp500_')) {
+      return `βS ${k.replace('beta_sp500_', '')}`;
+    }
+    if (metric.label.toLowerCase().includes('sortino')) return metric.label.replace('Sortino ', 'S ');
+    if (metric.label.toLowerCase().includes('sharpe')) return metric.label.replace('Sharpe ', 'Sh ');
+    return metric.label;
+  }, []);
+
+  const getCategoryLabel = useCallback((id: MetricCategoryId) => {
+    switch (id) {
+      case 'return':
+        return 'Return';
+      case 'volatility':
+        return 'Vol';
+      case 'performance':
+        return 'Perf';
+      case 'drawdown':
+        return 'Drawdown';
+      case 'beta':
+        return 'Beta';
+      case 'correlation':
+        return 'Corr';
+      case 'metadata':
+      default:
+        return 'Info';
+    }
+  }, []);
+
+  const preferenceForMetric = useCallback((metric: MetricOption): 'higher' | 'lower' | 'neutral' => {
+    if (metric.category === 'return' || metric.category === 'performance') return 'higher';
+    if (metric.category === 'volatility' || metric.category === 'drawdown') return 'lower';
+    if (metric.category === 'correlation') return 'lower';
+    return 'neutral';
+  }, []);
+
+  const colorForValue = useCallback(
+    (value: unknown, metric: MetricOption, min: number, max: number) => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || !Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+        return colors.text;
+      }
+      let t = clamp01((numeric - min) / (max - min));
+      const pref = preferenceForMetric(metric);
+      if (pref === 'lower') {
+        t = 1 - t;
+      } else if (pref === 'neutral') {
+        return colors.text;
+      }
+      return mixColor('#ef4444', '#22c55e', t);
+    },
+    [colors.text, preferenceForMetric]
+  );
+
+  const getMetricValue = useCallback(
+    (snap: SnapshotMetrics | null | undefined, metric: MetricOption) => {
+      if (!snap) return null;
+      if (metric.resolve) return metric.resolve(snap);
+      if (metric.rawKey) {
+        return (snap as any)[metric.rawKey];
+      }
+      return (snap as any)[metric.key];
+    },
+    []
+  );
+
+  const comparisonRows = useMemo(() => {
+    const relevant = selectedMetricOptions.filter(
+      (m) => m.category === 'return' || m.category === 'correlation'
+    );
+    return relevant.map((metric) => {
+      const values = selectedArray.map((ticker) => {
+        const snap = snapshots[ticker.ticker_id];
+        return getMetricValue(snap, metric);
+      });
+      const numeric = values
+        .map((v) => Number(v))
+        .filter((v) => Number.isFinite(v));
+      const min = numeric.length ? Math.min(...numeric) : NaN;
+      const max = numeric.length ? Math.max(...numeric) : NaN;
+      return { metric, values, min, max };
+    });
+  }, [selectedMetricOptions, selectedArray, snapshots, getMetricValue]);
+
+  const [barMetricKey, setBarMetricKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (barMetricKey && selectedMetricOptions.some((m) => m.key === barMetricKey)) return;
+    const first = selectedMetricOptions.find(
+      (m) => m.category !== 'metadata'
+    );
+    setBarMetricKey(first?.key ?? null);
+  }, [selectedMetricOptions, barMetricKey]);
+
+  const barMetric = useMemo(
+    () => (barMetricKey ? metricOptionByKey.get(barMetricKey) ?? null : null),
+    [barMetricKey, metricOptionByKey]
+  );
+  const barValues = useMemo(() => {
+    if (!barMetric) return null;
+    const vals = selectedArray.map((t) => {
+      const snap = snapshots[t.ticker_id];
+      return getMetricValue(snap, barMetric);
+    });
+    const numeric = vals.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+    const min = numeric.length ? Math.min(...numeric) : NaN;
+    const max = numeric.length ? Math.max(...numeric) : NaN;
+    return { vals, min, max };
+  }, [barMetric, selectedArray, snapshots, getMetricValue]);
+
+  const formatMetricValue = useCallback((value: unknown, option: MetricOption) => {
+    if (value == null) return '—';
+
+    if (option.format === 'calendar') {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return '—';
+      const y = Math.floor(num / 10000);
+      const m = Math.floor((num % 10000) / 100);
+      const d = num % 100;
+      const mm = String(m).padStart(2, '0');
+      const dd = String(d).padStart(2, '0');
+      return `${y}-${mm}-${dd}`;
+    }
+
+    if (option.format === 'datetime') {
+      const date = new Date(value as any);
+      if (Number.isNaN(+date)) return '—';
+      return date.toLocaleString();
+    }
+
+    if (option.format === 'json') {
+      if (typeof value === 'object' && value !== null) {
+        const keys = Object.keys(value as Record<string, unknown>).length;
+        return `${keys} yr`;
+      }
+      try {
+        const parsed = JSON.parse(String(value));
+        if (parsed && typeof parsed === 'object') {
+          const keys = Object.keys(parsed as Record<string, unknown>).length;
+          return `${keys} yr`;
+        }
+      } catch {
+        /* ignore */
+      }
+      return '—';
+    }
+
+    if (option.format === 'currency') {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return '—';
+      const decimals = option.decimals ?? 2;
+      return `$${num.toFixed(decimals)}`;
+    }
+
     const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return '—';
+
     if (option.format === 'percent') {
       const pct = numeric * 100;
       const abs = Math.abs(pct);
@@ -335,28 +642,23 @@ export default function HomeScreen() {
       const sign = pct > 0 ? '+' : '';
       return `${sign}${pct.toFixed(decimals)}%`;
     }
+
     const decimals = option.decimals ?? 2;
     return numeric.toFixed(decimals);
   }, []);
 
   const resolveMetricColors = useCallback(
-    (value: number | null | undefined, option: MetricOption) => {
+    (value: unknown, option: MetricOption) => {
       const mode = option.colorMode ?? 'signed';
-      if (value == null || !Number.isFinite(Number(value))) {
-        return {
-          backgroundColor: colors.card,
-          borderColor: colors.border,
-          textColor: colors.secondaryText,
-        };
-      }
-      if (mode === 'neutral') {
+      const numeric = Number(value);
+      const isNumeric = Number.isFinite(numeric);
+      if (!isNumeric || mode === 'neutral') {
         return {
           backgroundColor: colors.background,
           borderColor: colors.border,
           textColor: colors.text,
         };
       }
-      const numeric = Number(value);
       const positive = numeric >= 0;
       return positive
         ? {
@@ -370,7 +672,7 @@ export default function HomeScreen() {
             textColor: '#DC2626',
           };
     },
-    [colors.background, colors.border, colors.card, colors.secondaryText, colors.text]
+    [colors.background, colors.border, colors.text]
   );
 
   const renderSectionCard = ({
@@ -450,6 +752,22 @@ export default function HomeScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    const years = new Set<number>();
+    Object.values(snapshots).forEach((snap) => {
+      const collect = (obj?: Record<string, number | null>) => {
+        if (!obj) return;
+        Object.keys(obj).forEach((k) => {
+          const n = Number(k);
+          if (Number.isFinite(n)) years.add(n);
+        });
+      };
+      collect(snap?.corr_world_by_year || undefined);
+      collect(snap?.corr_sp500_by_year || undefined);
+    });
+    setCorrelationYears(Array.from(years).sort((a, b) => a - b));
+  }, [snapshots]);
+
   // Aggiorna l'elenco dei ticker in base all'area selezionata
   useEffect(() => {
     if (geographies.length === 0) {
@@ -508,16 +826,30 @@ export default function HomeScreen() {
     setSelectedMetricKeys((prev) => {
       const exists = prev.includes(key);
       if (exists) {
-        if (prev.length === 1) return prev;
         return prev.filter((k) => k !== key);
       }
-      const next = [...prev, key];
-      if (next.length > MAX_SELECTED_METRICS) {
-        return next.slice(next.length - MAX_SELECTED_METRICS);
-      }
-      return next;
+      return [...prev, key];
     });
   }, []);
+
+  const toggleCategory = useCallback(
+    (categoryId: MetricCategoryId) => {
+      const catMetrics = metricsByCategory.get(categoryId) ?? [];
+      setSelectedMetricKeys((prev) => {
+        if (!catMetrics.length) return prev;
+        const allSelected = catMetrics.every((k) => prev.includes(k));
+        if (allSelected) {
+          return prev.filter((k) => !catMetrics.includes(k));
+        }
+        const next = [...prev];
+        catMetrics.forEach((k) => {
+          if (!next.includes(k)) next.push(k);
+        });
+        return next;
+      });
+    },
+    [metricsByCategory]
+  );
 
   const resetMetrics = useCallback(() => {
     setSelectedMetricKeys(DEFAULT_METRIC_KEYS);
@@ -849,9 +1181,7 @@ export default function HomeScreen() {
                   >
                     <View style={styles.metricPickerHeader}>
                       <View style={styles.inlineHelpRow}>
-                        <Text style={[styles.metricPickerTitle, { color: colors.text }]}>
-                          Metrics shown
-                        </Text>
+                        <Text style={[styles.metricPickerTitle, { color: colors.text }]}>Metrics shown</Text>
                         <HelpTooltip
                           title={TOOLTIP_COPY.analytics.metricPicker.title}
                           description={TOOLTIP_COPY.analytics.metricPicker.description}
@@ -864,30 +1194,31 @@ export default function HomeScreen() {
                         <Text style={[styles.resetMetricsText, { color: colors.secondaryText }]}>Reset</Text>
                       </Pressable>
                     </View>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.metricChipsRow}
+                    <View style={styles.metricSummaryRow}>
+                      <Text style={[styles.metricSummaryText, { color: colors.secondaryText }]}>
+                        Selected {selectedMetricKeys.length}
+                      </Text>
+                      <Text
+                        style={[styles.metricSummaryList, { color: colors.text }]}
+                        numberOfLines={2}
+                      >
+                        {selectedMetricSummary}
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => setMetricModalVisible(true)}
+                      style={[
+                        styles.metricOpenBtn,
+                        { borderColor: colors.border, backgroundColor: colors.card },
+                      ]}
                     >
-                      {METRIC_OPTIONS.map((opt) => {
-                        const active = selectedMetricKeys.includes(opt.key);
-                        return (
-                          <Pressable
-                            key={opt.key}
-                            onPress={() => toggleMetric(opt.key)}
-                            style={[
-                              styles.metricChip,
-                              { borderColor: colors.border, backgroundColor: colors.card },
-                              active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
-                            ]}
-                          >
-                            <Text style={[styles.metricChipText, { color: active ? colors.accent : colors.text }]}>
-                              {opt.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </ScrollView>
+                      <Text style={[styles.metricOpenBtnText, { color: colors.text }]}>
+                        Choose metrics by category
+                      </Text>
+                      <Text style={[styles.metricOpenBtnSub, { color: colors.secondaryText }]}>
+                        Tap to open selector
+                      </Text>
+                    </Pressable>
                   </View>
                   <View
                     style={[styles.searchRow, { backgroundColor: colors.background, borderColor: colors.border }]}
@@ -966,30 +1297,45 @@ export default function HomeScreen() {
                                       ) : null}
                                     </View>
                                     <View style={styles.returnRow}>
-                                      {selectedMetricOptions.map((metric) => {
-                                        const snap = snapshots[item.ticker_id];
-                                        const rawVal = snap ? (snap as any)[metric.key] : null;
-                                        const { backgroundColor, borderColor, textColor } = resolveMetricColors(
-                                          rawVal as number | null | undefined,
-                                          metric
-                                        );
-                                        return (
-                                          <View
-                                            key={metric.key}
-                                            style={[
-                                              styles.returnBadge,
-                                              { backgroundColor, borderColor },
-                                            ]}
-                                          >
-                                            <Text style={[styles.returnLabel, { color: colors.secondaryText }]}>
-                                              {metric.label}
+                                      {metricCategories
+                                        .map((cat) => ({
+                                          cat,
+                                          metrics: selectedMetricOptions.filter((m) => m.category === cat.id),
+                                        }))
+                                        .filter((entry) => entry.metrics.length > 0)
+                                        .map(({ cat, metrics }) => (
+                                          <View key={cat.id} style={styles.metricCategoryRow}>
+                                            <Text style={[styles.metricCategoryLabel, { color: colors.secondaryText }]}>
+                                              {getCategoryLabel(cat.id)}
                                             </Text>
-                                            <Text style={[styles.returnValue, { color: textColor }]}>
-                                              {formatMetricValue(rawVal as number | null | undefined, metric)}
-                                            </Text>
+                                            <View style={styles.metricChipsCompact}>
+                                              {metrics.map((metric) => {
+                                                const snap = snapshots[item.ticker_id];
+                                                const rawVal = getMetricValue(snap, metric);
+                                                const { backgroundColor, borderColor, textColor } = resolveMetricColors(
+                                                  rawVal as number | null | undefined,
+                                                  metric
+                                                );
+                                                return (
+                                                  <View
+                                                    key={metric.key}
+                                                    style={[
+                                                      styles.returnBadge,
+                                                      { backgroundColor, borderColor },
+                                                    ]}
+                                                  >
+                                                    <Text style={[styles.returnLabel, { color: colors.secondaryText }]}>
+                                                      {getShortLabel(metric)}
+                                                    </Text>
+                                                    <Text style={[styles.returnValue, { color: textColor }]}>
+                                                      {formatMetricValue(rawVal, metric)}
+                                                    </Text>
+                                                  </View>
+                                                );
+                                              })}
+                                            </View>
                                           </View>
-                                        );
-                                      })}
+                                        ))}
                                     </View>
                                   </Pressable>
                                   {index < pagedTickers.length - 1 && (
@@ -1081,11 +1427,151 @@ export default function HomeScreen() {
                 })}
               </View>
               {renderChart()}
+              {comparisonRows.length > 0 && selectedArray.length > 0 && (
+                <View style={[styles.comparisonTableCard, { borderColor: colors.border, backgroundColor: colors.background }]}>
+                  <Text style={[styles.comparisonTitle, { color: colors.text }]}>
+                    Snapshot comparison
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator>
+                    <View>
+                      <View style={styles.comparisonHeaderRow}>
+                        <Text style={[styles.comparisonHeaderCell, { color: colors.secondaryText }]}>Metric</Text>
+                        {selectedArray.map((t) => (
+                          <Text
+                            key={t.ticker_id}
+                            style={[styles.comparisonHeaderCell, { color: colors.text }]}
+                            numberOfLines={1}
+                          >
+                            {t.symbol || t.name}
+                          </Text>
+                        ))}
+                      </View>
+                      {comparisonRows.map(({ metric, values, min, max }) => (
+                        <View key={metric.key} style={styles.comparisonRow}>
+                          <Text style={[styles.comparisonMetricCell, { color: colors.secondaryText }]} numberOfLines={1}>
+                            {metric.label}
+                          </Text>
+                          {values.map((v, idx) => (
+                            <Text
+                              key={`${metric.key}_${idx}`}
+                              style={[
+                                styles.comparisonValueCell,
+                                { color: colorForValue(v, metric, min, max) },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {formatMetricValue(v, metric)}
+                            </Text>
+                          ))}
+                        </View>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
             </View>
           ),
         })}
   {/* pipeline UI rimossa: spostata in pagina dedicata */}
       </ScrollView>
+      <Modal
+        transparent
+        animationType="fade"
+        visible={metricModalVisible}
+        onRequestClose={() => setMetricModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setMetricModalVisible(false)} />
+          <View style={[styles.metricModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.metricModalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.metricModalTitle, { color: colors.text }]}>Select metrics</Text>
+                <Text style={[styles.metricModalSubtitle, { color: colors.secondaryText }]}>
+                  Pick categories and metrics to show under each ETF
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setMetricModalVisible(false)}
+                style={[styles.metricModalClose, { borderColor: colors.border }]}
+              >
+                <Text style={[styles.metricModalCloseText, { color: colors.text }]}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.metricModalScroll} contentContainerStyle={styles.metricModalScrollContent}>
+              {metricCategories.map((cat) => {
+                const selectedCount = cat.metrics.filter((k) => selectedMetricKeys.includes(k)).length;
+                const total = cat.metrics.length;
+                const allSelected = total > 0 && selectedCount === total;
+                const options = cat.metrics
+                  .map((k) => metricOptionByKey.get(k))
+                  .filter(Boolean) as MetricOption[];
+                return (
+                  <View
+                    key={cat.id}
+                    style={[styles.metricCategoryBlock, { borderColor: colors.border, backgroundColor: colors.background }]}
+                  >
+                    <View style={styles.metricCategoryHeader}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.metricCategoryTitle, { color: colors.text }]}>{cat.label}</Text>
+                        {cat.description ? (
+                          <Text style={[styles.metricCategoryDescription, { color: colors.secondaryText }]}>
+                            {cat.description}
+                          </Text>
+                        ) : null}
+                        <Text style={[styles.metricCategoryCount, { color: colors.secondaryText }]}>
+                          {selectedCount}/{total} selected
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => toggleCategory(cat.id)}
+                        style={[styles.metricCategoryToggle, { borderColor: colors.border, backgroundColor: colors.card }]}
+                      >
+                        <Text style={[styles.metricCategoryToggleText, { color: colors.text }]}>
+                          {allSelected ? 'Clear' : 'Add all'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    <View style={styles.metricCategoryChips}>
+                      {options.map((opt) => {
+                        const active = selectedMetricKeys.includes(opt.key as MetricKey);
+                        return (
+                          <Pressable
+                            key={opt.key}
+                            onPress={() => toggleMetric(opt.key as MetricKey)}
+                            style={[
+                              styles.metricChip,
+                              { borderColor: colors.border, backgroundColor: colors.card },
+                              active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
+                            ]}
+                          >
+                            <Text style={[styles.metricChipText, { color: active ? colors.accent : colors.text }]}>
+                              {opt.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.metricModalFooter}>
+              <Pressable
+                onPress={resetMetrics}
+                style={[styles.metricFooterBtn, { borderColor: colors.border }]}
+              >
+                <Text style={[styles.metricFooterBtnText, { color: colors.text }]}>Reset defaults</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setMetricModalVisible(false)}
+                style={[styles.metricFooterBtnPrimary, { backgroundColor: colors.accent }]}
+              >
+                <Text style={[styles.metricFooterBtnPrimaryText, { color: '#FFFFFF' }]}>Done</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1234,6 +1720,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+  metricSummaryRow: {
+    rowGap: 4,
+    marginBottom: 10,
+  },
+  metricSummaryText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  metricSummaryList: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
   metricChipsRow: {
     columnGap: 8,
     paddingRight: 4,
@@ -1248,6 +1746,43 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  metricCategoryRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    columnGap: 10,
+    rowGap: 6,
+    flexWrap: 'wrap',
+    width: '100%',
+  },
+  metricCategoryLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    minWidth: 60,
+    paddingTop: 5,
+  },
+  metricChipsCompact: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 8,
+    rowGap: 6,
+    flexShrink: 1,
+    flexGrow: 1,
+  },
+  metricOpenBtn: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    rowGap: 2,
+  },
+  metricOpenBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  metricOpenBtnSub: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
   resetMetricsBtn: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 10,
@@ -1257,6 +1792,163 @@ const styles = StyleSheet.create({
   resetMetricsText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  metricModalCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    padding: 14,
+    maxHeight: '92%',
+    minHeight: 360,
+    width: '94%',
+    maxWidth: 720,
+    alignSelf: 'center',
+    gap: 10,
+  },
+  metricModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 12,
+  },
+  metricModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  metricModalSubtitle: {
+    marginTop: 2,
+    fontSize: 13,
+  },
+  metricModalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metricModalCloseText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  metricModalScroll: {
+    flex: 1,
+    maxHeight: '70%',
+  },
+  metricModalScrollContent: {
+    rowGap: 12,
+    paddingBottom: 6,
+  },
+  metricCategoryBlock: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 10,
+  },
+  metricCategoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    columnGap: 10,
+    marginBottom: 8,
+  },
+  metricCategoryTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  metricCategoryDescription: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  metricCategoryCount: {
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  metricCategoryToggle: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  metricCategoryToggleText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  metricCategoryChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  metricModalFooter: {
+    flexDirection: 'row',
+    columnGap: 10,
+    justifyContent: 'flex-end',
+    marginTop: 4,
+  },
+  metricFooterBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  metricFooterBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  metricFooterBtnPrimary: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  metricFooterBtnPrimaryText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  returnRow: {
+    rowGap: 6,
+    marginTop: 2,
+  },
+  comparisonTableCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 10,
+  },
+  comparisonTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  comparisonHeaderRow: {
+    flexDirection: 'row',
+    columnGap: 12,
+    paddingBottom: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: '#E5E7EB',
+  },
+  comparisonHeaderCell: {
+    minWidth: 96,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  comparisonRow: {
+    flexDirection: 'row',
+    columnGap: 12,
+    paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: '#E5E7EB',
+  },
+  comparisonMetricCell: {
+    minWidth: 120,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  comparisonValueCell: {
+    minWidth: 96,
+    fontSize: 12,
+    fontWeight: '500',
   },
   searchRow: {
     borderWidth: StyleSheet.hairlineWidth,

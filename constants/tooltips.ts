@@ -53,7 +53,7 @@ export const TOOLTIP_COPY = {
     metricPicker: {
       title: 'Choose metrics',
       description:
-        'Toggle which snapshot metrics appear under each ETF row: returns, volatility, drawdown, ratios.',
+        'Open the selector to pick metric categories (returns, volatility, risk ratios, betas, correlations) shown under each ETF.',
     },
     queryForm: {
       title: 'Fetch Data',
