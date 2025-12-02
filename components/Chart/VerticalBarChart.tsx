@@ -113,11 +113,13 @@ const VerticalBarChart: React.FC<Props> = ({
   const zeroUnit = hasZero ? clamp01((0 - domainMin) / domainSpan) : null;
 
   const screenWidth = Dimensions.get('window').width;
-  const chartWidth = Math.max(screenWidth * 0.9, categories.length * 90);
+  const chartWidth = Math.max(screenWidth * 0.9, categories.length * 120);
   const barCount = Math.max(1, datasets.length);
   const barWidth = Math.max(10, Math.min(18, (chartWidth / categories.length) / (barCount * 2)));
   const groupOffset = barWidth * 1.2; // tighter grouping
   const labelDx = 0; // base dx; actual offset handled per-datum below
+  const chartPadding = { top: 24, bottom: 46, left: 46, right: 20 };
+  const domainPadding = { x: Math.max(20, barWidth * 4), y: 0 }; // keep bars clear of the y-axis line
 
   const formatter = (raw: unknown, fmt?: Series['format'], seriesLabel?: string) => {
     if (typeof fmt === 'function') return fmt(raw);
@@ -144,11 +146,15 @@ const VerticalBarChart: React.FC<Props> = ({
             height={TRACK_HEIGHT}
             width={chartWidth}
             domain={{ y: [domainMin, domainMax] }}
-            padding={{ top: 24, bottom: 46, left: 46, right: 20 }}
+            padding={chartPadding}
+            domainPadding={domainPadding}
             categories={{ x: categories }}
+            prependDefaultAxes={false}
           >
             <VictoryAxis
+              orientation="bottom"
               crossAxis={false} // place x-axis at bottom instead of at y=0
+              offsetY={0}
               style={{
                 axis: { stroke: colors.border },
                 tickLabels: { fill: colors.secondaryText, fontSize: 10, padding: 6 },
