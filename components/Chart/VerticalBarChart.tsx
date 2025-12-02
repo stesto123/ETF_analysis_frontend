@@ -122,11 +122,12 @@ const VerticalBarChart: React.FC<Props> = ({
   const domainPadding = { x: Math.max(20, barWidth * 4), y: 0 }; // keep bars clear of the y-axis line
 
   const formatter = (raw: unknown, fmt?: Series['format'], seriesLabel?: string) => {
+    const num = Number(raw);
+    if (raw == null) return 'ND';
+    if (!Number.isFinite(num)) return 'ND';
     if (typeof fmt === 'function') return fmt(raw);
     if (formatValue) return formatValue(raw, seriesLabel);
-    if (raw == null) return 'N/A';
-    if (typeof raw === 'number' && Number.isFinite(raw)) return raw.toFixed(2);
-    return String(raw);
+    return num.toFixed(2);
   };
 
   if (!series.length) return null;
@@ -180,7 +181,9 @@ const VerticalBarChart: React.FC<Props> = ({
                     data: { fill: getLineColor(ds.colorIndex), opacity: 0.82 },
                     labels: { fill: getLineColor(ds.colorIndex), fontSize: 10, fontWeight: '700' },
                   }}
-                  labels={({ datum }) => formatter(datum.raw ?? datum.y, datum.fmt, String(datum.x))}
+                  labels={({ datum }) =>
+                    formatter(datum.raw !== undefined ? datum.raw : datum.y, datum.fmt, String(datum.x))
+                  }
                   labelComponent={
                     <VictoryLabel
                       angle={-90}
