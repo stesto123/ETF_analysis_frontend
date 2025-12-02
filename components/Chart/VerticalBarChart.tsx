@@ -117,7 +117,7 @@ const VerticalBarChart: React.FC<Props> = ({
   const barCount = Math.max(1, datasets.length);
   const barWidth = Math.max(10, Math.min(18, (chartWidth / categories.length) / (barCount * 2)));
   const groupOffset = barWidth * 1.2; // tighter grouping
-  const labelDx = barWidth * 0.35; // nudge labels right to align with bar centers
+  const labelDx = 0; // base dx; actual offset handled per-datum below
 
   const formatter = (raw: unknown, fmt?: Series['format'], seriesLabel?: string) => {
     if (typeof fmt === 'function') return fmt(raw);
@@ -148,6 +148,7 @@ const VerticalBarChart: React.FC<Props> = ({
             categories={{ x: categories }}
           >
             <VictoryAxis
+              crossAxis={false} // place x-axis at bottom instead of at y=0
               style={{
                 axis: { stroke: colors.border },
                 tickLabels: { fill: colors.secondaryText, fontSize: 10, padding: 6 },
@@ -177,10 +178,10 @@ const VerticalBarChart: React.FC<Props> = ({
                   labelComponent={
                     <VictoryLabel
                       angle={-90}
-                      dx={labelDx}
-                      dy={-4}
+                      dx={({ datum }) => (Number(datum.y) >= 0 ? 18 : -18)}
+                      dy={0}
                       textAnchor="middle"
-                      verticalAnchor="end"
+                      verticalAnchor="middle"
                     />
                   }
                 />
