@@ -1,14 +1,27 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { getLineColor } from '@/utils/linePalette';
 
+type SeriesValue = {
+  id: number;
+  label: string;
+  value: number | null | undefined;
+  colorIndex?: number;
+};
+
 type Series = {
   label: string;
-  values: Array<{ id: number; label: string; value: number | null | undefined; colorIndex?: number }>;
+  values: SeriesValue[];
   min: number;
   max: number;
   format?: (value: unknown) => string;
-  zeroBaseline?: boolean;
+};
+
+type LegendItem = {
+  id: number;
+  label: string;
+  colorIndex: number;
+  hidden?: boolean;
 };
 
 type Props = {
@@ -20,95 +33,242 @@ type Props = {
     border: string;
     background: string;
   };
-  legend?: Array<{ id: number; label: string; colorIndex: number; hidden?: boolean }>;
+  legend?: LegendItem[];
   onToggleLegend?: (id: number) => void;
   hiddenIds?: Set<number>;
   formatValue?: (value: unknown, seriesLabel?: string) => string;
 };
 
+const TRACK_HEIGHT = 200;
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
-const TRACK_HEIGHT = 140;
 
-const VerticalBarChart: React.FC<Props> = ({ series, title, colors, legend, onToggleLegend, hiddenIds, formatValue }) => {
-  if (!series.length) return null;
+const VerticalBarChart: React.FC<Props> = ({
+  series,
+  title,
+  colors,
+  legend,
+  onToggleLegend,
+  hiddenIds,
+  formatValue,
+}) => {
+  if (!series || series.length === 0) return null;
+
+  // 1. Filtra voci nascoste
+  const groups = useMemo(
+    () =>
+      series.map((s) => ({
+        ...s,
+        entries: s.values.filter((v) => !hiddenIds?.has(v.id)),
+      })),
+    [series, hiddenIds]
+  );
+
+  // 2. Min / Max globali
+  const { globalMin, globalMax } = useMemo(() => {
+    const nums: number[] = [];
+    groups.forEach((g) =>
+      g.entries.forEach((v) => {
+        const n = Number(v.value);
+        if (Number.isFinite(n)) nums.push(n);
+      })
+    );
+
+    if (nums.length === 0) return { globalMin: 0, globalMax: 1 };
+
+    let min = Math.min(...nums);
+    let max = Math.max(...nums);
+
+    if (min === max) {
+      min -= 1;
+      max += 1;
+    }
+
+    return { globalMin: min, globalMax: max };
+  }, [groups]);
+
+  // 3. Dominio Y (includendo sempre 0)
+  let domainMin = Math.min(globalMin, 0);
+  let domainMax = Math.max(globalMax, 0);
+  if (domainMin === domainMax) {
+    domainMin -= 1;
+    domainMax += 1;
+  }
+  const domainSpan = domainMax - domainMin;
+
+  // Trasformazione valore → Y (pixel)
+  //   domainMax -> 0 (alto)
+  //   domainMin -> TRACK_HEIGHT (basso)
+  const toY = (value: number) => {
+    const t = clamp01((value - domainMin) / domainSpan); // 0=min, 1=max
+    return (1 - t) * TRACK_HEIGHT; // invertito perché 0 in alto
+  };
+
+  const hasZero = domainMin <= 0 && domainMax >= 0;
+  const zeroY = hasZero ? toY(0) : null;
+
+  // Tick per l’asse Y (top, 0 se in range, bottom)
+  const yTicks: number[] = [domainMax];
+  if (hasZero) yTicks.push(0);
+  yTicks.push(domainMin);
 
   return (
-    <View style={[styles.card, { borderColor: colors.border, backgroundColor: colors.background }]}>
-      {title ? (
+    <View
+      style={[
+        styles.card,
+        { borderColor: colors.border, backgroundColor: colors.background },
+      ]}
+    >
+      {title && (
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
           {title}
         </Text>
-      ) : null}
-      <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.barChartContainer}>
-        {series.map((s) => {
-          const span = Number.isFinite(s.min) && Number.isFinite(s.max) && s.min !== s.max ? s.max - s.min : 1;
-          const entries = s.values.filter((v) => !hiddenIds?.has(v.id));
-          const hasRange = Number.isFinite(s.min) && Number.isFinite(s.max) && s.min !== s.max;
-          const hasNegative = s.min < 0 && s.max > 0;
-          const zeroRatio = hasRange ? clamp01((0 - s.min) / span) : 0;
-          const showZeroLine = hasRange;
-          return (
-            <View key={s.label} style={styles.barColumnGroup}>
-              <Text style={[styles.barColumnLabel, { color: colors.text }]} numberOfLines={1}>
-                {s.label}
-              </Text>
-              <View style={[styles.barColumnChart, { borderColor: colors.border }]}>
-                <View style={[styles.barColumnTrack, { backgroundColor: colors.background, height: TRACK_HEIGHT }]}>
-                  {showZeroLine && (
-                    <View style={[styles.barZeroLine, { backgroundColor: colors.border, top: `${(1 - zeroRatio) * 100}%` }]} />
-                  )}
-                  {entries.map((val, idx) => {
-                    const numeric = Number(val.value);
-                    if (!Number.isFinite(s.min) || !Number.isFinite(s.max) || s.min === s.max) {
-                      return null;
-                    }
-                    const valueRatio = clamp01((numeric - s.min) / span);
-                    const start = Math.min(zeroRatio, valueRatio);
-                    const end = Math.max(zeroRatio, valueRatio);
-                    const heightPx = Math.max(4, (end - start) * TRACK_HEIGHT);
-                    const widthPerc = Math.max(30, 80 / Math.max(1, s.values.length));
-                    const baseColor = getLineColor(val.colorIndex ?? idx);
-                    return (
-                      <View
-                        key={`${s.label}_${val.id}_${idx}`}
-                        style={[
-                          styles.barColumnFill,
-                          {
-                            height: heightPx,
-                            backgroundColor: baseColor,
-                            opacity: 0.35,
-                            width: `${widthPerc}%`,
-                            left: `${(100 - widthPerc) / 2}%`,
-                            transform: [{ translateY: (1 - Math.max(start, end)) * TRACK_HEIGHT }],
-                            borderColor: baseColor,
-                            borderWidth: StyleSheet.hairlineWidth,
-                          },
-                        ]}
-                      />
-                    );
-                  })}
+      )}
+
+      <View style={{ flexDirection: 'row' }}>
+        {/* Asse Y con stessa scala del grafico */}
+        <View style={[styles.yAxisWrapper, { height: TRACK_HEIGHT }]}>
+          <View style={styles.yAxisTrack}>
+            {/* Linea verticale asse */}
+            <View
+              style={[
+                styles.yAxisLine,
+                { backgroundColor: colors.border },
+              ]}
+            />
+            {/* Etichette in posizione assoluta, usando toY() */}
+            {yTicks.map((val, idx) => {
+              const y = toY(val);
+              return (
+                <View
+                  key={`${val}-${idx}`}
+                  style={[
+                    styles.yAxisLabelContainer,
+                    { top: y - 8 }, // -8 per centrare il testo
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.yAxisLabel,
+                      { color: colors.text },
+                    ]}
+                  >
+                    {val.toFixed(2)}
+                  </Text>
                 </View>
-                <View style={styles.barColumnValues}>
-                  {entries.map((val, idx) => (
-                    <Text key={`${s.label}_${idx}_val`} style={[styles.barColumnValue, { color: getLineColor(val.colorIndex ?? idx) }]} numberOfLines={1}>
-                      {typeof s.format === 'function'
-                        ? s.format(val.value)
-                        : formatValue
-                        ? formatValue(val.value, s.label)
-                        : String(val.value ?? '�?"')}
-                    </Text>
-                  ))}
+              );
+            })}
+          </View>
+        </View>
+
+        {/* Area grafico scrollabile */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator
+          contentContainerStyle={styles.chartContainer}
+        >
+          <View style={[styles.chartArea, { height: TRACK_HEIGHT }]}>
+            {/* Linea dello zero, nera e spessa */}
+            {hasZero && zeroY !== null && (
+              <View
+                style={[
+                  styles.zeroLine,
+                  {
+                    top: zeroY,
+                  },
+                ]}
+              />
+            )}
+
+            {groups.map((g) => {
+              const entries = g.entries;
+              const barCount = entries.length || 1;
+
+              const barWidth = Math.max(10, Math.min(18, 56 / barCount));
+              const gap = 8;
+              const groupWidth = Math.max(
+                barCount * barWidth + (barCount - 1) * gap,
+                52
+              );
+
+              const formatter =
+                g.format ??
+                (formatValue
+                  ? (v: unknown) => formatValue(v, g.label)
+                  : (v: unknown) => String(v ?? 'N/A'));
+
+              return (
+                <View key={g.label} style={[styles.group, { width: groupWidth + 8 }]}>
+                  <View style={[styles.groupBars, { height: TRACK_HEIGHT }]}>
+                    {entries.map((val, idx) => {
+                      const numeric = Number(val.value);
+                      if (!Number.isFinite(numeric)) return null;
+
+                      const valueY = toY(numeric);
+                      const baselineY =
+                        hasZero && zeroY !== null
+                          ? zeroY
+                          : numeric >= 0
+                          ? toY(domainMin) // tutto positivo
+                          : toY(domainMax); // tutto negativo
+
+                      const top = Math.min(valueY, baselineY);
+                      const bottom = Math.max(valueY, baselineY);
+                      const barHeight = Math.max(2, bottom - top);
+
+                      const color = getLineColor(val.colorIndex ?? idx);
+
+                      return (
+                        <View
+                          key={`${g.label}-${val.id}-${idx}`}
+                          style={{ alignItems: 'center', marginHorizontal: gap / 2 }}
+                        >
+                          <View
+                            style={{
+                              height: TRACK_HEIGHT,
+                              width: barWidth,
+                              position: 'relative',
+                            }}
+                          >
+                            <View
+                              style={[
+                                styles.bar,
+                                {
+                                  position: 'absolute',
+                                  top,
+                                  width: barWidth,
+                                  height: barHeight,
+                                  backgroundColor: color,
+                                  borderColor: color,
+                                },
+                              ]}
+                            />
+                          </View>
+
+                          <Text style={[styles.barValue, { color: colors.text }]}>
+                            {formatter(val.value)}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+
+                  <Text style={[styles.groupLabel, { color: colors.text }]}>
+                    {g.label}
+                  </Text>
                 </View>
-              </View>
-            </View>
-          );
-        })}
-      </ScrollView>
+              );
+            })}
+          </View>
+        </ScrollView>
+      </View>
+
+      {/* Legenda */}
       {legend && legend.length > 0 && (
-        <View style={styles.barLegend}>
+        <View style={styles.legend}>
           {legend.map((item) => {
-            const color = getLineColor(item.colorIndex);
             const hidden = hiddenIds?.has(item.id);
+            const color = getLineColor(item.colorIndex);
+
             return (
               <View
                 key={item.id}
@@ -139,70 +299,81 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 10,
   },
-  barChartContainer: {
-    columnGap: -2,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
   title: {
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 8,
   },
-  barColumnGroup: {
-    minWidth: 80,
-    alignItems: 'center',
+  yAxisWrapper: {
+    width: 60,
+    marginRight: 6,
   },
-  barColumnLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  barColumnChart: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 0,
-    paddingTop: 4,
-  },
-  barColumnTrack: {
-    width: 28,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#E5E7EB',
-    justifyContent: 'flex-end',
-    overflow: 'visible',
+  yAxisTrack: {
+    flex: 1,
     position: 'relative',
   },
-  barZeroLine: {
+  yAxisLine: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    height: StyleSheet.hairlineWidth * 2,
+    left: '50%',
+    top: 0,
+    bottom: 0,
+    width: StyleSheet.hairlineWidth * 2,
     opacity: 0.6,
   },
-  barColumnFill: {
-    width: '100%',
-    borderRadius: 6,
+  yAxisLabelContainer: {
     position: 'absolute',
-    bottom: 0,
     left: 0,
     right: 0,
-  },
-  barColumnValues: {
-    flexDirection: 'column',
     alignItems: 'center',
-    rowGap: 2,
-    marginTop: 4,
   },
-  barColumnValue: {
+  yAxisLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  chartContainer: {
+    paddingHorizontal: 6,
+    paddingBottom: 6,
+  },
+  chartArea: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    position: 'relative',
+  },
+  zeroLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 4, // linea spessa
+    backgroundColor: '#000000', // nera
+    zIndex: 5,
+  },
+  group: {
+    alignItems: 'center',
+    marginHorizontal: 6,
+  },
+  groupBars: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  bar: {
+    borderRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  barValue: {
     fontSize: 9,
     fontWeight: '700',
+    marginTop: 2,
   },
-  barLegend: {
+  groupLabel: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  legend: {
+    marginTop: 12,
     flexDirection: 'column',
     rowGap: 8,
-    marginTop: 12,
-    alignItems: 'flex-start',
   },
   legendItem: {
     flexDirection: 'row',
@@ -217,8 +388,6 @@ const styles = StyleSheet.create({
   legendText: {
     fontSize: 12,
     fontWeight: '700',
-    flexShrink: 1,
-    flexWrap: 'wrap',
   },
 });
 
