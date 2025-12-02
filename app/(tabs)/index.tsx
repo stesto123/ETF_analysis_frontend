@@ -466,6 +466,30 @@ export default function HomeScreen() {
     return `${labels.slice(0, 3).join(', ')} +${labels.length - 3} more`;
   }, [selectedMetricOptions]);
 
+  // Metric options dedicated to bar charts (exclude metadata) using full catalog
+  const barMetricOptions = useMemo(
+    () => metricOptions.filter((m) => m.category !== 'metadata'),
+    [metricOptions]
+  );
+  const barMetricOptionsByKey = useMemo(() => {
+    const map = new Map<MetricKey, MetricOption>();
+    barMetricOptions.forEach((opt) => map.set(opt.key, opt));
+    return map;
+  }, [barMetricOptions]);
+  const barMetricCategories = useMemo<MetricCategory[]>(() => {
+    return CATEGORY_DEFS.filter((cat) => cat.id !== 'metadata')
+      .map((cat) => ({
+        ...cat,
+        metrics: barMetricOptions.filter((opt) => opt.category === cat.id).map((opt) => opt.key),
+      }))
+      .filter((cat) => cat.metrics.length > 0);
+  }, [barMetricOptions]);
+  const barMetricsByCategory = useMemo(() => {
+    const map = new Map<MetricCategoryId, MetricKey[]>();
+    barMetricCategories.forEach((cat) => map.set(cat.id, cat.metrics));
+    return map;
+  }, [barMetricCategories]);
+
   const getShortLabel = useCallback((metric: MetricOption) => {
     const k = metric.key.toLowerCase();
     if (k.startsWith('return_')) {
@@ -565,34 +589,86 @@ export default function HomeScreen() {
     });
   }, [selectedMetricOptions, selectedArray, snapshots, getMetricValue]);
 
-  const barableMetrics = useMemo(
-    () => selectedMetricOptions.filter((m) => m.category !== 'metadata'),
-    [selectedMetricOptions]
-  );
-  const [barMetricKeys, setBarMetricKeys] = useState<MetricKey[]>([]);
-  useEffect(() => {
-    if (barMetricKeys.length > 0 && barMetricKeys.every((k) => barableMetrics.some((m) => m.key === k))) return;
-    const defaults = barableMetrics.slice(0, 6).map((m) => m.key);
-    setBarMetricKeys(defaults);
-  }, [barableMetrics, barMetricKeys]);
+  // Selezione metriche per ogni categoria (un grafico dedicato per categoria)
+  const [barSelections, setBarSelections] = useState<Record<MetricCategoryId, MetricKey[]>>({});
 
-  const barSeries = useMemo(() => {
-    return barMetricKeys
-      .map((key) => barableMetrics.find((m) => m.key === key))
-      .filter(Boolean)
-      .map((metric) => {
-        const values = selectedArray.map((t) => ({
-          id: t.ticker_id,
-          label: t.name || t.symbol || String(t.ticker_id),
-          value: getMetricValue(snapshots[t.ticker_id], metric!),
-          colorIndex: selectedIndexById.get(t.ticker_id) ?? 0,
-        }));
-        const numeric = values.map((v) => Number(v.value)).filter((v) => Number.isFinite(v));
-        const min = numeric.length ? Math.min(...numeric) : NaN;
-        const max = numeric.length ? Math.max(...numeric) : NaN;
-        return { metric: metric!, values, min, max, format: (v: unknown) => formatMetricValue(v, metric!) };
+  useEffect(() => {
+    setBarSelections((prev) => {
+      const next: Record<MetricCategoryId, MetricKey[]> = {};
+      barMetricCategories.forEach((cat) => {
+        const available = (cat.metrics as MetricKey[]) ?? [];
+        const existing = prev[cat.id] ?? [];
+        const filtered = existing.filter((k) => available.includes(k));
+        const fallback = available.slice(0, Math.min(available.length, 4));
+        next[cat.id] = filtered.length ? filtered : fallback;
       });
-  }, [barMetricKeys, barableMetrics, selectedArray, snapshots, getMetricValue, selectedIndexById, formatMetricValue]);
+      return next;
+    });
+  }, [barMetricCategories]);
+
+  const toggleBarMetric = useCallback(
+    (categoryId: MetricCategoryId, key: MetricKey) => {
+      setBarSelections((prev) => {
+        const available = barMetricsByCategory.get(categoryId) ?? [];
+        const current = (prev[categoryId] ?? []).filter((k) => available.includes(k));
+        const exists = current.includes(key);
+        const next = exists ? current.filter((k) => k !== key) : [...current, key];
+        return { ...prev, [categoryId]: next };
+      });
+    },
+    [barMetricsByCategory]
+  );
+
+  const toggleBarCategory = useCallback(
+    (categoryId: MetricCategoryId) => {
+      const catMetrics = barMetricsByCategory.get(categoryId) ?? [];
+      if (!catMetrics.length) return;
+      setBarSelections((prev) => {
+        const current = prev[categoryId] ?? [];
+        const allSelected = catMetrics.every((k) => current.includes(k as MetricKey));
+        const next = allSelected ? current.filter((k) => !catMetrics.includes(k)) : Array.from(new Set([...current, ...catMetrics]));
+        return { ...prev, [categoryId]: next as MetricKey[] };
+      });
+    },
+    [barMetricsByCategory]
+  );
+
+  const resetBarCategory = useCallback(
+    (categoryId: MetricCategoryId) => {
+      const metrics = barMetricsByCategory.get(categoryId) ?? [];
+      const fallback = metrics.slice(0, Math.min(metrics.length, 4));
+      setBarSelections((prev) => ({ ...prev, [categoryId]: fallback as MetricKey[] }));
+    },
+    [barMetricsByCategory]
+  );
+
+  const buildBarSeries = useCallback(
+    (metricKeys: MetricKey[]) => {
+      return metricKeys
+        .map((key) => barMetricOptionsByKey.get(key))
+        .filter(Boolean)
+        .map((metric) => {
+          const values = selectedArray.map((t) => ({
+            id: t.ticker_id,
+            label: t.name || t.symbol || String(t.ticker_id),
+            value: getMetricValue(snapshots[t.ticker_id], metric!),
+            colorIndex: selectedIndexById.get(t.ticker_id) ?? 0,
+          }));
+          const numeric = values.map((v) => Number(v.value)).filter((v) => Number.isFinite(v));
+          const min = numeric.length ? Math.min(...numeric) : NaN;
+          const max = numeric.length ? Math.max(...numeric) : NaN;
+          return { metric: metric!, values, min, max, format: (v: unknown) => formatMetricValue(v, metric!) };
+        })
+        .filter(Boolean) as Array<{
+          metric: MetricOption;
+          values: Array<{ id: number; label: string; value: unknown; colorIndex: number }>;
+          min: number;
+          max: number;
+          format: (v: unknown) => string;
+        }>;
+    },
+    [barMetricOptionsByKey, selectedArray, snapshots, getMetricValue, selectedIndexById, formatMetricValue]
+  );
 
   const formatMetricValue = useCallback((value: unknown, option: MetricOption) => {
     if (value == null) return '�?"';
@@ -1484,42 +1560,116 @@ export default function HomeScreen() {
                   </ScrollView>
                 </View>
               )}
-              {barSeries.length > 0 && selectedArray.length > 0 && (
-                <View>
-                  <VerticalBarChart
-                    series={barSeries.map(({ metric, values, min, max }) => ({
-                      label: getShortLabel(metric),
-                      values,
-                      min,
-                      max,
-                      format: (v: unknown) => {
-                        const num = Number(v);
-                        if (!Number.isFinite(num)) return '�?"';
-                        return `${(num * 100).toFixed(1)}%`;
-                      },
-                    }))}
-                    title="Metric bars"
-                    colors={{
-                      text: colors.text,
-                      secondaryText: colors.secondaryText,
-                      border: colors.border,
-                      background: colors.background,
-                    }}
-                    legend={selectedArray.map((t) => ({
-                      label: t.name || t.symbol || String(t.ticker_id),
-                      colorIndex: selectedIndexById.get(t.ticker_id) ?? 0,
-                      id: t.ticker_id,
-                      hidden: hiddenBars.has(t.ticker_id),
-                    }))}
-                    hiddenIds={hiddenBars}
-                    onToggleLegend={toggleBarVisibility}
-                  />
+              {selectedArray.length > 0 && (
+                <View style={[styles.sectionCard, { borderColor: colors.border, backgroundColor: colors.background }]}>
+                  <View style={[styles.cardHeaderRow, { marginBottom: 8 }]}>
+                    <Text style={[styles.cardTitle, { color: colors.text }]}>Metric bars</Text>
+                  </View>
+
+                  {barMetricCategories.map((cat) => {
+                    const selectedKeys = barSelections[cat.id] ?? [];
+                    const options = cat.metrics
+                      .map((k) => barMetricOptionsByKey.get(k))
+                      .filter(Boolean) as MetricOption[];
+                    const series = buildBarSeries(selectedKeys);
+                    const total = cat.metrics.length;
+                    const allSelected = total > 0 && selectedKeys.length === total;
+
+                    return (
+                      <View key={cat.id} style={[styles.barChartCard, { borderColor: colors.border }]}>
+                        <View style={styles.barChartHeader}>
+                          <Text style={[styles.cardTitle, { color: colors.text }]}>
+                            {cat.label}
+                          </Text>
+                          <View style={styles.inlineHelpRow}>
+                            <Text style={[styles.metricCategoryCount, { color: colors.secondaryText }]}>
+                              {selectedKeys.length}/{total} selected
+                            </Text>
+                            <Pressable
+                              onPress={() => resetBarCategory(cat.id)}
+                              style={[styles.bulkBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
+                            >
+                              <Text style={[styles.bulkBtnText, { color: colors.text }]}>Reset</Text>
+                            </Pressable>
+                          </View>
+                        </View>
+
+                        <View style={styles.barChartControls}>
+                          <View style={[styles.metricCategoryChips, { marginBottom: 10 }]}>
+                            <Pressable
+                              onPress={() => toggleBarCategory(cat.id)}
+                              style={[
+                                styles.metricCategoryToggle,
+                                { borderColor: colors.border, backgroundColor: colors.card },
+                                allSelected && { backgroundColor: friendlyAccent(colors.accent, 0.16), borderColor: colors.accent },
+                              ]}
+                            >
+                              <Text style={[styles.metricCategoryToggleText, { color: allSelected ? colors.accent : colors.text }]}>
+                                {allSelected ? 'Clear all' : 'Select all'}
+                              </Text>
+                            </Pressable>
+                          </View>
+                          <View style={styles.metricCategoryChips}>
+                            {options.map((opt) => {
+                              const active = selectedKeys.includes(opt.key as MetricKey);
+                              return (
+                                <Pressable
+                                  key={opt.key}
+                                  onPress={() => toggleBarMetric(cat.id, opt.key as MetricKey)}
+                                  style={[
+                                    styles.metricChip,
+                                    { borderColor: colors.border, backgroundColor: colors.card },
+                                    active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
+                                  ]}
+                                >
+                                  <Text style={[styles.metricChipText, { color: active ? colors.accent : colors.text }]}>
+                                    {opt.label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </View>
+
+                        {series.length > 0 ? (
+                          <VerticalBarChart
+                            series={series.map(({ metric, values, min, max }) => ({
+                              label: getShortLabel(metric),
+                              values,
+                              min,
+                              max,
+                              format: (v: unknown) => formatMetricValue(v, metric),
+                            }))}
+                            title={undefined}
+                            colors={{
+                              text: colors.text,
+                              secondaryText: colors.secondaryText,
+                              border: colors.border,
+                              background: colors.background,
+                            }}
+                            legend={selectedArray.map((t) => ({
+                              label: t.name || t.symbol || String(t.ticker_id),
+                              colorIndex: selectedIndexById.get(t.ticker_id) ?? 0,
+                              id: t.ticker_id,
+                              hidden: hiddenBars.has(t.ticker_id),
+                            }))}
+                            hiddenIds={hiddenBars}
+                            onToggleLegend={toggleBarVisibility}
+                          />
+                        ) : (
+                          <Text style={{ color: colors.secondaryText, marginTop: 8 }}>
+                            Select at least one metric in this category to render the chart.
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })}
                 </View>
               )}
             </View>
           ),
         })}
-  {/* pipeline UI rimossa: spostata in pagina dedicata */}
+        {/* pipeline UI rimossa: spostata in pagina dedicata */}
       </ScrollView>
       <Modal
         transparent
@@ -1997,6 +2147,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
+  barChartCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 10,
+    gap: 8,
+  },
+  barChartHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  barChartControls: {
+    rowGap: 6,
+  },
   searchRow: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 12,
@@ -2157,3 +2322,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+
