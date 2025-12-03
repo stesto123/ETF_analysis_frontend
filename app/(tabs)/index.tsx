@@ -30,6 +30,9 @@ import { TOOLTIP_COPY } from '@/constants/tooltips';
 type GeographyOption = AreaChipGeographyOption;
 type DateRange = { start_date: string; end_date: string };
 type SelectedMap = Record<number, TickerSummary>;
+type PerformanceMode = 'sharpe' | 'sortino';
+type BetaMode = 'world' | 'sp500';
+type CorrelationMode = 'world' | 'sp500';
 
 type MultiDataset = { label: string; data: number[]; colorHint?: 'up' | 'down'; ticker?: string };
 // allow optional labels per dataset (shared across series)
@@ -254,7 +257,7 @@ const CATEGORY_DEFS: Array<Omit<MetricCategory, 'metrics'>> = [
   { id: 'return', label: 'Returns', description: 'Performance across horizons' },
   { id: 'volatility', label: 'Volatility', description: 'Rolling volatility windows' },
   { id: 'performance', label: 'Performance ratios', description: 'Sharpe and Sortino ratios' },
-  { id: 'drawdown', label: 'Drawdown', description: 'Maximum drawdown windows' },
+  { id: 'drawdown', label: 'Max drawdown', description: 'Maximum drawdown windows' },
   { id: 'beta', label: 'Beta', description: 'Betas vs World and S&P 500' },
   { id: 'correlation', label: 'Correlations', description: 'Historical correlations by year' },
   { id: 'metadata', label: 'Snapshot info', description: 'Calendar, freshness, latest close' },
@@ -349,6 +352,10 @@ export default function HomeScreen() {
 
   const [lastRange, setLastRange] = useState<DateRange | null>(null);
   const [chartMode, setChartMode] = useState<'price' | 'cumulative'>('price');
+  const [performanceMode, setPerformanceMode] = useState<PerformanceMode>('sharpe');
+  const [betaMode, setBetaMode] = useState<BetaMode>('world');
+  const [correlationMode, setCorrelationMode] = useState<CorrelationMode>('world');
+  const [visibleBarCategories, setVisibleBarCategories] = useState<MetricCategoryId[]>(['return']);
 
   // Stable selection order: sort by display name (nome || ticker)
   const selectedArray = useMemo(() => {
@@ -489,28 +496,46 @@ export default function HomeScreen() {
     barMetricCategories.forEach((cat) => map.set(cat.id, cat.metrics));
     return map;
   }, [barMetricCategories]);
+  const visibleBarMetricCategories = useMemo(
+    () => barMetricCategories.filter((cat) => visibleBarCategories.includes(cat.id)),
+    [barMetricCategories, visibleBarCategories]
+  );
+
+  useEffect(() => {
+    setVisibleBarCategories((prev) => {
+      const allowed = barMetricCategories.map((c) => c.id);
+      const filtered = prev.filter((id) => allowed.includes(id));
+      if (filtered.length) return filtered;
+      return allowed.length ? [allowed[0]] : [];
+    });
+  }, [barMetricCategories]);
 
   const getShortLabel = useCallback((metric: MetricOption) => {
     const k = metric.key.toLowerCase();
+    const labelLower = metric.label.toLowerCase();
     if (k.startsWith('return_')) {
       const suffix = k.replace('return_', '');
       if (suffix === 'ytd') return 'YTD';
       return suffix.toUpperCase();
     }
+    if (k.startsWith('volatility_') || labelLower.startsWith('vol ')) {
+      const suffix = labelLower.startsWith('vol ')
+        ? metric.label.slice(4)
+        : k.replace('volatility_', '');
+      return suffix;
+    }
+    if (labelLower.startsWith('sharpe ')) return metric.label.replace('Sharpe ', '');
+    if (labelLower.startsWith('sortino ')) return metric.label.replace('Sortino ', '');
     if (k.startsWith('corr_world_')) {
       return `W ${k.replace('corr_world_', '')}`;
     }
     if (k.startsWith('corr_sp500_')) {
       return `S ${k.replace('corr_sp500_', '')}`;
     }
-    if (k.startsWith('beta_world_')) {
-      return `βW ${k.replace('beta_world_', '')}`;
-    }
-    if (k.startsWith('beta_sp500_')) {
-      return `βS ${k.replace('beta_sp500_', '')}`;
-    }
-    if (metric.label.toLowerCase().includes('sortino')) return metric.label.replace('Sortino ', 'S ');
-    if (metric.label.toLowerCase().includes('sharpe')) return metric.label.replace('Sharpe ', 'Sh ');
+    if (k.startsWith('max_drawdown_')) return k.replace('max_drawdown_', '');
+    if (labelLower.startsWith('max dd ')) return metric.label.replace(/^Max DD\s*/i, '');
+    if (k.startsWith('beta_world_')) return k.replace('beta_world_', '');
+    if (k.startsWith('beta_sp500_')) return k.replace('beta_sp500_', '');
     return metric.label;
   }, []);
 
@@ -591,6 +616,25 @@ export default function HomeScreen() {
 
   // Selezione metriche per ogni categoria (un grafico dedicato per categoria)
   const [barSelections, setBarSelections] = useState<Record<MetricCategoryId, MetricKey[]>>({});
+  const [barCategoryExpanded, setBarCategoryExpanded] = useState<Record<MetricCategoryId, boolean>>({});
+  const isPerformanceKeyForMode = useCallback(
+    (key: MetricKey, mode: PerformanceMode) => {
+      const lower = key.toLowerCase();
+      if (mode === 'sharpe') return lower.startsWith('sharpe_');
+      return lower.startsWith('sortino_');
+    },
+    []
+  );
+  const isBetaKeyForMode = useCallback((key: MetricKey, mode: BetaMode) => {
+    const lower = key.toLowerCase();
+    if (mode === 'world') return lower.startsWith('beta_world_');
+    return lower.startsWith('beta_sp500_');
+  }, []);
+  const isCorrelationKeyForMode = useCallback((key: MetricKey, mode: CorrelationMode) => {
+    const lower = key.toLowerCase();
+    if (mode === 'world') return lower.startsWith('corr_world_');
+    return lower.startsWith('corr_sp500_');
+  }, []);
 
   useEffect(() => {
     setBarSelections((prev) => {
@@ -599,48 +643,102 @@ export default function HomeScreen() {
         const available = (cat.metrics as MetricKey[]) ?? [];
         const existing = prev[cat.id] ?? [];
         const filtered = existing.filter((k) => available.includes(k));
-        const fallback = available.slice(0, Math.min(available.length, 4));
-        next[cat.id] = filtered.length ? filtered : fallback;
+        if (cat.id === 'performance') {
+          const modeAvail = available.filter((k) => isPerformanceKeyForMode(k, performanceMode));
+          const filteredMode = filtered.filter((k) => modeAvail.includes(k));
+          const fallback = modeAvail.slice(0, Math.min(modeAvail.length, 4));
+          next[cat.id] = filteredMode.length ? filteredMode : fallback;
+        } else if (cat.id === 'beta') {
+          const modeAvail = available.filter((k) => isBetaKeyForMode(k, betaMode));
+          const filteredMode = filtered.filter((k) => modeAvail.includes(k));
+          const fallback = modeAvail.slice(0, Math.min(modeAvail.length, 4));
+          next[cat.id] = filteredMode.length ? filteredMode : fallback;
+        } else if (cat.id === 'correlation') {
+          const modeAvail = available.filter((k) => isCorrelationKeyForMode(k, correlationMode));
+          const filteredMode = filtered.filter((k) => modeAvail.includes(k));
+          const fallback = modeAvail.slice(0, Math.min(modeAvail.length, 4));
+          next[cat.id] = filteredMode.length ? filteredMode : fallback;
+        } else {
+          const fallback = available.slice(0, Math.min(available.length, 4));
+          next[cat.id] = filtered.length ? filtered : fallback;
+        }
       });
       return next;
     });
-  }, [barMetricCategories]);
+  }, [barMetricCategories, isPerformanceKeyForMode, performanceMode, isBetaKeyForMode, betaMode, isCorrelationKeyForMode, correlationMode]);
 
   const toggleBarMetric = useCallback(
     (categoryId: MetricCategoryId, key: MetricKey) => {
       setBarSelections((prev) => {
         const available = barMetricsByCategory.get(categoryId) ?? [];
+        const filteredAvailable =
+          categoryId === 'performance'
+            ? available.filter((k) => isPerformanceKeyForMode(k, performanceMode))
+            : categoryId === 'beta'
+            ? available.filter((k) => isBetaKeyForMode(k, betaMode))
+            : categoryId === 'correlation'
+            ? available.filter((k) => isCorrelationKeyForMode(k, correlationMode))
+            : available;
         const current = (prev[categoryId] ?? []).filter((k) => available.includes(k));
         const exists = current.includes(key);
         const next = exists ? current.filter((k) => k !== key) : [...current, key];
-        return { ...prev, [categoryId]: next };
+        const cleaned = next.filter((k) => filteredAvailable.includes(k));
+        return { ...prev, [categoryId]: cleaned };
       });
     },
-    [barMetricsByCategory]
+    [barMetricsByCategory, isPerformanceKeyForMode, performanceMode, isBetaKeyForMode, betaMode, isCorrelationKeyForMode, correlationMode]
   );
 
   const toggleBarCategory = useCallback(
     (categoryId: MetricCategoryId) => {
       const catMetrics = barMetricsByCategory.get(categoryId) ?? [];
-      if (!catMetrics.length) return;
+      const filteredMetrics =
+        categoryId === 'performance'
+          ? catMetrics.filter((k) => isPerformanceKeyForMode(k, performanceMode))
+          : categoryId === 'beta'
+          ? catMetrics.filter((k) => isBetaKeyForMode(k, betaMode))
+          : categoryId === 'correlation'
+          ? catMetrics.filter((k) => isCorrelationKeyForMode(k, correlationMode))
+          : catMetrics;
+      if (!filteredMetrics.length) return;
       setBarSelections((prev) => {
         const current = prev[categoryId] ?? [];
-        const allSelected = catMetrics.every((k) => current.includes(k as MetricKey));
-        const next = allSelected ? current.filter((k) => !catMetrics.includes(k)) : Array.from(new Set([...current, ...catMetrics]));
+        const allSelected = filteredMetrics.every((k) => current.includes(k as MetricKey));
+        const next = allSelected ? current.filter((k) => !filteredMetrics.includes(k)) : Array.from(new Set([...current, ...filteredMetrics]));
         return { ...prev, [categoryId]: next as MetricKey[] };
       });
     },
-    [barMetricsByCategory]
+    [barMetricsByCategory, isPerformanceKeyForMode, performanceMode, isBetaKeyForMode, betaMode, isCorrelationKeyForMode, correlationMode]
   );
 
   const resetBarCategory = useCallback(
     (categoryId: MetricCategoryId) => {
       const metrics = barMetricsByCategory.get(categoryId) ?? [];
-      const fallback = metrics.slice(0, Math.min(metrics.length, 4));
+      const filteredMetrics =
+        categoryId === 'performance'
+          ? metrics.filter((k) => isPerformanceKeyForMode(k, performanceMode))
+          : categoryId === 'beta'
+          ? metrics.filter((k) => isBetaKeyForMode(k, betaMode))
+          : categoryId === 'correlation'
+          ? metrics.filter((k) => isCorrelationKeyForMode(k, correlationMode))
+          : metrics;
+      const fallback = filteredMetrics.slice(0, Math.min(filteredMetrics.length, 4));
       setBarSelections((prev) => ({ ...prev, [categoryId]: fallback as MetricKey[] }));
     },
-    [barMetricsByCategory]
+    [barMetricsByCategory, isPerformanceKeyForMode, performanceMode, isBetaKeyForMode, betaMode, isCorrelationKeyForMode, correlationMode]
   );
+
+  const toggleBarExpansion = useCallback((categoryId: MetricCategoryId) => {
+    setBarCategoryExpanded((prev) => ({ ...prev, [categoryId]: !prev[categoryId] }));
+  }, []);
+
+  const toggleVisibleBarCategory = useCallback((categoryId: MetricCategoryId) => {
+    setVisibleBarCategories((prev) => {
+      const exists = prev.includes(categoryId);
+      if (exists) return prev.filter((id) => id !== categoryId);
+      return [...prev, categoryId];
+    });
+  }, []);
 
   const buildBarSeries = useCallback(
     (metricKeys: MetricKey[]) => {
@@ -1566,14 +1664,64 @@ export default function HomeScreen() {
                     <Text style={[styles.cardTitle, { color: colors.text }]}>Metric bars</Text>
                   </View>
 
-                  {barMetricCategories.map((cat) => {
+                  <View style={[styles.barCategoryPicker]}>
+                    <Text style={[styles.barCategoryPickerTitle, { color: colors.secondaryText }]}>
+                      Choose metric groups to display
+                    </Text>
+                    <View style={styles.barCategoryChips}>
+                      {barMetricCategories.map((cat) => {
+                        const active = visibleBarCategories.includes(cat.id);
+                        return (
+                          <Pressable
+                            key={cat.id}
+                            onPress={() => toggleVisibleBarCategory(cat.id)}
+                            style={[
+                              styles.barCategoryChip,
+                              { borderColor: colors.border, backgroundColor: colors.card },
+                              active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
+                            ]}
+                          >
+                            <Text style={[styles.barCategoryChipText, { color: active ? colors.accent : colors.text }]}>
+                              {cat.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  {visibleBarMetricCategories.length === 0 && (
+                    <Text style={{ color: colors.secondaryText, marginTop: 4 }}>
+                      Select at least one metric group to render charts.
+                    </Text>
+                  )}
+
+                  {visibleBarMetricCategories.map((cat) => {
                     const selectedKeys = barSelections[cat.id] ?? [];
-                    const options = cat.metrics
+                    const rawOptions = cat.metrics
                       .map((k) => barMetricOptionsByKey.get(k))
                       .filter(Boolean) as MetricOption[];
-                    const series = buildBarSeries(selectedKeys);
-                    const total = cat.metrics.length;
-                    const allSelected = total > 0 && selectedKeys.length === total;
+                    const options =
+                      cat.id === 'performance'
+                        ? rawOptions.filter((opt) => isPerformanceKeyForMode(opt.key as MetricKey, performanceMode))
+                        : cat.id === 'beta'
+                        ? rawOptions.filter((opt) => isBetaKeyForMode(opt.key as MetricKey, betaMode))
+                        : cat.id === 'correlation'
+                        ? rawOptions.filter((opt) => isCorrelationKeyForMode(opt.key as MetricKey, correlationMode))
+                        : rawOptions;
+                    const visibleSelectedKeys =
+                      cat.id === 'performance'
+                        ? selectedKeys.filter((k) => isPerformanceKeyForMode(k, performanceMode))
+                        : cat.id === 'beta'
+                        ? selectedKeys.filter((k) => isBetaKeyForMode(k, betaMode))
+                        : cat.id === 'correlation'
+                        ? selectedKeys.filter((k) => isCorrelationKeyForMode(k, correlationMode))
+                        : selectedKeys;
+                    const selectedOptions = options.filter((opt) => visibleSelectedKeys.includes(opt.key as MetricKey));
+                    const series = buildBarSeries(visibleSelectedKeys);
+                    const total = options.length;
+                    const allSelected = total > 0 && visibleSelectedKeys.length === total;
+                    const expanded = barCategoryExpanded[cat.id] ?? false;
 
                     return (
                       <View key={cat.id} style={[styles.barChartCard, { borderColor: colors.border }]}>
@@ -1583,7 +1731,7 @@ export default function HomeScreen() {
                           </Text>
                           <View style={styles.inlineHelpRow}>
                             <Text style={[styles.metricCategoryCount, { color: colors.secondaryText }]}>
-                              {selectedKeys.length}/{total} selected
+                              {visibleSelectedKeys.length}/{total} selected
                             </Text>
                             <Pressable
                               onPress={() => resetBarCategory(cat.id)}
@@ -1595,6 +1743,72 @@ export default function HomeScreen() {
                         </View>
 
                         <View style={styles.barChartControls}>
+                          {cat.id === 'performance' && (
+                            <View style={styles.performanceToggleRow}>
+                              {(['sharpe', 'sortino'] as PerformanceMode[]).map((mode) => {
+                                const active = performanceMode === mode;
+                                return (
+                                  <Pressable
+                                    key={mode}
+                                    onPress={() => setPerformanceMode(mode)}
+                                    style={[
+                                      styles.performanceToggleBtn,
+                                      { borderColor: colors.border, backgroundColor: colors.card },
+                                      active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
+                                    ]}
+                                  >
+                                    <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
+                                      {mode === 'sharpe' ? 'Sharpe' : 'Sortino'}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          )}
+                          {cat.id === 'beta' && (
+                            <View style={styles.performanceToggleRow}>
+                              {(['world', 'sp500'] as BetaMode[]).map((mode) => {
+                                const active = betaMode === mode;
+                                return (
+                                  <Pressable
+                                    key={mode}
+                                    onPress={() => setBetaMode(mode)}
+                                    style={[
+                                      styles.performanceToggleBtn,
+                                      { borderColor: colors.border, backgroundColor: colors.card },
+                                      active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
+                                    ]}
+                                  >
+                                    <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
+                                      {mode === 'world' ? 'World' : 'S&P 500'}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          )}
+                          {cat.id === 'correlation' && (
+                            <View style={styles.performanceToggleRow}>
+                              {(['world', 'sp500'] as CorrelationMode[]).map((mode) => {
+                                const active = correlationMode === mode;
+                                return (
+                                  <Pressable
+                                    key={mode}
+                                    onPress={() => setCorrelationMode(mode)}
+                                    style={[
+                                      styles.performanceToggleBtn,
+                                      { borderColor: colors.border, backgroundColor: colors.card },
+                                      active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
+                                    ]}
+                                  >
+                                    <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
+                                      {mode === 'world' ? 'World' : 'S&P 500'}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          )}
                           <View style={[styles.metricCategoryChips, { marginBottom: 10 }]}>
                             <Pressable
                               onPress={() => toggleBarCategory(cat.id)}
@@ -1609,26 +1823,102 @@ export default function HomeScreen() {
                               </Text>
                             </Pressable>
                           </View>
-                          <View style={styles.metricCategoryChips}>
-                            {options.map((opt) => {
-                              const active = selectedKeys.includes(opt.key as MetricKey);
-                              return (
-                                <Pressable
-                                  key={opt.key}
-                                  onPress={() => toggleBarMetric(cat.id, opt.key as MetricKey)}
-                                  style={[
-                                    styles.metricChip,
-                                    { borderColor: colors.border, backgroundColor: colors.card },
-                                    active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
-                                  ]}
-                                >
-                                  <Text style={[styles.metricChipText, { color: active ? colors.accent : colors.text }]}>
-                                    {opt.label}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
+                          <Pressable
+                            onPress={() => toggleBarExpansion(cat.id)}
+                            style={[
+                              styles.selectedChipRow,
+                              { borderColor: colors.border, backgroundColor: colors.background },
+                              expanded && { borderColor: colors.accent },
+                            ]}
+                          >
+                            <View style={styles.selectedChipStack}>
+                              {selectedOptions.length ? (
+                                selectedOptions.map((opt) => {
+                                  const displayLabel =
+                                    cat.id === 'return' ||
+                                    cat.id === 'volatility' ||
+                                    cat.id === 'performance' ||
+                                    cat.id === 'beta' ||
+                                    cat.id === 'correlation' ||
+                                    cat.id === 'drawdown'
+                                      ? getShortLabel(opt)
+                                      : opt.label;
+                                  return (
+                                    <View
+                                      key={opt.key}
+                                      style={[
+                                        styles.barMetricChipCompact,
+                                        { borderColor: colors.border, backgroundColor: colors.card },
+                                      ]}
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.barMetricChipCompactText,
+                                          { color: colors.text },
+                                        ]}
+                                      >
+                                        {displayLabel}
+                                      </Text>
+                                    </View>
+                                  );
+                                })
+                              ) : (
+                                <Text style={[styles.selectedChipHint, { color: colors.secondaryText }]}>
+                                  Tap to pick metrics
+                                </Text>
+                              )}
+                            </View>
+                            <View
+                              style={[
+                                styles.selectedChipAction,
+                                { borderColor: colors.border, backgroundColor: '#FFFFFF' },
+                                expanded && { borderColor: colors.accent },
+                              ]}
+                            >
+                              <Text style={[styles.selectedChipHint, { color: expanded ? colors.accent : colors.text }]}>
+                                {expanded ? 'Close' : 'Edit'}
+                              </Text>
+                            </View>
+                          </Pressable>
+
+                            {expanded && (
+                            <View style={styles.metricCategoryChips}>
+                              {options.map((opt) => {
+                                const active = selectedKeys.includes(opt.key as MetricKey);
+                                const displayLabel =
+                                  cat.id === 'return' ||
+                                  cat.id === 'volatility' ||
+                                  cat.id === 'performance' ||
+                                  cat.id === 'beta' ||
+                                  cat.id === 'correlation' ||
+                                  cat.id === 'drawdown'
+                                    ? getShortLabel(opt)
+                                    : opt.label;
+                                return (
+                                  <Pressable
+                                    key={opt.key}
+                                    onPress={() => toggleBarMetric(cat.id, opt.key as MetricKey)}
+                                    style={[
+                                      styles.metricChip,
+                                      styles.barMetricChipExpanded,
+                                      { borderColor: colors.border, backgroundColor: colors.card },
+                                      active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.metricChipText,
+                                        styles.barMetricChipExpandedText,
+                                        { color: active ? colors.accent : colors.text },
+                                      ]}
+                                    >
+                                      {displayLabel}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          )}
                         </View>
 
                         {series.length > 0 ? (
@@ -1942,6 +2232,91 @@ const styles = StyleSheet.create({
   metricChipText: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  selectedChipRow: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: 10,
+  },
+  selectedChipStack: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 6,
+    rowGap: 6,
+    flex: 1,
+  },
+  selectedChipHint: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  barMetricChipCompact: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  barMetricChipCompactText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  barMetricChipExpanded: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  barMetricChipExpandedText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  selectedChipAction: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+  },
+  performanceToggleRow: {
+    flexDirection: 'row',
+    columnGap: 8,
+    marginBottom: 8,
+  },
+  performanceToggleBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  performanceToggleText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  barCategoryPicker: {
+    rowGap: 8,
+    marginBottom: 10,
+  },
+  barCategoryPickerTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  barCategoryChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: 8,
+    columnGap: 8,
+  },
+  barCategoryChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  barCategoryChipText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   metricCategoryRow: {
     flexDirection: 'row',
