@@ -306,6 +306,7 @@ export default function HomeScreen() {
   const [page, setPage] = useState(0);
   const screenH = Dimensions.get('window').height;
   const tickerListHeight = Math.round(screenH * 0.88);
+  const barScrollMaxHeight = Math.max(360, Math.round(screenH * 0.8));
   const scrollRef = useRef<ScrollView>(null);
   const [searchOffset, setSearchOffset] = useState(0);
   const searchInputRef = useRef<TextInput>(null);
@@ -355,7 +356,10 @@ export default function HomeScreen() {
   const [performanceMode, setPerformanceMode] = useState<PerformanceMode>('sharpe');
   const [betaMode, setBetaMode] = useState<BetaMode>('world');
   const [correlationMode, setCorrelationMode] = useState<CorrelationMode>('world');
+  const [showBarLegend, setShowBarLegend] = useState(true);
   const [visibleBarCategories, setVisibleBarCategories] = useState<MetricCategoryId[]>(['return']);
+  const [libraryGeoOpen, setLibraryGeoOpen] = useState(false);
+  const [libraryGeoModalVisible, setLibraryGeoModalVisible] = useState(false);
 
   // Stable selection order: sort by display name (nome || ticker)
   const selectedArray = useMemo(() => {
@@ -445,10 +449,12 @@ export default function HomeScreen() {
   }, [correlationYears]);
 
   const metricCategories = useMemo<MetricCategory[]>(() => {
-    return CATEGORY_DEFS.map((cat) => ({
-      ...cat,
-      metrics: metricOptions.filter((opt) => opt.category === cat.id).map((opt) => opt.key),
-    })).filter((cat) => cat.metrics.length > 0);
+    return CATEGORY_DEFS.filter((cat) => cat.id !== 'metadata')
+      .map((cat) => ({
+        ...cat,
+        metrics: metricOptions.filter((opt) => opt.category === cat.id).map((opt) => opt.key),
+      }))
+      .filter((cat) => cat.metrics.length > 0);
   }, [metricOptions]);
 
   const selectedMetricOptions = useMemo(() => {
@@ -499,6 +505,15 @@ export default function HomeScreen() {
   const visibleBarMetricCategories = useMemo(
     () => barMetricCategories.filter((cat) => visibleBarCategories.includes(cat.id)),
     [barMetricCategories, visibleBarCategories]
+  );
+  const barLegendItems = useMemo(
+    () =>
+      selectedArray.map((t) => ({
+        id: t.ticker_id,
+        label: t.name || t.symbol || String(t.ticker_id),
+        colorIndex: selectedIndexById.get(t.ticker_id) ?? 0,
+      })),
+    [selectedArray, selectedIndexById]
   );
 
   useEffect(() => {
@@ -685,45 +700,6 @@ export default function HomeScreen() {
         const cleaned = next.filter((k) => filteredAvailable.includes(k));
         return { ...prev, [categoryId]: cleaned };
       });
-    },
-    [barMetricsByCategory, isPerformanceKeyForMode, performanceMode, isBetaKeyForMode, betaMode, isCorrelationKeyForMode, correlationMode]
-  );
-
-  const toggleBarCategory = useCallback(
-    (categoryId: MetricCategoryId) => {
-      const catMetrics = barMetricsByCategory.get(categoryId) ?? [];
-      const filteredMetrics =
-        categoryId === 'performance'
-          ? catMetrics.filter((k) => isPerformanceKeyForMode(k, performanceMode))
-          : categoryId === 'beta'
-          ? catMetrics.filter((k) => isBetaKeyForMode(k, betaMode))
-          : categoryId === 'correlation'
-          ? catMetrics.filter((k) => isCorrelationKeyForMode(k, correlationMode))
-          : catMetrics;
-      if (!filteredMetrics.length) return;
-      setBarSelections((prev) => {
-        const current = prev[categoryId] ?? [];
-        const allSelected = filteredMetrics.every((k) => current.includes(k as MetricKey));
-        const next = allSelected ? current.filter((k) => !filteredMetrics.includes(k)) : Array.from(new Set([...current, ...filteredMetrics]));
-        return { ...prev, [categoryId]: next as MetricKey[] };
-      });
-    },
-    [barMetricsByCategory, isPerformanceKeyForMode, performanceMode, isBetaKeyForMode, betaMode, isCorrelationKeyForMode, correlationMode]
-  );
-
-  const resetBarCategory = useCallback(
-    (categoryId: MetricCategoryId) => {
-      const metrics = barMetricsByCategory.get(categoryId) ?? [];
-      const filteredMetrics =
-        categoryId === 'performance'
-          ? metrics.filter((k) => isPerformanceKeyForMode(k, performanceMode))
-          : categoryId === 'beta'
-          ? metrics.filter((k) => isBetaKeyForMode(k, betaMode))
-          : categoryId === 'correlation'
-          ? metrics.filter((k) => isCorrelationKeyForMode(k, correlationMode))
-          : metrics;
-      const fallback = filteredMetrics.slice(0, Math.min(filteredMetrics.length, 4));
-      setBarSelections((prev) => ({ ...prev, [categoryId]: fallback as MetricKey[] }));
     },
     [barMetricsByCategory, isPerformanceKeyForMode, performanceMode, isBetaKeyForMode, betaMode, isCorrelationKeyForMode, correlationMode]
   );
@@ -1014,7 +990,15 @@ export default function HomeScreen() {
 
   const toggleCategory = useCallback(
     (categoryId: MetricCategoryId) => {
-      const catMetrics = metricsByCategory.get(categoryId) ?? [];
+      const catMetricsRaw = metricsByCategory.get(categoryId) ?? [];
+      const catMetrics =
+        categoryId === 'performance'
+          ? catMetricsRaw.filter((k) => isPerformanceKeyForMode(k, performanceMode))
+          : categoryId === 'beta'
+          ? catMetricsRaw.filter((k) => isBetaKeyForMode(k, betaMode))
+          : categoryId === 'correlation'
+          ? catMetricsRaw.filter((k) => isCorrelationKeyForMode(k, correlationMode))
+          : catMetricsRaw;
       setSelectedMetricKeys((prev) => {
         if (!catMetrics.length) return prev;
         const allSelected = catMetrics.every((k) => prev.includes(k));
@@ -1028,7 +1012,7 @@ export default function HomeScreen() {
         return next;
       });
     },
-    [metricsByCategory]
+    [metricsByCategory, isPerformanceKeyForMode, performanceMode, isBetaKeyForMode, betaMode, isCorrelationKeyForMode, correlationMode]
   );
 
   const resetMetrics = useCallback(() => {
@@ -1315,37 +1299,11 @@ export default function HomeScreen() {
           </View>
         </LinearGradient>
         {renderSectionCard({
-          icon: Globe2,
-          accent: '#38BDF8',
-          title: 'Focus by geography',
-          subtitle: `Currently viewing ${currentAreaName}`,
-          rightAccessory: (
-            <HelpTooltip
-              title={TOOLTIP_COPY.analytics.areaFilter.title}
-              description={TOOLTIP_COPY.analytics.areaFilter.description}
-            />
-          ),
-          children: (
-            <View style={styles.cardContentGap}>
-              <AreaChips
-                areas={geographyOptions}
-                selectedId={selectedArea}
-                onSelect={setSelectedArea}
-                loading={tickersLoading}
-              />
-            </View>
-          ),
-        })}
-        {renderSectionCard({
           icon: ListChecks,
           accent: '#A855F7',
           title: 'ETF library',
           subtitle: tickersSubtitle,
-          rightAccessory: (
-            <View style={[styles.cardBadge, { backgroundColor: colors.background }]}> 
-              <Text style={[styles.cardBadgeText, { color: colors.text }]}>{filteredCount}</Text>
-            </View>
-          ),
+          rightAccessory: null,
           children: (
             <View style={styles.cardContentGap}>
               {tickersLoading ? (
@@ -1366,50 +1324,6 @@ export default function HomeScreen() {
                     </Text>
                   ) : null}
                   <View
-                    style={[styles.metricPicker, { backgroundColor: colors.background, borderColor: colors.border }]}
-                  >
-                    <View style={styles.metricPickerHeader}>
-                      <View style={styles.inlineHelpRow}>
-                        <Text style={[styles.metricPickerTitle, { color: colors.text }]}>Metrics shown</Text>
-                        <HelpTooltip
-                          title={TOOLTIP_COPY.analytics.metricPicker.title}
-                          description={TOOLTIP_COPY.analytics.metricPicker.description}
-                        />
-                      </View>
-                      <Pressable
-                        onPress={resetMetrics}
-                        style={[styles.resetMetricsBtn, { borderColor: colors.border }]}
-                      >
-                        <Text style={[styles.resetMetricsText, { color: colors.secondaryText }]}>Reset</Text>
-                      </Pressable>
-                    </View>
-                    <View style={styles.metricSummaryRow}>
-                      <Text style={[styles.metricSummaryText, { color: colors.secondaryText }]}>
-                        Selected {selectedMetricKeys.length}
-                      </Text>
-                      <Text
-                        style={[styles.metricSummaryList, { color: colors.text }]}
-                        numberOfLines={2}
-                      >
-                        {selectedMetricSummary}
-                      </Text>
-                    </View>
-                    <Pressable
-                      onPress={() => setMetricModalVisible(true)}
-                      style={[
-                        styles.metricOpenBtn,
-                        { borderColor: colors.border, backgroundColor: colors.card },
-                      ]}
-                    >
-                      <Text style={[styles.metricOpenBtnText, { color: colors.text }]}>
-                        Choose metrics by category
-                      </Text>
-                      <Text style={[styles.metricOpenBtnSub, { color: colors.secondaryText }]}>
-                        Tap to open selector
-                      </Text>
-                    </Pressable>
-                  </View>
-                  <View
                     style={[styles.searchRow, { backgroundColor: colors.background, borderColor: colors.border }]}
                     onLayout={(e) => setSearchOffset(e.nativeEvent.layout.y)}
                   >
@@ -1426,6 +1340,34 @@ export default function HomeScreen() {
                       onFocus={handleSearchFocus}
                     />
                   </View>
+                  <View style={styles.libraryControlsRow}>
+                    {geographyOptions.length > 0 && (
+                      <Pressable
+                        onPress={() => setLibraryGeoModalVisible(true)}
+                        style={[
+                          styles.metricInlineBtn,
+                          styles.libraryGeoTrigger,
+                          { borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 10, paddingVertical: 8, minWidth: 64 },
+                        ]}
+                      >
+                        <Text style={[styles.libraryGeoTriggerText, { color: colors.text }]} numberOfLines={1}>
+                          Areas
+                        </Text>
+                      </Pressable>
+                    )}
+                    <Pressable
+                      onPress={() => setMetricModalVisible(true)}
+                      style={[
+                        styles.metricInlineBtn,
+                        { borderColor: colors.border, backgroundColor: colors.card },
+                      ]}
+                    >
+                      <Text style={[styles.metricInlineBtnText, { color: colors.text }]}>Metrics</Text>
+                    </Pressable>
+                  </View>
+                  {geographyOptions.length > 0 && (
+                    <View style={styles.libraryGeoMenuContainer} />
+                  )}
                   {filteredCount === 0 ? (
                     <Text style={[styles.tickersHint, { color: colors.secondaryText }]}>
                       {searchQuery.trim()
@@ -1434,25 +1376,6 @@ export default function HomeScreen() {
                     </Text>
                   ) : (
                     <>
-                      <View style={styles.bulkRow}>
-                        <View style={styles.inlineHelpRow}>
-                          <Pressable
-                            onPress={toggleSelectAllInArea}
-                            style={[styles.bulkBtn, { borderColor: colors.border, backgroundColor: colors.background }]}
-                          >
-                            <Text style={[styles.bulkBtnText, { color: colors.text }]}>
-                              {allCurrentSelected ? 'Deselect all' : 'Select all'}
-                            </Text>
-                          </Pressable>
-                          <HelpTooltip
-                            title={TOOLTIP_COPY.analytics.bulkSelect.title}
-                            description={TOOLTIP_COPY.analytics.bulkSelect.description}
-                          />
-                        </View>
-                        <Text style={[styles.selectedCounter, { color: colors.secondaryText }]}>
-                          Selected: {selectedCount}
-                        </Text>
-                      </View>
                       <View style={[styles.tickerScrollableContainer, { height: tickerListHeight, borderColor: colors.border, backgroundColor: colors.card }]}> 
                         <View style={styles.innerScrollWrapper}>
                           <ScrollView
@@ -1658,182 +1581,270 @@ export default function HomeScreen() {
                   </ScrollView>
                 </View>
               )}
+
               {selectedArray.length > 0 && (
                 <View style={[styles.sectionCard, { borderColor: colors.border, backgroundColor: colors.background }]}>
                   <View style={[styles.cardHeaderRow, { marginBottom: 8 }]}>
                     <Text style={[styles.cardTitle, { color: colors.text }]}>Metric bars</Text>
                   </View>
 
-                  <View style={[styles.barCategoryPicker]}>
-                    <Text style={[styles.barCategoryPickerTitle, { color: colors.secondaryText }]}>
-                      Choose metric groups to display
-                    </Text>
-                    <View style={styles.barCategoryChips}>
-                      {barMetricCategories.map((cat) => {
-                        const active = visibleBarCategories.includes(cat.id);
-                        return (
-                          <Pressable
-                            key={cat.id}
-                            onPress={() => toggleVisibleBarCategory(cat.id)}
-                            style={[
-                              styles.barCategoryChip,
-                              { borderColor: colors.border, backgroundColor: colors.card },
-                              active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
-                            ]}
-                          >
-                            <Text style={[styles.barCategoryChipText, { color: active ? colors.accent : colors.text }]}>
-                              {cat.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-
-                  {visibleBarMetricCategories.length === 0 && (
-                    <Text style={{ color: colors.secondaryText, marginTop: 4 }}>
-                      Select at least one metric group to render charts.
-                    </Text>
-                  )}
-
-                  {visibleBarMetricCategories.map((cat) => {
-                    const selectedKeys = barSelections[cat.id] ?? [];
-                    const rawOptions = cat.metrics
-                      .map((k) => barMetricOptionsByKey.get(k))
-                      .filter(Boolean) as MetricOption[];
-                    const options =
-                      cat.id === 'performance'
-                        ? rawOptions.filter((opt) => isPerformanceKeyForMode(opt.key as MetricKey, performanceMode))
-                        : cat.id === 'beta'
-                        ? rawOptions.filter((opt) => isBetaKeyForMode(opt.key as MetricKey, betaMode))
-                        : cat.id === 'correlation'
-                        ? rawOptions.filter((opt) => isCorrelationKeyForMode(opt.key as MetricKey, correlationMode))
-                        : rawOptions;
-                    const visibleSelectedKeys =
-                      cat.id === 'performance'
-                        ? selectedKeys.filter((k) => isPerformanceKeyForMode(k, performanceMode))
-                        : cat.id === 'beta'
-                        ? selectedKeys.filter((k) => isBetaKeyForMode(k, betaMode))
-                        : cat.id === 'correlation'
-                        ? selectedKeys.filter((k) => isCorrelationKeyForMode(k, correlationMode))
-                        : selectedKeys;
-                    const selectedOptions = options.filter((opt) => visibleSelectedKeys.includes(opt.key as MetricKey));
-                    const series = buildBarSeries(visibleSelectedKeys);
-                    const total = options.length;
-                    const allSelected = total > 0 && visibleSelectedKeys.length === total;
-                    const expanded = barCategoryExpanded[cat.id] ?? false;
-
-                    return (
-                      <View key={cat.id} style={[styles.barChartCard, { borderColor: colors.border }]}>
-                        <View style={styles.barChartHeader}>
-                          <Text style={[styles.cardTitle, { color: colors.text }]}>
-                            {cat.label}
+                  <ScrollView
+                    nestedScrollEnabled
+                    stickyHeaderIndices={[0]}
+                    style={[styles.barSectionScroll, { maxHeight: barScrollMaxHeight }]}
+                    contentContainerStyle={styles.barSectionScrollContent}
+                    showsVerticalScrollIndicator
+                  >
+                    <View style={[styles.globalLegendCard, styles.globalLegendSticky, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                      <View style={styles.globalLegendHeader}>
+                        <Text style={[styles.globalLegendTitle, { color: colors.text }]}>Legend</Text>
+                        <Pressable
+                          onPress={() => setShowBarLegend((v) => !v)}
+                          style={[
+                            styles.globalLegendToggle,
+                            { borderColor: colors.border, backgroundColor: colors.background },
+                          ]}
+                        >
+                          <Text style={[styles.globalLegendToggleText, { color: colors.text }]}>
+                            {showBarLegend ? 'Hide' : 'Show'}
                           </Text>
-                          <View style={styles.inlineHelpRow}>
-                            <Text style={[styles.metricCategoryCount, { color: colors.secondaryText }]}>
-                              {visibleSelectedKeys.length}/{total} selected
-                            </Text>
-                            <Pressable
-                              onPress={() => resetBarCategory(cat.id)}
-                              style={[styles.bulkBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
-                            >
-                              <Text style={[styles.bulkBtnText, { color: colors.text }]}>Reset</Text>
-                            </Pressable>
-                          </View>
-                        </View>
+                        </Pressable>
+                      </View>
+                      {showBarLegend ? (
+                        barLegendItems.length ? (
+                          <ScrollView
+                            style={styles.globalLegendList}
+                            contentContainerStyle={styles.globalLegendListContent}
+                            showsVerticalScrollIndicator={false}
+                          >
+                            {barLegendItems.map((item) => {
+                              const hidden = hiddenBars.has(item.id);
+                              const color = getLineColor(item.colorIndex);
+                              return (
+                                <Pressable
+                                  key={item.id}
+                                  onPress={() => toggleBarVisibility(item.id)}
+                                  style={[
+                                    styles.globalLegendChip,
+                                    styles.globalLegendChipVertical,
+                                    { borderColor: colors.border, backgroundColor: colors.background },
+                                    hidden && { opacity: 0.45 },
+                                  ]}
+                                >
+                                  <View style={[styles.globalLegendDot, { backgroundColor: color }]} />
+                                  <Text style={[styles.globalLegendText, { color: colors.text }]}>
+                                    {item.label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </ScrollView>
+                        ) : (
+                          <Text style={{ color: colors.secondaryText }}>Select tickers to show legend.</Text>
+                        )
+                      ) : null}
+                    </View>
 
-                        <View style={styles.barChartControls}>
-                          {cat.id === 'performance' && (
-                            <View style={styles.performanceToggleRow}>
-                              {(['sharpe', 'sortino'] as PerformanceMode[]).map((mode) => {
-                                const active = performanceMode === mode;
-                                return (
-                                  <Pressable
-                                    key={mode}
-                                    onPress={() => setPerformanceMode(mode)}
-                                    style={[
-                                      styles.performanceToggleBtn,
-                                      { borderColor: colors.border, backgroundColor: colors.card },
-                                      active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
-                                    ]}
-                                  >
-                                    <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
-                                      {mode === 'sharpe' ? 'Sharpe' : 'Sortino'}
-                                    </Text>
-                                  </Pressable>
-                                );
-                              })}
-                            </View>
-                          )}
-                          {cat.id === 'beta' && (
-                            <View style={styles.performanceToggleRow}>
-                              {(['world', 'sp500'] as BetaMode[]).map((mode) => {
-                                const active = betaMode === mode;
-                                return (
-                                  <Pressable
-                                    key={mode}
-                                    onPress={() => setBetaMode(mode)}
-                                    style={[
-                                      styles.performanceToggleBtn,
-                                      { borderColor: colors.border, backgroundColor: colors.card },
-                                      active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
-                                    ]}
-                                  >
-                                    <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
-                                      {mode === 'world' ? 'World' : 'S&P 500'}
-                                    </Text>
-                                  </Pressable>
-                                );
-                              })}
-                            </View>
-                          )}
-                          {cat.id === 'correlation' && (
-                            <View style={styles.performanceToggleRow}>
-                              {(['world', 'sp500'] as CorrelationMode[]).map((mode) => {
-                                const active = correlationMode === mode;
-                                return (
-                                  <Pressable
-                                    key={mode}
-                                    onPress={() => setCorrelationMode(mode)}
-                                    style={[
-                                      styles.performanceToggleBtn,
-                                      { borderColor: colors.border, backgroundColor: colors.card },
-                                      active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
-                                    ]}
-                                  >
-                                    <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
-                                      {mode === 'world' ? 'World' : 'S&P 500'}
-                                    </Text>
-                                  </Pressable>
-                                );
-                              })}
-                            </View>
-                          )}
-                          <View style={[styles.metricCategoryChips, { marginBottom: 10 }]}>
+                    <View style={[styles.barCategoryPicker]}>
+                      <Text style={[styles.barCategoryPickerTitle, { color: colors.secondaryText }]}>
+                        Choose metric groups to display
+                      </Text>
+                      <View style={styles.barCategoryChips}>
+                        {barMetricCategories.map((cat) => {
+                          const active = visibleBarCategories.includes(cat.id);
+                          return (
                             <Pressable
-                              onPress={() => toggleBarCategory(cat.id)}
+                              key={cat.id}
+                              onPress={() => toggleVisibleBarCategory(cat.id)}
                               style={[
-                                styles.metricCategoryToggle,
+                                styles.barCategoryChip,
                                 { borderColor: colors.border, backgroundColor: colors.card },
-                                allSelected && { backgroundColor: friendlyAccent(colors.accent, 0.16), borderColor: colors.accent },
+                                active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
                               ]}
                             >
-                              <Text style={[styles.metricCategoryToggleText, { color: allSelected ? colors.accent : colors.text }]}>
-                                {allSelected ? 'Clear all' : 'Select all'}
+                              <Text style={[styles.barCategoryChipText, { color: active ? colors.accent : colors.text }]}>
+                                {cat.label}
                               </Text>
                             </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    {visibleBarMetricCategories.length === 0 && (
+                      <Text style={{ color: colors.secondaryText, marginTop: 4 }}>
+                        Select at least one metric group to render charts.
+                      </Text>
+                    )}
+
+                    {visibleBarMetricCategories.map((cat) => {
+                      const selectedKeys = barSelections[cat.id] ?? [];
+                      const rawOptions = cat.metrics
+                        .map((k) => barMetricOptionsByKey.get(k))
+                        .filter(Boolean) as MetricOption[];
+                      const options =
+                        cat.id === 'performance'
+                          ? rawOptions.filter((opt) => isPerformanceKeyForMode(opt.key as MetricKey, performanceMode))
+                          : cat.id === 'beta'
+                          ? rawOptions.filter((opt) => isBetaKeyForMode(opt.key as MetricKey, betaMode))
+                          : cat.id === 'correlation'
+                          ? rawOptions.filter((opt) => isCorrelationKeyForMode(opt.key as MetricKey, correlationMode))
+                          : rawOptions;
+                      const visibleSelectedKeys =
+                        cat.id === 'performance'
+                          ? selectedKeys.filter((k) => isPerformanceKeyForMode(k, performanceMode))
+                          : cat.id === 'beta'
+                          ? selectedKeys.filter((k) => isBetaKeyForMode(k, betaMode))
+                          : cat.id === 'correlation'
+                          ? selectedKeys.filter((k) => isCorrelationKeyForMode(k, correlationMode))
+                          : selectedKeys;
+                      const selectedOptions = options.filter((opt) => visibleSelectedKeys.includes(opt.key as MetricKey));
+                      const series = buildBarSeries(visibleSelectedKeys);
+                      const total = options.length;
+                      const expanded = barCategoryExpanded[cat.id] ?? false;
+
+                      return (
+                        <View key={cat.id} style={[styles.barChartCard, { borderColor: colors.border }]}>
+                          <View style={styles.barChartHeader}>
+                            <Text style={[styles.cardTitle, { color: colors.text }]}>
+                              {cat.label}
+                            </Text>
+                            <View style={styles.inlineHelpRow}>
+                              <Text style={[styles.metricCategoryCount, { color: colors.secondaryText }]}>
+                                {visibleSelectedKeys.length}/{total} selected
+                              </Text>
+                            </View>
                           </View>
-                          <Pressable
-                            onPress={() => toggleBarExpansion(cat.id)}
-                            style={[
-                              styles.selectedChipRow,
-                              { borderColor: colors.border, backgroundColor: colors.background },
-                              expanded && { borderColor: colors.accent },
-                            ]}
-                          >
-                            <View style={styles.selectedChipStack}>
-                              {selectedOptions.length ? (
-                                selectedOptions.map((opt) => {
+
+                          <View style={styles.barChartControls}>
+                            {cat.id === 'performance' && (
+                              <View style={styles.performanceToggleRow}>
+                                {(['sharpe', 'sortino'] as PerformanceMode[]).map((mode) => {
+                                  const active = performanceMode === mode;
+                                  return (
+                                    <Pressable
+                                      key={mode}
+                                      onPress={() => setPerformanceMode(mode)}
+                                      style={[
+                                        styles.performanceToggleBtn,
+                                        { borderColor: colors.border, backgroundColor: colors.card },
+                                        active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
+                                      ]}
+                                    >
+                                      <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
+                                        {mode === 'sharpe' ? 'Sharpe' : 'Sortino'}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                            )}
+                            {cat.id === 'beta' && (
+                              <View style={styles.performanceToggleRow}>
+                                {(['world', 'sp500'] as BetaMode[]).map((mode) => {
+                                  const active = betaMode === mode;
+                                  return (
+                                    <Pressable
+                                      key={mode}
+                                      onPress={() => setBetaMode(mode)}
+                                      style={[
+                                        styles.performanceToggleBtn,
+                                        { borderColor: colors.border, backgroundColor: colors.card },
+                                        active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
+                                      ]}
+                                    >
+                                      <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
+                                        {mode === 'world' ? 'World' : 'S&P 500'}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                            )}
+                            {cat.id === 'correlation' && (
+                              <View style={styles.performanceToggleRow}>
+                                {(['world', 'sp500'] as CorrelationMode[]).map((mode) => {
+                                  const active = correlationMode === mode;
+                                  return (
+                                    <Pressable
+                                      key={mode}
+                                      onPress={() => setCorrelationMode(mode)}
+                                      style={[
+                                        styles.performanceToggleBtn,
+                                        { borderColor: colors.border, backgroundColor: colors.card },
+                                        active && { backgroundColor: friendlyAccent(colors.accent, 0.18), borderColor: colors.accent },
+                                      ]}
+                                    >
+                                      <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
+                                        {mode === 'world' ? 'World' : 'S&P 500'}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                            )}
+                            <Pressable
+                              onPress={() => toggleBarExpansion(cat.id)}
+                              style={[
+                                styles.selectedChipRow,
+                                { borderColor: colors.border, backgroundColor: colors.background },
+                                expanded && { borderColor: colors.accent },
+                              ]}
+                            >
+                              <View style={styles.selectedChipStack}>
+                                {selectedOptions.length ? (
+                                  selectedOptions.map((opt) => {
+                                    const displayLabel =
+                                      cat.id === 'return' ||
+                                      cat.id === 'volatility' ||
+                                      cat.id === 'performance' ||
+                                      cat.id === 'beta' ||
+                                      cat.id === 'correlation' ||
+                                      cat.id === 'drawdown'
+                                        ? getShortLabel(opt)
+                                        : opt.label;
+                                    return (
+                                      <View
+                                        key={opt.key}
+                                        style={[
+                                          styles.barMetricChipCompact,
+                                          { borderColor: colors.border, backgroundColor: colors.card },
+                                        ]}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.barMetricChipCompactText,
+                                            { color: colors.text },
+                                          ]}
+                                        >
+                                          {displayLabel}
+                                        </Text>
+                                      </View>
+                                    );
+                                  })
+                                ) : (
+                                  <Text style={[styles.selectedChipHint, { color: colors.secondaryText }]}>
+                                    Tap to pick metrics
+                                  </Text>
+                                )}
+                              </View>
+                              <View
+                                style={[
+                                  styles.selectedChipAction,
+                                  { borderColor: colors.border, backgroundColor: '#FFFFFF' },
+                                  expanded && { borderColor: colors.accent },
+                                ]}
+                              >
+                                <Text style={[styles.selectedChipHint, { color: expanded ? colors.accent : colors.text }]}>
+                                  {expanded ? 'Close' : 'Edit'}
+                                </Text>
+                              </View>
+                            </Pressable>
+
+                            {expanded && (
+                              <View style={styles.metricCategoryChips}>
+                                {options.map((opt) => {
+                                  const active = selectedKeys.includes(opt.key as MetricKey);
                                   const displayLabel =
                                     cat.id === 'return' ||
                                     cat.id === 'volatility' ||
@@ -1844,116 +1855,59 @@ export default function HomeScreen() {
                                       ? getShortLabel(opt)
                                       : opt.label;
                                   return (
-                                    <View
+                                    <Pressable
                                       key={opt.key}
+                                      onPress={() => toggleBarMetric(cat.id, opt.key as MetricKey)}
                                       style={[
-                                        styles.barMetricChipCompact,
+                                        styles.metricChip,
+                                        styles.barMetricChipExpanded,
                                         { borderColor: colors.border, backgroundColor: colors.card },
+                                        active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
                                       ]}
                                     >
                                       <Text
                                         style={[
-                                          styles.barMetricChipCompactText,
-                                          { color: colors.text },
+                                          styles.metricChipText,
+                                          styles.barMetricChipExpandedText,
+                                          { color: active ? colors.accent : colors.text },
                                         ]}
                                       >
                                         {displayLabel}
                                       </Text>
-                                    </View>
+                                    </Pressable>
                                   );
-                                })
-                              ) : (
-                                <Text style={[styles.selectedChipHint, { color: colors.secondaryText }]}>
-                                  Tap to pick metrics
-                                </Text>
-                              )}
-                            </View>
-                            <View
-                              style={[
-                                styles.selectedChipAction,
-                                { borderColor: colors.border, backgroundColor: '#FFFFFF' },
-                                expanded && { borderColor: colors.accent },
-                              ]}
-                            >
-                              <Text style={[styles.selectedChipHint, { color: expanded ? colors.accent : colors.text }]}>
-                                {expanded ? 'Close' : 'Edit'}
-                              </Text>
-                            </View>
-                          </Pressable>
+                                })}
+                              </View>
+                            )}
+                          </View>
 
-                            {expanded && (
-                            <View style={styles.metricCategoryChips}>
-                              {options.map((opt) => {
-                                const active = selectedKeys.includes(opt.key as MetricKey);
-                                const displayLabel =
-                                  cat.id === 'return' ||
-                                  cat.id === 'volatility' ||
-                                  cat.id === 'performance' ||
-                                  cat.id === 'beta' ||
-                                  cat.id === 'correlation' ||
-                                  cat.id === 'drawdown'
-                                    ? getShortLabel(opt)
-                                    : opt.label;
-                                return (
-                                  <Pressable
-                                    key={opt.key}
-                                    onPress={() => toggleBarMetric(cat.id, opt.key as MetricKey)}
-                                    style={[
-                                      styles.metricChip,
-                                      styles.barMetricChipExpanded,
-                                      { borderColor: colors.border, backgroundColor: colors.card },
-                                      active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
-                                    ]}
-                                  >
-                                    <Text
-                                      style={[
-                                        styles.metricChipText,
-                                        styles.barMetricChipExpandedText,
-                                        { color: active ? colors.accent : colors.text },
-                                      ]}
-                                    >
-                                      {displayLabel}
-                                    </Text>
-                                  </Pressable>
-                                );
-                              })}
-                            </View>
+                          {series.length > 0 ? (
+                            <VerticalBarChart
+                              series={series.map(({ metric, values, min, max }) => ({
+                                label: getShortLabel(metric),
+                                values,
+                                min,
+                                max,
+                                format: (v: unknown) => formatMetricValue(v, metric),
+                              }))}
+                              title={undefined}
+                              colors={{
+                                text: colors.text,
+                                secondaryText: colors.secondaryText,
+                                border: colors.border,
+                                background: colors.background,
+                              }}
+                              hiddenIds={hiddenBars}
+                            />
+                          ) : (
+                            <Text style={{ color: colors.secondaryText, marginTop: 8 }}>
+                              Select at least one metric in this category to render the chart.
+                            </Text>
                           )}
                         </View>
-
-                        {series.length > 0 ? (
-                          <VerticalBarChart
-                            series={series.map(({ metric, values, min, max }) => ({
-                              label: getShortLabel(metric),
-                              values,
-                              min,
-                              max,
-                              format: (v: unknown) => formatMetricValue(v, metric),
-                            }))}
-                            title={undefined}
-                            colors={{
-                              text: colors.text,
-                              secondaryText: colors.secondaryText,
-                              border: colors.border,
-                              background: colors.background,
-                            }}
-                            legend={selectedArray.map((t) => ({
-                              label: t.name || t.symbol || String(t.ticker_id),
-                              colorIndex: selectedIndexById.get(t.ticker_id) ?? 0,
-                              id: t.ticker_id,
-                              hidden: hiddenBars.has(t.ticker_id),
-                            }))}
-                            hiddenIds={hiddenBars}
-                            onToggleLegend={toggleBarVisibility}
-                          />
-                        ) : (
-                          <Text style={{ color: colors.secondaryText, marginTop: 8 }}>
-                            Select at least one metric in this category to render the chart.
-                          </Text>
-                        )}
-                      </View>
-                    );
-                  })}
+                      );
+                    })}
+                  </ScrollView>
                 </View>
               )}
             </View>
@@ -1986,12 +1940,20 @@ export default function HomeScreen() {
             </View>
             <ScrollView style={styles.metricModalScroll} contentContainerStyle={styles.metricModalScrollContent}>
               {metricCategories.map((cat) => {
-                const selectedCount = cat.metrics.filter((k) => selectedMetricKeys.includes(k)).length;
-                const total = cat.metrics.length;
-                const allSelected = total > 0 && selectedCount === total;
-                const options = cat.metrics
+                const filteredKeys =
+                  cat.id === 'performance'
+                    ? cat.metrics.filter((k) => isPerformanceKeyForMode(k, performanceMode))
+                    : cat.id === 'beta'
+                    ? cat.metrics.filter((k) => isBetaKeyForMode(k, betaMode))
+                    : cat.id === 'correlation'
+                    ? cat.metrics.filter((k) => isCorrelationKeyForMode(k, correlationMode))
+                    : cat.metrics;
+                const options = filteredKeys
                   .map((k) => metricOptionByKey.get(k))
                   .filter(Boolean) as MetricOption[];
+                const selectedCount = options.filter((opt) => selectedMetricKeys.includes(opt.key as MetricKey)).length;
+                const total = options.length;
+                const allSelected = total > 0 && selectedCount === total;
                 return (
                   <View
                     key={cat.id}
@@ -2018,9 +1980,84 @@ export default function HomeScreen() {
                         </Text>
                       </Pressable>
                     </View>
+                    {cat.id === 'performance' && (
+                      <View style={styles.performanceToggleRow}>
+                        {(['sharpe', 'sortino'] as PerformanceMode[]).map((mode) => {
+                          const active = performanceMode === mode;
+                          return (
+                            <Pressable
+                              key={mode}
+                              onPress={() => setPerformanceMode(mode)}
+                              style={[
+                                styles.performanceToggleBtn,
+                                { borderColor: colors.border, backgroundColor: colors.card },
+                                active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
+                              ]}
+                            >
+                              <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
+                                {mode === 'sharpe' ? 'Sharpe' : 'Sortino'}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    )}
+                    {cat.id === 'beta' && (
+                      <View style={styles.performanceToggleRow}>
+                        {(['world', 'sp500'] as BetaMode[]).map((mode) => {
+                          const active = betaMode === mode;
+                          return (
+                            <Pressable
+                              key={mode}
+                              onPress={() => setBetaMode(mode)}
+                              style={[
+                                styles.performanceToggleBtn,
+                                { borderColor: colors.border, backgroundColor: colors.card },
+                                active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
+                              ]}
+                            >
+                              <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
+                                {mode === 'world' ? 'World' : 'S&P 500'}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    )}
+                    {cat.id === 'correlation' && (
+                      <View style={styles.performanceToggleRow}>
+                        {(['world', 'sp500'] as CorrelationMode[]).map((mode) => {
+                          const active = correlationMode === mode;
+                          return (
+                            <Pressable
+                              key={mode}
+                              onPress={() => setCorrelationMode(mode)}
+                              style={[
+                                styles.performanceToggleBtn,
+                                { borderColor: colors.border, backgroundColor: colors.card },
+                                active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
+                              ]}
+                            >
+                              <Text style={[styles.performanceToggleText, { color: active ? colors.accent : colors.text }]}>
+                                {mode === 'world' ? 'World' : 'S&P 500'}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    )}
                     <View style={styles.metricCategoryChips}>
                       {options.map((opt) => {
                         const active = selectedMetricKeys.includes(opt.key as MetricKey);
+                        const displayLabel =
+                          cat.id === 'return' ||
+                          cat.id === 'volatility' ||
+                          cat.id === 'performance' ||
+                          cat.id === 'beta' ||
+                          cat.id === 'correlation' ||
+                          cat.id === 'drawdown'
+                            ? getShortLabel(opt)
+                            : opt.label;
                         return (
                           <Pressable
                             key={opt.key}
@@ -2032,7 +2069,7 @@ export default function HomeScreen() {
                             ]}
                           >
                             <Text style={[styles.metricChipText, { color: active ? colors.accent : colors.text }]}>
-                              {opt.label}
+                              {displayLabel}
                             </Text>
                           </Pressable>
                         );
@@ -2056,6 +2093,67 @@ export default function HomeScreen() {
                 <Text style={[styles.metricFooterBtnPrimaryText, { color: '#FFFFFF' }]}>Done</Text>
               </Pressable>
             </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        transparent
+        animationType="fade"
+        visible={libraryGeoModalVisible}
+        onRequestClose={() => setLibraryGeoModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setLibraryGeoModalVisible(false)} />
+          <View style={[styles.geoModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.geoModalHeader}>
+              <Text style={[styles.geoModalTitle, { color: colors.text }]}>Areas</Text>
+              <Pressable
+                onPress={() => setLibraryGeoModalVisible(false)}
+                style={[styles.geoModalClose, { borderColor: colors.border }]}
+              >
+                <Text style={[styles.metricFooterBtnText, { color: colors.text }]}>Close</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.geoModalList} contentContainerStyle={styles.geoModalListContent}>
+              <Pressable
+                key="all"
+                onPress={() => {
+                  setSelectedArea(null);
+                  setLibraryGeoModalVisible(false);
+                }}
+                style={[
+                  styles.libraryGeoChip,
+                  { borderColor: colors.border, backgroundColor: colors.card },
+                  selectedArea == null && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
+                ]}
+              >
+                <Text style={[styles.libraryGeoChipText, { color: selectedArea == null ? colors.accent : colors.text }]}>
+                  All areas
+                </Text>
+              </Pressable>
+              {geographyOptions.map((geo) => {
+                const active = geo.geography_id === selectedArea;
+                const label = geo.geography_name || geo.country || geo.iso_code || String(geo.geography_id);
+                return (
+                  <Pressable
+                    key={geo.geography_id}
+                    onPress={() => {
+                      setSelectedArea(geo.geography_id);
+                      setLibraryGeoModalVisible(false);
+                    }}
+                    style={[
+                      styles.libraryGeoChip,
+                      { borderColor: colors.border, backgroundColor: colors.card },
+                      active && { backgroundColor: friendlyAccent(colors.accent, 0.2), borderColor: colors.accent },
+                    ]}
+                  >
+                    <Text style={[styles.libraryGeoChipText, { color: active ? colors.accent : colors.text }]} numberOfLines={1}>
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -2207,18 +2305,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  metricSummaryRow: {
-    rowGap: 4,
-    marginBottom: 10,
-  },
-  metricSummaryText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  metricSummaryList: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
   metricChipsRow: {
     columnGap: 8,
     paddingRight: 4,
@@ -2318,6 +2404,75 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  globalLegendCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 10,
+    rowGap: 8,
+    marginBottom: 10,
+  },
+  globalLegendHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: 10,
+  },
+  globalLegendTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  globalLegendToggle: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+  },
+  globalLegendToggleText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  globalLegendChips: {
+    columnGap: 10,
+  },
+  globalLegendChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginRight: 0,
+  },
+  globalLegendDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 6,
+  },
+  globalLegendText: {
+    fontSize: 12,
+    fontWeight: '700',
+    flexShrink: 1,
+  },
+  globalLegendList: {
+    maxHeight: 220,
+  },
+  globalLegendListContent: {
+    rowGap: 8,
+  },
+  globalLegendChipVertical: {
+    marginRight: 0,
+  },
+  globalLegendSticky: {
+    zIndex: 10,
+  },
+  barSectionScroll: {
+    marginTop: 8,
+  },
+  barSectionScrollContent: {
+    paddingBottom: 10,
+    rowGap: 10,
+  },
   metricCategoryRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -2339,31 +2494,6 @@ const styles = StyleSheet.create({
     rowGap: 6,
     flexShrink: 1,
     flexGrow: 1,
-  },
-  metricOpenBtn: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    rowGap: 2,
-  },
-  metricOpenBtnText: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  metricOpenBtnSub: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  resetMetricsBtn: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  resetMetricsText: {
-    fontSize: 12,
-    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,
@@ -2414,6 +2544,37 @@ const styles = StyleSheet.create({
   metricModalScrollContent: {
     rowGap: 12,
     paddingBottom: 6,
+  },
+  geoModalCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    padding: 14,
+    maxHeight: '80%',
+    width: '90%',
+    maxWidth: 520,
+    alignSelf: 'center',
+    gap: 10,
+  },
+  geoModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  geoModalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  geoModalList: {
+    maxHeight: '70%',
+  },
+  geoModalListContent: {
+    rowGap: 8,
+  },
+  geoModalClose: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   metricCategoryBlock: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -2540,13 +2701,81 @@ const styles = StyleSheet.create({
   searchRow: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 12,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     marginBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 8,
   },
   searchInput: {
     fontSize: 14,
     fontWeight: '500',
+    flex: 1,
+  },
+  metricInlineBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  metricInlineBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  libraryControlsRow: {
+    flexDirection: 'row',
+    columnGap: 8,
+    marginBottom: 8,
+  },
+  libraryGeoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 6,
+    rowGap: 6,
+    marginBottom: 8,
+  },
+  libraryGeoMenuContainer: {
+    marginBottom: 8,
+  },
+  libraryGeoTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: 8,
+  },
+  libraryGeoTriggerText: {
+    fontSize: 13,
+    fontWeight: '700',
+    flex: 1,
+  },
+  libraryGeoTriggerCaret: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  libraryGeoMenu: {
+    marginTop: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    padding: 8,
+    maxHeight: 240,
+  },
+  libraryGeoList: {
+    maxHeight: 200,
+  },
+  libraryGeoListContent: {
+    rowGap: 6,
+  },
+  libraryGeoChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  libraryGeoChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    maxWidth: 200,
   },
   bulkRow: {
     flexDirection: 'row',
